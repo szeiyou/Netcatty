@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Monitor, TerminalSquare, Shield, Folder, LayoutGrid, Terminal, Usb, Search } from 'lucide-react';
+import { Monitor, TerminalSquare, Shield, Folder, LayoutGrid, Terminal, Search } from 'lucide-react';
 import { Host, TerminalSession, Workspace } from '../types';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -85,7 +85,6 @@ export const QuickSwitcher: React.FC<QuickSwitcherProps> = ({
       workspaces.forEach(w => items.push({ type: 'workspace', id: w.id, data: w }));
       // Quick connect actions
       items.push({ type: 'action', id: 'local-terminal' });
-      items.push({ type: 'action', id: 'serial' });
     } else {
       // Recent connections only
       results.forEach(host => items.push({ type: 'host', id: host.id, data: host }));
@@ -159,9 +158,9 @@ export const QuickSwitcher: React.FC<QuickSwitcherProps> = ({
 
   return (
     <div className="fixed inset-x-0 top-12 z-50 flex justify-center pt-2" style={{ pointerEvents: 'none' }}>
-      <div
+      <div 
         ref={containerRef}
-        className="w-full max-w-2xl mx-4 bg-background border border-border rounded-xl shadow-2xl overflow-hidden"
+        className="w-full max-w-2xl mx-4 bg-background border border-border rounded-xl shadow-2xl overflow-hidden max-h-[520px] flex flex-col"
         style={{ pointerEvents: 'auto' }}
       >
         {/* Search Header */}
@@ -182,7 +181,7 @@ export const QuickSwitcher: React.FC<QuickSwitcherProps> = ({
           <kbd className="text-[11px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded">Ctrl+K</kbd>
         </div>
 
-        <ScrollArea className="max-h-[400px]">
+        <ScrollArea className="flex-1 h-full">
           {!showCategorized ? (
             /* Default view: Recent connections with header */
             <div>
@@ -324,17 +323,7 @@ export const QuickSwitcher: React.FC<QuickSwitcherProps> = ({
                   </div>
                 )}
 
-                {/* Serial */}
-                <div
-                  className={`flex items-center gap-3 px-4 py-2.5 cursor-pointer transition-colors opacity-50 ${getItemIndex('action', 'serial') === selectedIndex ? 'bg-primary/15' : 'hover:bg-muted/50'
-                    }`}
-                  onMouseEnter={() => setSelectedIndex(getItemIndex('action', 'serial'))}
-                >
-                  <div className="h-6 w-6 rounded flex items-center justify-center text-muted-foreground">
-                    <Usb size={16} />
-                  </div>
-                  <span className="text-sm font-medium">Serial</span>
-                </div>
+                {/* Serial removed (not supported) */}
               </div>
             </div>
           )}
