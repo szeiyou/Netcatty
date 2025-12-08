@@ -189,14 +189,32 @@ function App() {
         isOpen={isQuickSwitcherOpen}
         query={quickSearch}
         results={quickResults}
+        sessions={sessions}
+        workspaces={workspaces}
         onQueryChange={setQuickSearch}
         onSelect={(host) => {
           connectToHost(host);
           setIsQuickSwitcherOpen(false);
           setQuickSearch('');
         }}
-        onCreateLocalTerminal={createLocalTerminal}
-        onClose={() => setIsQuickSwitcherOpen(false)}
+        onSelectTab={(tabId) => {
+          setActiveTabId(tabId);
+          setIsQuickSwitcherOpen(false);
+          setQuickSearch('');
+        }}
+        onCreateLocalTerminal={() => {
+          createLocalTerminal();
+          setIsQuickSwitcherOpen(false);
+          setQuickSearch('');
+        }}
+        onCreateWorkspace={() => {
+          // TODO: Implement workspace creation
+          setIsQuickSwitcherOpen(false);
+        }}
+        onClose={() => {
+          setIsQuickSwitcherOpen(false);
+          setQuickSearch('');
+        }}
       />
 
       <Dialog open={!!workspaceRenameTarget} onOpenChange={(open) => {

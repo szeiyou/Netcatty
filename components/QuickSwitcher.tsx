@@ -1,86 +1,350 @@
-import React from 'react';
-import { Monitor, TerminalSquare } from 'lucide-react';
-import { Host } from '../types';
+import React, { useState, useRef, useEffect } from 'react';
+import { Monitor, TerminalSquare, Shield, Folder, LayoutGrid, Terminal, Usb, Search } from 'lucide-react';
+import { Host, TerminalSession, Workspace } from '../types';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
+import { DistroAvatar } from './DistroAvatar';
+import { ScrollArea } from './ui/scroll-area';
 
 interface QuickSwitcherProps {
   isOpen: boolean;
   query: string;
   results: Host[];
+  sessions: TerminalSession[];
+  workspaces: Workspace[];
   onQueryChange: (value: string) => void;
   onSelect: (host: Host) => void;
+  onSelectTab: (tabId: string) => void;
   onClose: () => void;
   onCreateLocalTerminal?: () => void;
+  onCreateWorkspace?: () => void;
 }
 
 export const QuickSwitcher: React.FC<QuickSwitcherProps> = ({
   isOpen,
   query,
   results,
+  sessions,
+  workspaces,
   onQueryChange,
   onSelect,
+  onSelectTab,
   onClose,
   onCreateLocalTerminal,
+  onCreateWorkspace,
 }) => {
+  const [isFocused, setIsFocused] = useState(false);
+  const [selectedIndex, setSelectedIndex] = useState(0);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  // Reset state when opening
+  useEffect(() => {
+    if (isOpen) {
+      setIsFocused(false);
+      setSelectedIndex(0);
+      // Auto focus the input after a short delay
+      setTimeout(() => {
+        inputRef.current?.focus();
+      }, 50);
+    }
+  }, [isOpen]);
+
+  // Handle clicks outside the container
+  useEffect(() => {
+    if (!isOpen) return;
+    
+    const handleClickOutside = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        onClose();
+      }
+    };
+    
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [isOpen, onClose]);
+
   if (!isOpen) return null;
 
+  const showCategorized = isFocused || query.trim().length > 0;
+
+  // Get orphan sessions (sessions without workspace)
+  const orphanSessions = sessions.filter(s => !s.workspaceId);
+
+  // Build categorized items for navigation
+  const buildFlatItems = () => {
+    const items: Array<{ type: 'host' | 'tab' | 'workspace' | 'action'; id: string; data?: any }> = [];
+    
+    if (showCategorized) {
+      // Hosts
+      results.forEach(host => items.push({ type: 'host', id: host.id, data: host }));
+      // Tabs (built-in + sessions + workspaces)
+      items.push({ type: 'tab', id: 'vault' });
+      items.push({ type: 'tab', id: 'sftp' });
+      orphanSessions.forEach(s => items.push({ type: 'tab', id: s.id, data: s }));
+      workspaces.forEach(w => items.push({ type: 'workspace', id: w.id, data: w }));
+      // Quick connect actions
+      items.push({ type: 'action', id: 'local-terminal' });
+      items.push({ type: 'action', id: 'serial' });
+    } else {
+      // Recent connections only
+      results.forEach(host => items.push({ type: 'host', id: host.id, data: host }));
+    }
+    
+    return items;
+  };
+
+  const flatItems = buildFlatItems();
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setSelectedIndex(prev => Math.min(prev + 1, flatItems.length - 1));
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setSelectedIndex(prev => Math.max(prev - 1, 0));
+    } else if (e.key === 'Enter' && flatItems.length > 0) {
+      e.preventDefault();
+      const item = flatItems[selectedIndex];
+      handleItemSelect(item);
+    }
+  };
+
+  const handleItemSelect = (item: { type: string; id: string; data?: any }) => {
+    switch (item.type) {
+      case 'host':
+        onSelect(item.data);
+        break;
+      case 'tab':
+      case 'workspace':
+        onSelectTab(item.id);
+        onClose();
+        break;
+      case 'action':
+        if (item.id === 'local-terminal' && onCreateLocalTerminal) {
+          onCreateLocalTerminal();
+          onClose();
+        }
+        break;
+    }
+  };
+
+  // Helper to get item index in flat list
+  const getItemIndex = (type: string, id: string) => {
+    return flatItems.findIndex(item => item.type === type && item.id === id);
+  };
+
+  const renderHostItem = (host: Host) => {
+    const idx = getItemIndex('host', host.id);
+    const isSelected = idx === selectedIndex;
+    
+    return (
+      <div
+        key={host.id}
+        className={`flex items-center justify-between px-4 py-2.5 cursor-pointer transition-colors ${
+          isSelected ? 'bg-primary/15' : 'hover:bg-muted/50'
+        }`}
+        onClick={() => { onSelect(host); }}
+        onMouseEnter={() => setSelectedIndex(idx)}
+      >
+        <div className="flex items-center gap-3 min-w-0">
+          <DistroAvatar host={host} fallback={host.label.slice(0, 2).toUpperCase()} className="h-6 w-6" />
+          <span className="text-sm font-medium truncate">{host.label}</span>
+        </div>
+        <div className="text-[11px] text-muted-foreground">
+          {host.group ? `Personal / ${host.group}` : 'Personal'}
+        </div>
+      </div>
+    );
+  };
+
   return (
-    <div
-      className="fixed inset-0 z-50 bg-black/60 backdrop-blur-lg flex flex-col"
-      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
-    >
-      <div className="max-w-5xl w-full mx-auto px-6 pt-14 space-y-4 app-no-drag">
-        <div className="flex items-center gap-3">
+    <div className="fixed inset-x-0 top-12 z-50 flex justify-center pt-2" style={{ pointerEvents: 'none' }}>
+      <div 
+        ref={containerRef}
+        className="w-full max-w-2xl mx-4 bg-background border border-border rounded-xl shadow-2xl overflow-hidden"
+        style={{ pointerEvents: 'auto' }}
+      >
+        {/* Search Header */}
+        <div className="flex items-center gap-3 px-4 py-3 border-b border-border">
+          <Search size={16} className="text-muted-foreground" />
           <Input
-            autoFocus
+            ref={inputRef}
             value={query}
-            onChange={e => onQueryChange(e.target.value)}
-            placeholder="Search hosts or tabs..."
-            className="h-12 text-sm bg-secondary border-primary/50 focus-visible:ring-primary"
+            onChange={e => {
+              onQueryChange(e.target.value);
+              setSelectedIndex(0);
+            }}
+            onFocus={() => setIsFocused(true)}
+            onKeyDown={handleKeyDown}
+            placeholder="Search hosts or tabs"
+            className="flex-1 h-8 border-0 bg-transparent focus-visible:ring-0 focus-visible:ring-offset-0 px-0 text-sm"
           />
-          <div className="text-xs text-muted-foreground">⌘K</div>
+          <kbd className="text-[11px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded">Ctrl+K</kbd>
         </div>
-        <div className="bg-secondary/90 border border-border/70 rounded-2xl shadow-2xl overflow-hidden">
-          <div className="px-4 py-3 flex items-center justify-between text-xs font-semibold text-muted-foreground/90">
-            <span>Recent connections</span>
-            <div className="flex items-center gap-2">
-              <Button size="sm" variant="ghost" className="h-7 px-2 text-[11px]" disabled>Create a workspace</Button>
-              <Button size="sm" variant="ghost" className="h-7 px-2 text-[11px]" disabled>Restore</Button>
-              {onCreateLocalTerminal && (
-                <Button
-                  size="sm"
-                  className="h-7 px-3 text-[11px]"
-                  onClick={(e) => { e.stopPropagation(); onCreateLocalTerminal(); onClose(); }}
-                >
-                  <TerminalSquare size={12} className="mr-1" /> Terminal
-                </Button>
-              )}
-            </div>
-          </div>
-          <div className="divide-y divide-border/70">
-            {results.length > 0 ? results.map(host => (
-              <div
-                key={host.id}
-                className="flex items-center justify-between px-4 py-3 hover:bg-primary/10 cursor-pointer transition-colors"
-                onClick={(e) => { e.stopPropagation(); onSelect(host); }}
-              >
-                <div className="flex items-center gap-3 min-w-0">
-                  <div className="h-8 w-8 rounded-md flex items-center justify-center bg-primary/15 text-primary">
-                    <Monitor size={14} />
-                  </div>
-                  <div className="min-w-0">
-                    <div className="text-sm font-semibold truncate">{host.label}</div>
-                    <div className="text-[11px] text-muted-foreground font-mono truncate">{host.username}@{host.hostname}</div>
-                  </div>
+
+        <ScrollArea className="max-h-[400px]">
+          {!showCategorized ? (
+            /* Default view: Recent connections with header */
+            <div>
+              <div className="px-4 py-2 flex items-center justify-between">
+                <span className="text-xs font-medium text-muted-foreground">Recent connections</span>
+                <div className="flex items-center gap-2">
+                  <Button 
+                    size="sm" 
+                    variant="outline" 
+                    className="h-6 px-2 text-[11px]"
+                    onClick={() => onCreateWorkspace?.()}
+                  >
+                    Create a workspace
+                  </Button>
+                  <Button size="sm" variant="outline" className="h-6 px-2 text-[11px]" disabled>
+                    Restore
+                  </Button>
                 </div>
-                <div className="text-[11px] text-muted-foreground">{host.group || 'Personal'}</div>
               </div>
-            )) : (
-              <div className="px-4 py-6 text-sm text-muted-foreground text-center">No matches. Start typing to search.</div>
-            )}
-          </div>
-        </div>
+              <div>
+                {results.length > 0 ? (
+                  results.map(renderHostItem)
+                ) : (
+                  <div className="px-4 py-6 text-sm text-muted-foreground text-center">
+                    No recent connections
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : (
+            /* Focused/searching view: Categorized items */
+            <div>
+              {/* Jump To hint */}
+              <div className="px-4 py-2 flex items-center gap-2">
+                <span className="text-xs text-muted-foreground">Jump To</span>
+                <kbd className="text-[10px] text-muted-foreground bg-muted px-1 py-0.5 rounded">Ctrl+Shift+J</kbd>
+              </div>
+
+              {/* Hosts section */}
+              {results.length > 0 && (
+                <div>
+                  <div className="px-4 py-1.5">
+                    <span className="text-xs font-medium text-muted-foreground">Hosts</span>
+                  </div>
+                  {results.map(renderHostItem)}
+                </div>
+              )}
+
+              {/* Tabs section */}
+              <div>
+                <div className="px-4 py-1.5">
+                  <span className="text-xs font-medium text-muted-foreground">Tabs</span>
+                </div>
+                
+                {/* Built-in tabs */}
+                {['vault', 'sftp'].map(tabId => {
+                  const idx = getItemIndex('tab', tabId);
+                  const isSelected = idx === selectedIndex;
+                  const icon = tabId === 'vault' ? <Shield size={16} /> : <Folder size={16} />;
+                  const label = tabId === 'vault' ? 'Vaults' : 'SFTP';
+                  
+                  return (
+                    <div
+                      key={tabId}
+                      className={`flex items-center gap-3 px-4 py-2.5 cursor-pointer transition-colors ${
+                        isSelected ? 'bg-primary/15' : 'hover:bg-muted/50'
+                      }`}
+                      onClick={() => { onSelectTab(tabId); onClose(); }}
+                      onMouseEnter={() => setSelectedIndex(idx)}
+                    >
+                      <div className="h-6 w-6 rounded flex items-center justify-center text-muted-foreground">
+                        {icon}
+                      </div>
+                      <span className="text-sm font-medium">{label}</span>
+                    </div>
+                  );
+                })}
+
+                {/* Workspaces */}
+                {workspaces.map(workspace => {
+                  const idx = getItemIndex('workspace', workspace.id);
+                  const isSelected = idx === selectedIndex;
+                  
+                  return (
+                    <div
+                      key={workspace.id}
+                      className={`flex items-center gap-3 px-4 py-2.5 cursor-pointer transition-colors ${
+                        isSelected ? 'bg-primary/15' : 'hover:bg-muted/50'
+                      }`}
+                      onClick={() => { onSelectTab(workspace.id); onClose(); }}
+                      onMouseEnter={() => setSelectedIndex(idx)}
+                    >
+                      <div className="h-6 w-6 rounded flex items-center justify-center text-muted-foreground">
+                        <LayoutGrid size={16} />
+                      </div>
+                      <span className="text-sm font-medium">{workspace.title}</span>
+                    </div>
+                  );
+                })}
+
+                {/* Orphan sessions */}
+                {orphanSessions.map(session => {
+                  const idx = getItemIndex('tab', session.id);
+                  const isSelected = idx === selectedIndex;
+                  
+                  return (
+                    <div
+                      key={session.id}
+                      className={`flex items-center gap-3 px-4 py-2.5 cursor-pointer transition-colors ${
+                        isSelected ? 'bg-primary/15' : 'hover:bg-muted/50'
+                      }`}
+                      onClick={() => { onSelectTab(session.id); onClose(); }}
+                      onMouseEnter={() => setSelectedIndex(idx)}
+                    >
+                      <div className="h-6 w-6 rounded flex items-center justify-center text-muted-foreground">
+                        <TerminalSquare size={16} />
+                      </div>
+                      <span className="text-sm font-medium">{session.hostLabel}</span>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Quick connect section */}
+              <div>
+                <div className="px-4 py-1.5">
+                  <span className="text-xs font-medium text-muted-foreground">Quick connect</span>
+                </div>
+                
+                {/* Local Terminal */}
+                {onCreateLocalTerminal && (
+                  <div
+                    className={`flex items-center gap-3 px-4 py-2.5 cursor-pointer transition-colors ${
+                      getItemIndex('action', 'local-terminal') === selectedIndex ? 'bg-primary/15' : 'hover:bg-muted/50'
+                    }`}
+                    onClick={() => { onCreateLocalTerminal(); onClose(); }}
+                    onMouseEnter={() => setSelectedIndex(getItemIndex('action', 'local-terminal'))}
+                  >
+                    <div className="h-6 w-6 rounded flex items-center justify-center text-muted-foreground">
+                      <Terminal size={16} />
+                    </div>
+                    <span className="text-sm font-medium">Local Terminal</span>
+                  </div>
+                )}
+
+                {/* Serial */}
+                <div
+                  className={`flex items-center gap-3 px-4 py-2.5 cursor-pointer transition-colors opacity-50 ${
+                    getItemIndex('action', 'serial') === selectedIndex ? 'bg-primary/15' : 'hover:bg-muted/50'
+                  }`}
+                  onMouseEnter={() => setSelectedIndex(getItemIndex('action', 'serial'))}
+                >
+                  <div className="h-6 w-6 rounded flex items-center justify-center text-muted-foreground">
+                    <Usb size={16} />
+                  </div>
+                  <span className="text-sm font-medium">Serial</span>
+                </div>
+              </div>
+            </div>
+          )}
+        </ScrollArea>
       </div>
     </div>
   );
