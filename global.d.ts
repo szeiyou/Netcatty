@@ -41,6 +41,12 @@ interface NebulaBridge {
   writeSftp(sftpId: string, path: string, content: string): Promise<void>;
   closeSftp(sftpId: string): Promise<void>;
   mkdirSftp(sftpId: string, path: string): Promise<void>;
+  setTheme?(theme: 'light' | 'dark'): Promise<boolean>;
+  // Window controls for custom title bar (Windows/Linux)
+  windowMinimize?(): Promise<void>;
+  windowMaximize?(): Promise<boolean>;
+  windowClose?(): Promise<void>;
+  windowIsMaximized?(): Promise<boolean>;
 }
 
 declare global {

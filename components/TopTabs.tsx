@@ -1,5 +1,5 @@
-import React from 'react';
-import { TerminalSquare, Shield, Folder, LayoutGrid, Plus, Bell, User, Sun, Moon, X } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { TerminalSquare, Shield, Folder, LayoutGrid, Plus, Bell, User, Sun, Moon, X, Minus, Square, Copy } from 'lucide-react';
 import { TerminalSession, Workspace } from '../types';
 import { Button } from './ui/button';
 import { cn } from '../lib/utils';
@@ -32,6 +32,68 @@ const sessionStatusDot = (status: TerminalSession['status']) => {
       ? "bg-amber-400"
       : "bg-rose-500";
   return <span className={cn("inline-block h-2 w-2 rounded-full shadow-[0_0_0_2px_rgba(0,0,0,0.35)]", tone)} />;
+};
+
+// Custom window controls for Windows/Linux (frameless window)
+const WindowControls: React.FC = () => {
+  const [isMaximized, setIsMaximized] = useState(false);
+
+  useEffect(() => {
+    // Check initial maximized state
+    window.nebula?.windowIsMaximized?.().then(setIsMaximized);
+
+    // Listen for window resize to update maximized state
+    const handleResize = () => {
+      window.nebula?.windowIsMaximized?.().then(setIsMaximized);
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  const handleMinimize = () => {
+    window.nebula?.windowMinimize?.();
+  };
+
+  const handleMaximize = async () => {
+    const result = await window.nebula?.windowMaximize?.();
+    setIsMaximized(result ?? false);
+  };
+
+  const handleClose = () => {
+    window.nebula?.windowClose?.();
+  };
+
+  return (
+    <div className="flex items-center app-no-drag">
+      <button
+        onClick={handleMinimize}
+        className="h-10 w-12 flex items-center justify-center text-muted-foreground hover:bg-foreground/10 hover:text-foreground transition-all duration-150"
+        title="Minimize"
+      >
+        <Minus size={16} />
+      </button>
+      <button
+        onClick={handleMaximize}
+        className="h-10 w-12 flex items-center justify-center text-muted-foreground hover:bg-foreground/10 hover:text-foreground transition-all duration-150"
+        title={isMaximized ? "Restore" : "Maximize"}
+      >
+        {isMaximized ? (
+          // Restore icon (two overlapping squares)
+          <Copy size={14} />
+        ) : (
+          // Maximize icon (single square)
+          <Square size={14} />
+        )}
+      </button>
+      <button
+        onClick={handleClose}
+        className="h-10 w-12 flex items-center justify-center text-muted-foreground hover:bg-red-500 hover:text-white transition-all duration-150"
+        title="Close"
+      >
+        <X size={16} />
+      </button>
+    </div>
+  );
 };
 
 export const TopTabs: React.FC<TopTabsProps> = ({
@@ -167,7 +229,10 @@ export const TopTabs: React.FC<TopTabsProps> = ({
             {theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
           </Button>
         </div>
+        {/* Custom window controls for Windows/Linux */}
+        {!isMacClient && <WindowControls />}
       </div>
     </div>
   );
 };
+

@@ -25,6 +25,9 @@ const applyThemeTokens = (theme: 'light' | 'dark', primaryColor: string) => {
     ? '220 40% 96%'
     : (!Number.isNaN(lightness) && lightness < 55 ? '0 0% 98%' : '222 47% 12%');
   root.style.setProperty('--accent-foreground', accentForeground);
+  
+  // Sync with native window title bar (Electron)
+  window.nebula?.setTheme?.(theme);
 };
 
 export const useSettingsState = () => {

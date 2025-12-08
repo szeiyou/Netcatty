@@ -80,6 +80,14 @@ const api = {
   mkdirSftp: async (sftpId, path) => {
     return ipcRenderer.invoke("nebula:sftp:mkdir", { sftpId, path });
   },
+  setTheme: async (theme) => {
+    return ipcRenderer.invoke("nebula:setTheme", theme);
+  },
+  // Window controls for custom title bar
+  windowMinimize: () => ipcRenderer.invoke("nebula:window:minimize"),
+  windowMaximize: () => ipcRenderer.invoke("nebula:window:maximize"),
+  windowClose: () => ipcRenderer.invoke("nebula:window:close"),
+  windowIsMaximized: () => ipcRenderer.invoke("nebula:window:isMaximized"),
 };
 
 // Merge with existing nebula (if any) to avoid stale objects on hot reload

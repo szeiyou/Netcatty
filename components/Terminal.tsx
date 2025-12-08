@@ -251,24 +251,49 @@ const TerminalComponent: React.FC<TerminalProps> = ({
     }
   }, [fontSize, terminalTheme, isVisible]);
 
+  // Debounced fit for resize operations - wait until resize ends
   useEffect(() => {
     if (!containerRef.current || !fitAddonRef.current) return;
 
+    let resizeTimeout: ReturnType<typeof setTimeout> | null = null;
+    
     const observer = new ResizeObserver(() => {
-      safeFit();
+      // Clear previous timeout
+      if (resizeTimeout) {
+        clearTimeout(resizeTimeout);
+      }
+      // Wait 150ms after last resize event before fitting
+      resizeTimeout = setTimeout(() => {
+        safeFit();
+      }, 150);
     });
 
     observer.observe(containerRef.current);
-    return () => observer.disconnect();
+    return () => {
+      if (resizeTimeout) clearTimeout(resizeTimeout);
+      observer.disconnect();
+    };
   }, [isVisible]);
 
   useEffect(() => {
+    let resizeTimeout: ReturnType<typeof setTimeout> | null = null;
+    
     const handler = () => {
-      // Defer slightly to allow layout to settle after window resize.
-      requestAnimationFrame(() => safeFit());
+      // Clear previous timeout
+      if (resizeTimeout) {
+        clearTimeout(resizeTimeout);
+      }
+      // Wait 150ms after last resize event before fitting
+      resizeTimeout = setTimeout(() => {
+        safeFit();
+      }, 150);
     };
+    
     window.addEventListener('resize', handler);
-    return () => window.removeEventListener('resize', handler);
+    return () => {
+      if (resizeTimeout) clearTimeout(resizeTimeout);
+      window.removeEventListener('resize', handler);
+    };
   }, []);
 
   const startSSH = async (term: GhosttyTerminal) => {
@@ -310,7 +335,23 @@ const TerminalComponent: React.FC<TerminalProps> = ({
 
       disposeDataRef.current = window.nebula.onSessionData(id, (chunk) => {
         term.write(chunk);
-        if (!hasConnectedRef.current) updateStatus('connected');
+        if (!hasConnectedRef.current) {
+          updateStatus('connected');
+          // Trigger fit after connection to ensure proper terminal size
+          setTimeout(() => {
+            if (fitAddonRef.current) {
+              try {
+                fitAddonRef.current.fit();
+                // Send updated size to remote
+                if (sessionRef.current && window.nebula?.resizeSession) {
+                  window.nebula.resizeSession(sessionRef.current, term.cols, term.rows);
+                }
+              } catch (err) {
+                console.warn("Post-connect fit failed", err);
+              }
+            }
+          }, 100);
+        }
       });
 
       disposeExitRef.current = window.nebula.onSessionExit(id, (evt) => {
@@ -362,7 +403,23 @@ const TerminalComponent: React.FC<TerminalProps> = ({
       sessionRef.current = id;
       disposeDataRef.current = window.nebula?.onSessionData(id, (chunk) => {
         term.write(chunk);
-        if (!hasConnectedRef.current) updateStatus('connected');
+        if (!hasConnectedRef.current) {
+          updateStatus('connected');
+          // Trigger fit after connection to ensure proper terminal size
+          setTimeout(() => {
+            if (fitAddonRef.current) {
+              try {
+                fitAddonRef.current.fit();
+                // Send updated size to remote
+                if (sessionRef.current && window.nebula?.resizeSession) {
+                  window.nebula.resizeSession(sessionRef.current, term.cols, term.rows);
+                }
+              } catch (err) {
+                console.warn("Post-connect fit failed", err);
+              }
+            }
+          }, 100);
+        }
       });
       disposeExitRef.current = window.nebula?.onSessionExit(id, (evt) => {
         updateStatus('disconnected');

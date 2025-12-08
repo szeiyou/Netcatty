@@ -14,7 +14,7 @@ try {
 console.log("electron module raw:", electronModule);
 console.log("process.versions:", process.versions);
 console.log("env ELECTRON_RUN_AS_NODE:", process.env.ELECTRON_RUN_AS_NODE);
-const { app, BrowserWindow } = electronModule || {};
+const { app, BrowserWindow, nativeTheme } = electronModule || {};
 if (!app || !BrowserWindow) {
   throw new Error("Failed to load Electron runtime. Ensure the app is launched with the Electron binary.");
 }
@@ -207,14 +207,26 @@ const registerSSHBridge = (win) => {
 
   const write = (_event, payload) => {
     const session = sessions.get(payload.sessionId);
-    session?.stream?.write(payload.data);
+    if (!session) return;
+    // SSH sessions use stream, local terminal uses proc
+    if (session.stream) {
+      session.stream.write(payload.data);
+    } else if (session.proc) {
+      session.proc.write(payload.data);
+    }
   };
 
   const resize = (_event, payload) => {
     const session = sessions.get(payload.sessionId);
-    if (!session?.stream) return;
+    if (!session) return;
     try {
-      session.stream.setWindow(payload.rows, payload.cols, 0, 0);
+      if (session.stream) {
+        // SSH session - use setWindow
+        session.stream.setWindow(payload.rows, payload.cols, 0, 0);
+      } else if (session.proc) {
+        // Local terminal - use resize
+        session.proc.resize(payload.cols, payload.rows);
+      }
     } catch (err) {
       console.warn("Resize failed", err);
     }
@@ -224,8 +236,12 @@ const registerSSHBridge = (win) => {
     const session = sessions.get(payload.sessionId);
     if (!session) return;
     try {
-      session.stream?.close();
-      session.conn?.end();
+      if (session.stream) {
+        session.stream.close();
+        session.conn?.end();
+      } else if (session.proc) {
+        session.proc.kill();
+      }
     } catch (err) {
       console.warn("Close failed", err);
     }
@@ -409,18 +425,37 @@ const registerSSHBridge = (win) => {
   electronModule.ipcMain.handle("nebula:sftp:mkdir", mkdirSftp);
 };
 
+// Store reference to main window for theme updates
+let mainWindow = null;
+
+// Theme colors configuration
+const THEME_COLORS = {
+  dark: {
+    background: "#0b1220",
+    titleBarColor: "#0b1220",
+    symbolColor: "#ffffff",
+  },
+  light: {
+    background: "#ffffff",
+    titleBarColor: "#f8fafc",
+    symbolColor: "#1e293b",
+  },
+};
+
+// Read initial theme from a simple approach - default to light
+let currentTheme = "light";
+
 async function createWindow() {
+  const themeConfig = THEME_COLORS[currentTheme];
   const win = new BrowserWindow({
     width: 1400,
     height: 900,
-    backgroundColor: "#0b1220",
+    backgroundColor: themeConfig.background,
     icon: appIcon,
-    titleBarStyle: isMac ? "hiddenInset" : "hidden",
-    titleBarOverlay: {
-      color: isMac ? "#0b1220" : "#0b1220",
-      symbolColor: "#ffffff",
-      height: 44,
-    },
+    // macOS: use hiddenInset for native traffic lights
+    // Windows/Linux: use frameless window with custom controls
+    frame: isMac,
+    titleBarStyle: isMac ? "hiddenInset" : undefined,
     trafficLightPosition: isMac ? { x: 12, y: 12 } : undefined,
     webPreferences: {
       preload,
@@ -428,6 +463,52 @@ async function createWindow() {
       nodeIntegration: false,
       sandbox: false,
     },
+  });
+
+  mainWindow = win;
+
+  // Window control handlers (for custom title bar on Windows/Linux)
+  electronModule.ipcMain.handle("nebula:window:minimize", () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.minimize();
+    }
+  });
+
+  electronModule.ipcMain.handle("nebula:window:maximize", () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      if (mainWindow.isMaximized()) {
+        mainWindow.unmaximize();
+        return false;
+      } else {
+        mainWindow.maximize();
+        return true;
+      }
+    }
+    return false;
+  });
+
+  electronModule.ipcMain.handle("nebula:window:close", () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.close();
+    }
+  });
+
+  electronModule.ipcMain.handle("nebula:window:isMaximized", () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      return mainWindow.isMaximized();
+    }
+    return false;
+  });
+
+  // Handle theme change requests from renderer
+  electronModule.ipcMain.handle("nebula:setTheme", (_event, theme) => {
+    currentTheme = theme;
+    nativeTheme.themeSource = theme;
+    const themeConfig = THEME_COLORS[theme] || THEME_COLORS.light;
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.setBackgroundColor(themeConfig.background);
+    }
+    return true;
   });
 
   if (isDev) {
