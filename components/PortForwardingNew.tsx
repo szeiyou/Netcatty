@@ -464,14 +464,14 @@ const PortForwarding: React.FC<PortForwardingProps> = ({ hosts, keys, customGrou
                             <div className="flex-1 min-w-0">
                                 <div className="flex items-center gap-2">
                                     <span className="text-sm font-semibold truncate">{rule.label}</span>
-                                    <span 
+                                    <span
                                         className={cn(
                                             "h-2 w-2 rounded-full flex-shrink-0",
                                             rule.status === 'active' ? "bg-emerald-500" :
                                                 rule.status === 'connecting' ? "bg-yellow-500 animate-pulse" :
                                                     rule.status === 'error' ? "bg-red-500" :
                                                         "bg-muted-foreground/40"
-                                        )} 
+                                        )}
                                         title={rule.status === 'error' && rule.error ? rule.error : undefined}
                                     />
                                 </div>
