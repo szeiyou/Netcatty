@@ -105,7 +105,7 @@ export const TrafficDiagram: React.FC<TrafficDiagramProps> = ({ type, isAnimatin
                     {/* SVG Lines */}
                     <svg className="absolute inset-0 w-full h-full" style={{ zIndex: 1 }}>
                         {/* App to Firewall - blocked red line (with gap) */}
-                        <AnimatedLine x1={78} y1={42} x2={135} y2={40} isAnimating={false} isBlocked />
+                        <AnimatedLine x1={78} y1={40} x2={127} y2={40} isAnimating={false} isBlocked />
                         {/* App to SSH Server - blue animated (with gap) */}
                         <AnimatedLine x1={78} y1={58} x2={145} y2={138} isAnimating={isAnimating} />
                         {/* SSH Server to targets - blue animated (with gap) */}
@@ -141,7 +141,7 @@ export const TrafficDiagram: React.FC<TrafficDiagramProps> = ({ type, isAnimatin
                     {/* SVG Lines */}
                     <svg className="absolute inset-0 w-full h-full" style={{ zIndex: 1 }}>
                         {/* Left server to Firewall - blocked (with gap) */}
-                        <AnimatedLine x1={58} y1={38} x2={135} y2={38} isAnimating={false} isBlocked />
+                        <AnimatedLine x1={68} y1={38} x2={128} y2={38} isAnimating={false} isBlocked />
                         {/* Left server to App - blue animated (with gap) */}
                         <AnimatedLine x1={58} y1={58} x2={145} y2={135} isAnimating={isAnimating} />
                         {/* Right server to App - blue animated (with gap) */}
@@ -185,7 +185,7 @@ export const TrafficDiagram: React.FC<TrafficDiagramProps> = ({ type, isAnimatin
                     {/* SVG Lines */}
                     <svg className="absolute inset-0 w-full h-full" style={{ zIndex: 1 }}>
                         {/* App to Firewall - blocked (with gap) */}
-                        <AnimatedLine x1={78} y1={42} x2={135} y2={40} isAnimating={false} isBlocked />
+                        <AnimatedLine x1={78} y1={42} x2={128} y2={42} isAnimating={false} isBlocked />
                         {/* App to SSH Server - blue animated (with gap) */}
                         <AnimatedLine x1={78} y1={58} x2={145} y2={138} isAnimating={isAnimating} />
                         {/* SSH Server to clouds - blue animated (with gap) */}
