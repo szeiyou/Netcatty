@@ -1,0 +1,134 @@
+import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
+import { cn } from '../../lib/utils';
+import { X, AlertCircle, CheckCircle, Info, AlertTriangle } from 'lucide-react';
+
+export type ToastType = 'success' | 'error' | 'warning' | 'info';
+
+export interface Toast {
+  id: string;
+  type: ToastType;
+  title?: string;
+  message: string;
+  duration?: number;
+}
+
+interface ToastContextValue {
+  toasts: Toast[];
+  showToast: (toast: Omit<Toast, 'id'>) => void;
+  dismissToast: (id: string) => void;
+}
+
+const ToastContext = createContext<ToastContextValue | null>(null);
+
+export const useToast = () => {
+  const context = useContext(ToastContext);
+  if (!context) {
+    throw new Error('useToast must be used within a ToastProvider');
+  }
+  return context;
+};
+
+// Simple hook for components that may not be inside ToastProvider
+let globalShowToast: ((toast: Omit<Toast, 'id'>) => void) | null = null;
+
+export const toast = {
+  success: (message: string, title?: string) => {
+    globalShowToast?.({ type: 'success', message, title, duration: 3000 });
+  },
+  error: (message: string, title?: string) => {
+    globalShowToast?.({ type: 'error', message, title, duration: 5000 });
+  },
+  warning: (message: string, title?: string) => {
+    globalShowToast?.({ type: 'warning', message, title, duration: 4000 });
+  },
+  info: (message: string, title?: string) => {
+    globalShowToast?.({ type: 'info', message, title, duration: 3000 });
+  },
+};
+
+const TOAST_ICONS: Record<ToastType, React.ReactNode> = {
+  success: <CheckCircle className="h-4 w-4 text-emerald-500" />,
+  error: <AlertCircle className="h-4 w-4 text-red-500" />,
+  warning: <AlertTriangle className="h-4 w-4 text-yellow-500" />,
+  info: <Info className="h-4 w-4 text-blue-500" />,
+};
+
+const TOAST_STYLES: Record<ToastType, string> = {
+  success: 'border-emerald-500/30 bg-emerald-500/10',
+  error: 'border-red-500/30 bg-red-500/10',
+  warning: 'border-yellow-500/30 bg-yellow-500/10',
+  info: 'border-blue-500/30 bg-blue-500/10',
+};
+
+export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const [toasts, setToasts] = useState<Toast[]>([]);
+
+  const showToast = useCallback((toast: Omit<Toast, 'id'>) => {
+    const id = `toast-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const newToast: Toast = { ...toast, id };
+    setToasts(prev => [...prev, newToast]);
+
+    // Auto dismiss
+    if (toast.duration !== 0) {
+      setTimeout(() => {
+        setToasts(prev => prev.filter(t => t.id !== id));
+      }, toast.duration || 4000);
+    }
+  }, []);
+
+  const dismissToast = useCallback((id: string) => {
+    setToasts(prev => prev.filter(t => t.id !== id));
+  }, []);
+
+  // Register global toast function
+  useEffect(() => {
+    globalShowToast = showToast;
+    return () => {
+      globalShowToast = null;
+    };
+  }, [showToast]);
+
+  return (
+    <ToastContext.Provider value={{ toasts, showToast, dismissToast }}>
+      {children}
+      <ToastContainer toasts={toasts} onDismiss={dismissToast} />
+    </ToastContext.Provider>
+  );
+};
+
+const ToastContainer: React.FC<{ toasts: Toast[]; onDismiss: (id: string) => void }> = ({ toasts, onDismiss }) => {
+  if (toasts.length === 0) return null;
+
+  return (
+    <div className="fixed bottom-4 right-4 z-[9999] flex flex-col gap-2 max-w-sm">
+      {toasts.map(t => (
+        <div
+          key={t.id}
+          className={cn(
+            "flex items-start gap-3 p-3 rounded-lg border shadow-lg backdrop-blur-sm",
+            "bg-card/95 animate-in slide-in-from-right-5 fade-in duration-200",
+            TOAST_STYLES[t.type]
+          )}
+        >
+          <div className="flex-shrink-0 mt-0.5">
+            {TOAST_ICONS[t.type]}
+          </div>
+          <div className="flex-1 min-w-0">
+            {t.title && (
+              <div className="text-sm font-medium text-foreground">{t.title}</div>
+            )}
+            <div className="text-sm text-muted-foreground break-words">{t.message}</div>
+          </div>
+          <button
+            onClick={() => onDismiss(t.id)}
+            className="flex-shrink-0 p-1 rounded hover:bg-secondary/80 transition-colors"
+          >
+            <X className="h-3.5 w-3.5 text-muted-foreground" />
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+};
+
+export default ToastProvider;

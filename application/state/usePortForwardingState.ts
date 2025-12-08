@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { PortForwardingRule, PortForwardingType } from '../../domain/models';
 import { STORAGE_KEY_PORT_FORWARDING } from '../../infrastructure/config/storageKeys';
 import { localStorageAdapter } from '../../infrastructure/persistence/localStorageAdapter';
+import { getActiveRuleIds, getActiveConnection } from '../../infrastructure/services/portForwardingService';
 
 export type ViewMode = 'grid' | 'list';
 export type SortMode = 'az' | 'za' | 'newest' | 'oldest';
@@ -40,9 +41,18 @@ export const usePortForwardingState = (): UsePortForwardingStateResult => {
   useEffect(() => {
     const saved = localStorageAdapter.read<PortForwardingRule[]>(STORAGE_KEY_PORT_FORWARDING);
     if (saved && Array.isArray(saved)) {
-      // Reset status to inactive on load (since tunnels don't persist across sessions)
-      const withResetStatus = saved.map(r => ({ ...r, status: 'inactive' as const, error: undefined }));
-      setRules(withResetStatus);
+      // Sync status with active connections in the service layer
+      const activeRuleIds = getActiveRuleIds();
+      const withSyncedStatus = saved.map(r => {
+        const conn = getActiveConnection(r.id);
+        if (conn) {
+          // This rule has an active connection, preserve its status
+          return { ...r, status: conn.status, error: conn.error };
+        }
+        // No active connection, reset to inactive
+        return { ...r, status: 'inactive' as const, error: undefined };
+      });
+      setRules(withSyncedStatus);
     }
   }, []);
   

@@ -18,6 +18,22 @@ export interface PortForwardingConnection {
 const activeConnections = new Map<string, PortForwardingConnection>();
 
 /**
+ * Get active connection info for a rule
+ */
+export const getActiveConnection = (ruleId: string): PortForwardingConnection | undefined => {
+  return activeConnections.get(ruleId);
+};
+
+/**
+ * Get all active connection rule IDs
+ */
+export const getActiveRuleIds = (): string[] => {
+  return Array.from(activeConnections.entries())
+    .filter(([_, conn]) => conn.status === 'active' || conn.status === 'connecting')
+    .map(([ruleId]) => ruleId);
+};
+
+/**
  * Start a port forwarding tunnel
  */
 export const startPortForward = async (

@@ -47,6 +47,7 @@ import {
     stopPortForward,
     isBackendAvailable,
 } from '../infrastructure/services/portForwardingService';
+import { toast } from './ui/toast';
 
 type WizardStep = 'type' | 'local-config' | 'remote-config' | 'destination';
 
@@ -110,20 +111,32 @@ const PortForwarding: React.FC<PortForwardingProps> = ({ hosts, keys, customGrou
         const host = hosts.find(h => h.id === rule.hostId);
         if (!host) {
             setRuleStatus(rule.id, 'error', 'Host not found');
+            toast.error('Host not found', `Port Forwarding: ${rule.label}`);
             return;
         }
 
         setPendingOperations(prev => new Set([...prev, rule.id]));
+        let errorShown = false;
 
         try {
-            await startPortForward(
+            const result = await startPortForward(
                 rule,
                 host,
                 keys.map(k => ({ id: k.id, privateKey: k.privateKey })),
                 (status, error) => {
                     setRuleStatus(rule.id, status, error);
+                    // Show toast on error (only once)
+                    if (status === 'error' && error && !errorShown) {
+                        errorShown = true;
+                        toast.error(error, `Port Forwarding: ${rule.label}`);
+                    }
                 }
             );
+            // Show error from result only if not already shown
+            if (!result.success && result.error && !errorShown) {
+                errorShown = true;
+                toast.error(result.error, `Port Forwarding: ${rule.label}`);
+            }
         } finally {
             setPendingOperations(prev => {
                 const next = new Set(prev);
@@ -424,7 +437,7 @@ const PortForwarding: React.FC<PortForwardingProps> = ({ hosts, keys, customGrou
                 <ContextMenuTrigger>
                     <Card
                         className={cn(
-                            "cursor-pointer soft-card elevate rounded-xl border transition-all group",
+                            "cursor-pointer soft-card rounded-xl border transition-all group",
                             isSelected ? "border-primary/70 ring-2 ring-primary/20" : "border-border/60 hover:border-primary/40",
                             viewMode === 'list' ? "w-full" : ""
                         )}
@@ -451,13 +464,16 @@ const PortForwarding: React.FC<PortForwardingProps> = ({ hosts, keys, customGrou
                             <div className="flex-1 min-w-0">
                                 <div className="flex items-center gap-2">
                                     <span className="text-sm font-semibold truncate">{rule.label}</span>
-                                    <span className={cn(
-                                        "h-2 w-2 rounded-full flex-shrink-0",
-                                        rule.status === 'active' ? "bg-emerald-500" :
-                                            rule.status === 'connecting' ? "bg-yellow-500 animate-pulse" :
-                                                rule.status === 'error' ? "bg-red-500" :
-                                                    "bg-muted-foreground/40"
-                                    )} />
+                                    <span 
+                                        className={cn(
+                                            "h-2 w-2 rounded-full flex-shrink-0",
+                                            rule.status === 'active' ? "bg-emerald-500" :
+                                                rule.status === 'connecting' ? "bg-yellow-500 animate-pulse" :
+                                                    rule.status === 'error' ? "bg-red-500" :
+                                                        "bg-muted-foreground/40"
+                                        )} 
+                                        title={rule.status === 'error' && rule.error ? rule.error : undefined}
+                                    />
                                 </div>
                                 <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
                                     <span className="truncate">

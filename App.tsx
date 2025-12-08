@@ -14,6 +14,7 @@ import { Label } from './components/ui/label';
 import { useSettingsState } from './application/state/useSettingsState';
 import { useVaultState } from './application/state/useVaultState';
 import { useSessionState } from './application/state/useSessionState';
+import { ToastProvider } from './components/ui/toast';
 
 function App() {
   console.log('[App] render');
@@ -295,4 +296,12 @@ function App() {
   );
 }
 
-export default App;
+function AppWithProviders() {
+  return (
+    <ToastProvider>
+      <App />
+    </ToastProvider>
+  );
+}
+
+export default AppWithProviders;

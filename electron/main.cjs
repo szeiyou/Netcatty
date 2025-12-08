@@ -14,7 +14,7 @@ try {
 console.log("electron module raw:", electronModule);
 console.log("process.versions:", process.versions);
 console.log("env ELECTRON_RUN_AS_NODE:", process.env.ELECTRON_RUN_AS_NODE);
-const { app, BrowserWindow, nativeTheme } = electronModule || {};
+const { app, BrowserWindow, nativeTheme, Menu } = electronModule || {};
 if (!app || !BrowserWindow) {
   throw new Error("Failed to load Electron runtime. Ensure the app is launched with the Electron binary.");
 }
@@ -143,7 +143,12 @@ const registerSSHBridge = (win) => {
             term: "xterm-256color",
             cols,
             rows,
-            env: { LANG: options.charset || "en_US.UTF-8" },
+          },
+          {
+            env: { 
+              LANG: options.charset || "en_US.UTF-8",
+              COLORTERM: "truecolor",
+            },
           },
           (err, stream) => {
             if (err) {
@@ -262,6 +267,7 @@ const registerSSHBridge = (win) => {
       ...process.env,
       ...(payload?.env || {}),
       TERM: "xterm-256color",
+      COLORTERM: "truecolor",
     };
     const proc = pty.spawn(shell, [], {
       cols: payload?.cols || 80,
@@ -1188,6 +1194,65 @@ app.whenReady().then(() => {
       console.warn("Failed to set dock icon", err);
     }
   }
+
+  // Set a minimal menu to prevent function keys from being intercepted
+  // This is especially important for F10 in htop and similar applications
+  const template = [
+    ...(isMac
+      ? [
+          {
+            label: app.name,
+            submenu: [
+              { role: "about" },
+              { type: "separator" },
+              { role: "hide" },
+              { role: "hideOthers" },
+              { role: "unhide" },
+              { type: "separator" },
+              { role: "quit" },
+            ],
+          },
+        ]
+      : []),
+    {
+      label: "Edit",
+      submenu: [
+        { role: "undo" },
+        { role: "redo" },
+        { type: "separator" },
+        { role: "cut" },
+        { role: "copy" },
+        { role: "paste" },
+        { role: "selectAll" },
+      ],
+    },
+    {
+      label: "View",
+      submenu: [
+        { role: "reload" },
+        { role: "forceReload" },
+        { role: "toggleDevTools" },
+        { type: "separator" },
+        { role: "resetZoom" },
+        { role: "zoomIn" },
+        { role: "zoomOut" },
+        { type: "separator" },
+        { role: "togglefullscreen" },
+      ],
+    },
+    {
+      label: "Window",
+      submenu: [
+        { role: "minimize" },
+        { role: "zoom" },
+        ...(isMac
+          ? [{ type: "separator" }, { role: "front" }]
+          : [{ role: "close" }]),
+      ],
+    },
+  ];
+  const menu = Menu.buildFromTemplate(template);
+  Menu.setApplicationMenu(menu);
 
   createWindow();
 
