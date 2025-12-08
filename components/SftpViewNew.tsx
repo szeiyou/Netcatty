@@ -1259,13 +1259,14 @@ const SftpViewInner: React.FC<SftpViewProps> = ({ hosts, keys }) => {
 
     // Use visibility + pointer-events instead of display:none to preserve component state
     // and avoid re-rendering when switching tabs
+    // When inactive, also set z-index to -1 to prevent rendering artifacts
     const containerStyle: React.CSSProperties = isActive
         ? {}
-        : { visibility: 'hidden', pointerEvents: 'none', position: 'absolute' };
+        : { visibility: 'hidden', pointerEvents: 'none', position: 'absolute', zIndex: -1 };
 
     return (
         <div
-            className="absolute inset-0 min-h-0 flex flex-col z-20"
+            className={cn("absolute inset-0 min-h-0 flex flex-col", isActive ? "z-20" : "")}
             style={containerStyle}
         >
             {/* Main content */}
