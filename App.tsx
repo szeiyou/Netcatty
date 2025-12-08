@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import SettingsDialog from './components/SettingsDialog';
 import HostDetailsPanel from './components/HostDetailsPanel';
 import { SftpView } from './components/SftpViewNew';
@@ -16,6 +16,7 @@ import { useVaultState } from './application/state/useVaultState';
 import { useSessionState } from './application/state/useSessionState';
 
 function App() {
+  console.log('[App] render');
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isQuickSwitcherOpen, setIsQuickSwitcherOpen] = useState(false);
@@ -54,7 +55,6 @@ function App() {
   const {
     sessions,
     workspaces,
-    activeTabId,
     setActiveTabId,
     draggingSessionId,
     setDraggingSessionId,
@@ -77,10 +77,7 @@ function App() {
     reorderTabs,
   } = useSessionState();
 
-  const isVaultActive = activeTabId === 'vault';
-  const isSftpActive = activeTabId === 'sftp';
-  const isTerminalLayerActive = !isVaultActive && !isSftpActive;
-  const isTerminalLayerVisible = isTerminalLayerActive || !!draggingSessionId;
+  // isMacClient is used for window controls styling
   const isMacClient = typeof navigator !== 'undefined' && /Mac|Macintosh/.test(navigator.userAgent);
 
   useEffect(() => {
@@ -105,45 +102,65 @@ function App() {
     return filtered.slice(0, 8);
   }, [hosts, quickSearch]);
 
-  const handleEditHost = (host: Host) => {
+  const handleEditHost = useCallback((host: Host) => {
     setEditingHost(host);
     setIsFormOpen(true);
-  };
+  }, []);
 
-  const handleDeleteHost = (hostId: string) => {
+  const handleDeleteHost = useCallback((hostId: string) => {
     const target = hosts.find(h => h.id === hostId);
     const confirmed = window.confirm(`Delete host "${target?.label || hostId}"?`);
     if (!confirmed) return;
     updateHosts(hosts.filter(h => h.id !== hostId));
-  };
+  }, [hosts, updateHosts]);
+
+  const handleToggleTheme = useCallback(() => {
+    setTheme(prev => prev === 'dark' ? 'light' : 'dark');
+  }, [setTheme]);
+
+  const handleOpenQuickSwitcher = useCallback(() => {
+    setIsQuickSwitcherOpen(true);
+  }, []);
+
+  const handleOpenSettings = useCallback(() => {
+    setIsSettingsOpen(true);
+  }, []);
+
+  const handleToggleAssistant = useCallback(() => {
+    setShowAssistant(prev => !prev);
+  }, []);
+
+  const handleNewHost = useCallback(() => {
+    setEditingHost(null);
+    setIsFormOpen(true);
+  }, []);
+
+  const handleEndSessionDrag = useCallback(() => {
+    setDraggingSessionId(null);
+  }, [setDraggingSessionId]);
 
   return (
     <div className="flex flex-col h-screen text-foreground font-sans nebula-shell" onContextMenu={(e) => e.preventDefault()}>
       <TopTabs
         theme={theme}
-        isVaultActive={isVaultActive}
-        isSftpActive={isSftpActive}
-        activeTabId={activeTabId}
         sessions={sessions}
         orphanSessions={orphanSessions}
         workspaces={workspaces}
         orderedTabs={orderedTabs}
         draggingSessionId={draggingSessionId}
         isMacClient={isMacClient}
-        onSelectTab={setActiveTabId}
         onCloseSession={closeSession}
         onRenameWorkspace={startWorkspaceRename}
         onCloseWorkspace={closeWorkspace}
-        onOpenQuickSwitcher={() => setIsQuickSwitcherOpen(true)}
-        onToggleTheme={() => setTheme(prev => prev === 'dark' ? 'light' : 'dark')}
+        onOpenQuickSwitcher={handleOpenQuickSwitcher}
+        onToggleTheme={handleToggleTheme}
         onStartSessionDrag={setDraggingSessionId}
-        onEndSessionDrag={() => setDraggingSessionId(null)}
+        onEndSessionDrag={handleEndSessionDrag}
         onReorderTabs={reorderTabs}
       />
 
       <div className="flex-1 relative min-h-0">
         <VaultView
-          isActive={isVaultActive}
           hosts={hosts}
           keys={keys}
           snippets={snippets}
@@ -151,11 +168,11 @@ function App() {
           customGroups={customGroups}
           sessions={sessions}
           showAssistant={showAssistant}
-          onToggleAssistant={() => setShowAssistant(prev => !prev)}
-          onOpenSettings={() => setIsSettingsOpen(true)}
-          onOpenQuickSwitcher={() => setIsQuickSwitcherOpen(true)}
+          onToggleAssistant={handleToggleAssistant}
+          onOpenSettings={handleOpenSettings}
+          onOpenQuickSwitcher={handleOpenQuickSwitcher}
           onCreateLocalTerminal={createLocalTerminal}
-          onNewHost={() => { setEditingHost(null); setIsFormOpen(true); }}
+          onNewHost={handleNewHost}
           onEditHost={handleEditHost}
           onDeleteHost={handleDeleteHost}
           onConnect={connectToHost}
@@ -166,7 +183,7 @@ function App() {
           onUpdateCustomGroups={updateCustomGroups}
         />
 
-        <SftpView hosts={hosts} keys={keys} isActive={isSftpActive && !draggingSessionId} />
+        <SftpView hosts={hosts} keys={keys} />
 
         <TerminalLayer
           hosts={hosts}
@@ -174,9 +191,7 @@ function App() {
           snippets={snippets}
           sessions={sessions}
           workspaces={workspaces}
-          activeTabId={activeTabId}
           draggingSessionId={draggingSessionId}
-          isVisible={isTerminalLayerVisible}
           terminalTheme={currentTerminalTheme}
           showAssistant={showAssistant}
           onCloseSession={closeSession}

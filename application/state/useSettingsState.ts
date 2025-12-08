@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { SyncConfig } from '../../domain/models';
 import {
   STORAGE_KEY_COLOR,
@@ -46,10 +46,10 @@ export const useSettingsState = () => {
     localStorageAdapter.writeString(STORAGE_KEY_TERM_THEME, terminalThemeId);
   }, [terminalThemeId]);
 
-  const updateSyncConfig = (config: SyncConfig | null) => {
+  const updateSyncConfig = useCallback((config: SyncConfig | null) => {
     setSyncConfig(config);
     localStorageAdapter.write(STORAGE_KEY_SYNC, config);
-  };
+  }, []);
 
   const currentTerminalTheme = useMemo(
     () => TERMINAL_THEMES.find(t => t.id === terminalThemeId) || TERMINAL_THEMES[0],

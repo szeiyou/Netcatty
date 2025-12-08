@@ -1,0 +1,67 @@
+import { useSyncExternalStore, useCallback, useRef } from 'react';
+
+// Simple store for active tab that allows fine-grained subscriptions
+type Listener = () => void;
+
+class ActiveTabStore {
+  private activeTabId: string = 'vault';
+  private listeners = new Set<Listener>();
+
+  getActiveTabId = () => this.activeTabId;
+
+  setActiveTabId = (id: string) => {
+    if (this.activeTabId !== id) {
+      this.activeTabId = id;
+      this.listeners.forEach(listener => listener());
+    }
+  };
+
+  subscribe = (listener: Listener) => {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  };
+}
+
+export const activeTabStore = new ActiveTabStore();
+
+// Hook to read active tab ID - only re-renders when activeTabId changes
+export const useActiveTabId = () => {
+  return useSyncExternalStore(
+    activeTabStore.subscribe,
+    activeTabStore.getActiveTabId
+  );
+};
+
+// Hook to get setter - never causes re-render
+export const useSetActiveTabId = () => {
+  return activeTabStore.setActiveTabId;
+};
+
+// Check if a specific tab is active - only re-renders when this specific tab's active state changes
+export const useIsTabActive = (tabId: string) => {
+  const getSnapshot = useCallback(() => activeTabStore.getActiveTabId() === tabId, [tabId]);
+  return useSyncExternalStore(activeTabStore.subscribe, getSnapshot);
+};
+
+// Check if vault is active
+export const useIsVaultActive = () => {
+  return useSyncExternalStore(
+    activeTabStore.subscribe,
+    () => activeTabStore.getActiveTabId() === 'vault'
+  );
+};
+
+// Check if sftp is active
+export const useIsSftpActive = () => {
+  return useSyncExternalStore(
+    activeTabStore.subscribe,
+    () => activeTabStore.getActiveTabId() === 'sftp'
+  );
+};
+
+// Check if terminal layer should be visible
+export const useIsTerminalLayerVisible = (draggingSessionId: string | null) => {
+  const activeTabId = useActiveTabId();
+  const isTerminalTab = activeTabId !== 'vault' && activeTabId !== 'sftp';
+  return isTerminalTab || !!draggingSessionId;
+};

@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useCallback, useRef, useEffect } from 'react';
+import React, { useMemo, useState, useCallback, useRef, useEffect, memo } from 'react';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from './ui/dialog';
@@ -8,6 +8,7 @@ import { cn } from '../lib/utils';
 import { Host, SSHKey, SftpFileEntry, TransferTask } from '../types';
 import { DistroAvatar } from './DistroAvatar';
 import { useSftpState, SftpPane } from '../application/state/useSftpState';
+import { useIsSftpActive } from '../application/state/activeTabStore';
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from './ui/context-menu';
 import {
     FileCode,
@@ -244,7 +245,7 @@ const TransferItem: React.FC<{
 };
 
 // SFTP Pane component
-const SftpPaneView: React.FC<{
+interface SftpPaneViewProps {
     side: 'left' | 'right';
     pane: SftpPane;
     hosts: Host[];
@@ -266,7 +267,9 @@ const SftpPaneView: React.FC<{
     draggedFiles: { name: string; isDirectory: boolean; side: 'left' | 'right' }[] | null;
     onDragStart: (files: { name: string; isDirectory: boolean }[], side: 'left' | 'right') => void;
     onDragEnd: () => void;
-}> = ({
+}
+
+const SftpPaneViewInner: React.FC<SftpPaneViewProps> = ({
     side,
     pane,
     hosts,
@@ -869,6 +872,10 @@ const SftpPaneView: React.FC<{
         );
     };
 
+// Memoized SftpPaneView - only re-renders when pane data or callbacks change
+const SftpPaneView = memo(SftpPaneViewInner);
+SftpPaneView.displayName = 'SftpPaneView';
+
 // Conflict Resolution Dialog
 interface ConflictDialogProps {
     conflicts: { transferId: string; fileName: string; sourcePath: string; targetPath: string; existingSize: number; newSize: number; existingModified: number; newModified: number; }[];
@@ -1120,37 +1127,78 @@ const PermissionsDialog: React.FC<PermissionsDialogProps> = ({ open, onOpenChang
 interface SftpViewProps {
     hosts: Host[];
     keys: SSHKey[];
-    isActive: boolean;
 }
 
-export const SftpView: React.FC<SftpViewProps> = ({ hosts, keys, isActive }) => {
+const SftpViewInner: React.FC<SftpViewProps> = ({ hosts, keys }) => {
+    // Subscribe to isActive from external store - only re-renders when sftp active state changes
+    const isActive = useIsSftpActive();
+    console.log('[SftpView] render, isActive:', isActive);
     const sftp = useSftpState(hosts, keys);
     const [permissionsState, setPermissionsState] = useState<{ file: SftpFileEntry; side: 'left' | 'right' } | null>(null);
     const [draggedFiles, setDraggedFiles] = useState<{ name: string; isDirectory: boolean; side: 'left' | 'right' }[] | null>(null);
 
-    const leftFilteredFiles = useMemo(() => sftp.getFilteredFiles(sftp.leftPane), [sftp.leftPane]);
-    const rightFilteredFiles = useMemo(() => sftp.getFilteredFiles(sftp.rightPane), [sftp.rightPane]);
-
-    const handleDragStart = (files: { name: string; isDirectory: boolean }[], side: 'left' | 'right') => {
+    // Memoized callbacks - stable references
+    const handleDragStart = useCallback((files: { name: string; isDirectory: boolean }[], side: 'left' | 'right') => {
         setDraggedFiles(files.map(f => ({ ...f, side })));
-    };
+    }, []);
 
-    const handleDragEnd = () => {
+    const handleDragEnd = useCallback(() => {
         setDraggedFiles(null);
-    };
+    }, []);
 
-    const handleStartTransfer = (sourceSide: 'left' | 'right') => (files: { name: string; isDirectory: boolean }[]) => {
-        const targetSide = sourceSide === 'left' ? 'right' : 'left';
-        sftp.startTransfer(files, sourceSide, targetSide);
-    };
+    const handleStartTransferLeft = useCallback((files: { name: string; isDirectory: boolean }[]) => {
+        sftp.startTransfer(files, 'left', 'right');
+    }, [sftp.startTransfer]);
+
+    const handleStartTransferRight = useCallback((files: { name: string; isDirectory: boolean }[]) => {
+        sftp.startTransfer(files, 'right', 'left');
+    }, [sftp.startTransfer]);
+
+    // Pane-specific callbacks using useCallback
+    const handleConnectLeft = useCallback((host: Host) => sftp.connect('left', host), [sftp.connect]);
+    const handleConnectRight = useCallback((host: Host) => sftp.connect('right', host), [sftp.connect]);
+    const handleDisconnectLeft = useCallback(() => sftp.disconnect('left'), [sftp.disconnect]);
+    const handleDisconnectRight = useCallback(() => sftp.disconnect('right'), [sftp.disconnect]);
+    const handleNavigateToLeft = useCallback((path: string) => sftp.navigateTo('left', path), [sftp.navigateTo]);
+    const handleNavigateToRight = useCallback((path: string) => sftp.navigateTo('right', path), [sftp.navigateTo]);
+    const handleNavigateUpLeft = useCallback(() => sftp.navigateUp('left'), [sftp.navigateUp]);
+    const handleNavigateUpRight = useCallback(() => sftp.navigateUp('right'), [sftp.navigateUp]);
+    const handleRefreshLeft = useCallback(() => sftp.refresh('left'), [sftp.refresh]);
+    const handleRefreshRight = useCallback(() => sftp.refresh('right'), [sftp.refresh]);
+    const handleOpenEntryLeft = useCallback((entry: SftpFileEntry) => sftp.openEntry('left', entry), [sftp.openEntry]);
+    const handleOpenEntryRight = useCallback((entry: SftpFileEntry) => sftp.openEntry('right', entry), [sftp.openEntry]);
+    const handleToggleSelectionLeft = useCallback((name: string, multi: boolean) => sftp.toggleSelection('left', name, multi), [sftp.toggleSelection]);
+    const handleToggleSelectionRight = useCallback((name: string, multi: boolean) => sftp.toggleSelection('right', name, multi), [sftp.toggleSelection]);
+    const handleClearSelectionLeft = useCallback(() => sftp.clearSelection('left'), [sftp.clearSelection]);
+    const handleClearSelectionRight = useCallback(() => sftp.clearSelection('right'), [sftp.clearSelection]);
+    const handleSetFilterLeft = useCallback((filter: string) => sftp.setFilter('left', filter), [sftp.setFilter]);
+    const handleSetFilterRight = useCallback((filter: string) => sftp.setFilter('right', filter), [sftp.setFilter]);
+    const handleCreateDirectoryLeft = useCallback((name: string) => sftp.createDirectory('left', name), [sftp.createDirectory]);
+    const handleCreateDirectoryRight = useCallback((name: string) => sftp.createDirectory('right', name), [sftp.createDirectory]);
+    const handleDeleteFilesLeft = useCallback((names: string[]) => sftp.deleteFiles('left', names), [sftp.deleteFiles]);
+    const handleDeleteFilesRight = useCallback((names: string[]) => sftp.deleteFiles('right', names), [sftp.deleteFiles]);
+    const handleRenameFileLeft = useCallback((old: string, newName: string) => sftp.renameFile('left', old, newName), [sftp.renameFile]);
+    const handleRenameFileRight = useCallback((old: string, newName: string) => sftp.renameFile('right', old, newName), [sftp.renameFile]);
+    const handleEditPermissionsLeft = useCallback((file: SftpFileEntry) => setPermissionsState({ file, side: 'left' }), []);
+    const handleEditPermissionsRight = useCallback((file: SftpFileEntry) => setPermissionsState({ file, side: 'right' }), []);
+
+    // Only compute filtered files when active to save processing
+    const leftFilteredFiles = useMemo(() => sftp.getFilteredFiles(sftp.leftPane), [sftp.leftPane, sftp.getFilteredFiles]);
+    const rightFilteredFiles = useMemo(() => sftp.getFilteredFiles(sftp.rightPane), [sftp.rightPane, sftp.getFilteredFiles]);
 
     // Show transfer queue
-    const visibleTransfers = sftp.transfers.slice(-5); // Show last 5 transfers
+    const visibleTransfers = useMemo(() => sftp.transfers.slice(-5), [sftp.transfers]);
+
+    // Use visibility + pointer-events instead of display:none to preserve component state
+    // and avoid re-rendering when switching tabs
+    const containerStyle: React.CSSProperties = isActive
+        ? {}
+        : { visibility: 'hidden', pointerEvents: 'none', position: 'absolute' };
 
     return (
         <div
             className="absolute inset-0 min-h-0 flex flex-col z-20"
-            style={{ display: isActive ? 'flex' : 'none' }}
+            style={containerStyle}
         >
             {/* Main content */}
             <div className="flex-1 grid grid-cols-1 xl:grid-cols-2 min-h-0 border-t border-border/70">
@@ -1161,20 +1209,20 @@ export const SftpView: React.FC<SftpViewProps> = ({ hosts, keys, isActive }) => 
                         pane={sftp.leftPane}
                         hosts={hosts}
                         filteredFiles={leftFilteredFiles}
-                        onConnect={(host) => sftp.connect('left', host)}
-                        onDisconnect={() => sftp.disconnect('left')}
-                        onNavigateTo={(path) => sftp.navigateTo('left', path)}
-                        onNavigateUp={() => sftp.navigateUp('left')}
-                        onRefresh={() => sftp.refresh('left')}
-                        onOpenEntry={(entry) => sftp.openEntry('left', entry)}
-                        onToggleSelection={(name, multi) => sftp.toggleSelection('left', name, multi)}
-                        onClearSelection={() => sftp.clearSelection('left')}
-                        onSetFilter={(filter) => sftp.setFilter('left', filter)}
-                        onCreateDirectory={(name) => sftp.createDirectory('left', name)}
-                        onDeleteFiles={(names) => sftp.deleteFiles('left', names)}
-                        onRenameFile={(old, newName) => sftp.renameFile('left', old, newName)}
-                        onStartTransfer={handleStartTransfer('left')}
-                        onEditPermissions={(file) => setPermissionsState({ file, side: 'left' })}
+                        onConnect={handleConnectLeft}
+                        onDisconnect={handleDisconnectLeft}
+                        onNavigateTo={handleNavigateToLeft}
+                        onNavigateUp={handleNavigateUpLeft}
+                        onRefresh={handleRefreshLeft}
+                        onOpenEntry={handleOpenEntryLeft}
+                        onToggleSelection={handleToggleSelectionLeft}
+                        onClearSelection={handleClearSelectionLeft}
+                        onSetFilter={handleSetFilterLeft}
+                        onCreateDirectory={handleCreateDirectoryLeft}
+                        onDeleteFiles={handleDeleteFilesLeft}
+                        onRenameFile={handleRenameFileLeft}
+                        onStartTransfer={handleStartTransferLeft}
+                        onEditPermissions={handleEditPermissionsLeft}
                         draggedFiles={draggedFiles}
                         onDragStart={handleDragStart}
                         onDragEnd={handleDragEnd}
@@ -1188,20 +1236,20 @@ export const SftpView: React.FC<SftpViewProps> = ({ hosts, keys, isActive }) => 
                         pane={sftp.rightPane}
                         hosts={hosts}
                         filteredFiles={rightFilteredFiles}
-                        onConnect={(host) => sftp.connect('right', host)}
-                        onDisconnect={() => sftp.disconnect('right')}
-                        onNavigateTo={(path) => sftp.navigateTo('right', path)}
-                        onNavigateUp={() => sftp.navigateUp('right')}
-                        onRefresh={() => sftp.refresh('right')}
-                        onOpenEntry={(entry) => sftp.openEntry('right', entry)}
-                        onToggleSelection={(name, multi) => sftp.toggleSelection('right', name, multi)}
-                        onClearSelection={() => sftp.clearSelection('right')}
-                        onSetFilter={(filter) => sftp.setFilter('right', filter)}
-                        onCreateDirectory={(name) => sftp.createDirectory('right', name)}
-                        onDeleteFiles={(names) => sftp.deleteFiles('right', names)}
-                        onRenameFile={(old, newName) => sftp.renameFile('right', old, newName)}
-                        onStartTransfer={handleStartTransfer('right')}
-                        onEditPermissions={(file) => setPermissionsState({ file, side: 'right' })}
+                        onConnect={handleConnectRight}
+                        onDisconnect={handleDisconnectRight}
+                        onNavigateTo={handleNavigateToRight}
+                        onNavigateUp={handleNavigateUpRight}
+                        onRefresh={handleRefreshRight}
+                        onOpenEntry={handleOpenEntryRight}
+                        onToggleSelection={handleToggleSelectionRight}
+                        onClearSelection={handleClearSelectionRight}
+                        onSetFilter={handleSetFilterRight}
+                        onCreateDirectory={handleCreateDirectoryRight}
+                        onDeleteFiles={handleDeleteFilesRight}
+                        onRenameFile={handleRenameFileRight}
+                        onStartTransfer={handleStartTransferRight}
+                        onEditPermissions={handleEditPermissionsRight}
                         draggedFiles={draggedFiles}
                         onDragStart={handleDragStart}
                         onDragEnd={handleDragEnd}
@@ -1272,3 +1320,11 @@ export const SftpView: React.FC<SftpViewProps> = ({ hosts, keys, isActive }) => 
         </div>
     );
 };
+
+// Only re-render when data props change - isActive is now managed internally via store subscription
+const sftpViewAreEqual = (prev: SftpViewProps, next: SftpViewProps): boolean => {
+    return prev.hosts === next.hosts && prev.keys === next.keys;
+};
+
+export const SftpView = memo(SftpViewInner, sftpViewAreEqual);
+SftpView.displayName = 'SftpView';

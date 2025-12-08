@@ -1,4 +1,4 @@
-import { MouseEvent, useMemo, useState } from 'react';
+import { MouseEvent, useMemo, useState, useCallback } from 'react';
 import { Host, TerminalSession, Workspace } from '../../domain/models';
 import {
   createWorkspaceFromSessions as createWorkspaceEntity,
@@ -7,18 +7,20 @@ import {
   SplitHint,
   updateWorkspaceSplitSizes,
 } from '../../domain/workspace';
+import { activeTabStore } from './activeTabStore';
 
 export const useSessionState = () => {
   const [sessions, setSessions] = useState<TerminalSession[]>([]);
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
-  const [activeTabId, setActiveTabId] = useState<string>('vault');
+  // activeTabId is now managed by external store - components subscribe directly
+  const setActiveTabId = activeTabStore.setActiveTabId;
   const [draggingSessionId, setDraggingSessionId] = useState<string | null>(null);
   const [workspaceRenameTarget, setWorkspaceRenameTarget] = useState<Workspace | null>(null);
   const [workspaceRenameValue, setWorkspaceRenameValue] = useState('');
   // Tab order: stores ordered list of tab IDs (orphan session IDs and workspace IDs)
   const [tabOrder, setTabOrder] = useState<string[]>([]);
 
-  const createLocalTerminal = () => {
+  const createLocalTerminal = useCallback(() => {
     const sessionId = crypto.randomUUID();
     const localHostId = `local-${sessionId}`;
     const newSession: TerminalSession = {
@@ -31,9 +33,9 @@ export const useSessionState = () => {
     };
     setSessions(prev => [...prev, newSession]);
     setActiveTabId(sessionId);
-  };
+  }, []);
 
-  const connectToHost = (host: Host) => {
+  const connectToHost = useCallback((host: Host) => {
     const newSession: TerminalSession = {
       id: crypto.randomUUID(),
       hostId: host.id,
@@ -44,140 +46,170 @@ export const useSessionState = () => {
     };
     setSessions(prev => [...prev, newSession]);
     setActiveTabId(newSession.id);
-  };
+  }, []);
 
-  const updateSessionStatus = (sessionId: string, status: TerminalSession['status']) => {
+  const updateSessionStatus = useCallback((sessionId: string, status: TerminalSession['status']) => {
     setSessions(prev => prev.map(s => s.id === sessionId ? { ...s, status } : s));
-  };
+  }, []);
 
-  const closeSession = (sessionId: string, e?: MouseEvent) => {
+  const closeSession = useCallback((sessionId: string, e?: MouseEvent) => {
     e?.stopPropagation();
-    const targetSession = sessions.find(s => s.id === sessionId);
-    const workspaceId = targetSession?.workspaceId;
-    let removedWorkspaceId: string | null = null;
+    
+    setSessions(prevSessions => {
+      const targetSession = prevSessions.find(s => s.id === sessionId);
+      const workspaceId = targetSession?.workspaceId;
+      
+      setWorkspaces(prevWorkspaces => {
+        let removedWorkspaceId: string | null = null;
+        let nextWorkspaces = prevWorkspaces;
+        
+        if (workspaceId) {
+          nextWorkspaces = prevWorkspaces
+            .map(ws => {
+              if (ws.id !== workspaceId) return ws;
+              const pruned = pruneWorkspaceNode(ws.root, sessionId);
+              if (!pruned) {
+                removedWorkspaceId = ws.id;
+                return null;
+              }
+              return { ...ws, root: pruned };
+            })
+            .filter((ws): ws is Workspace => Boolean(ws));
+        }
+        
+        const remainingSessions = prevSessions.filter(s => s.id !== sessionId);
+        const fallbackWorkspace = nextWorkspaces[nextWorkspaces.length - 1];
+        const fallbackSolo = remainingSessions.filter(s => !s.workspaceId).slice(-1)[0];
 
-    let nextWorkspaces = workspaces;
-    if (workspaceId) {
-      nextWorkspaces = workspaces
-        .map(ws => {
-          if (ws.id !== workspaceId) return ws;
-          const pruned = pruneWorkspaceNode(ws.root, sessionId);
-          if (!pruned) {
-            removedWorkspaceId = ws.id;
-            return null;
-          }
-          return { ...ws, root: pruned };
-        })
-        .filter((ws): ws is Workspace => Boolean(ws));
-    }
+        const currentActiveTabId = activeTabStore.getActiveTabId();
+        const getFallback = () => {
+          if (fallbackWorkspace) return fallbackWorkspace.id;
+          if (fallbackSolo) return fallbackSolo.id;
+          return 'vault';
+        };
 
-    const remainingSessions = sessions.filter(s => s.id !== sessionId);
-    setWorkspaces(nextWorkspaces);
-    setSessions(remainingSessions);
+        if (currentActiveTabId === sessionId) {
+          setActiveTabId(fallbackSolo ? fallbackSolo.id : getFallback());
+        } else if (removedWorkspaceId && currentActiveTabId === removedWorkspaceId) {
+          setActiveTabId(getFallback());
+        } else if (workspaceId && currentActiveTabId === workspaceId && !nextWorkspaces.find(w => w.id === workspaceId)) {
+          setActiveTabId(getFallback());
+        }
+        
+        return nextWorkspaces;
+      });
+      
+      return prevSessions.filter(s => s.id !== sessionId);
+    });
+  }, []);
 
-    const fallbackWorkspace = nextWorkspaces[nextWorkspaces.length - 1];
-    const fallbackSolo = remainingSessions.filter(s => !s.workspaceId).slice(-1)[0];
-
-    const setFallback = () => {
-      if (fallbackWorkspace) setActiveTabId(fallbackWorkspace.id);
-      else if (fallbackSolo) setActiveTabId(fallbackSolo.id);
-      else setActiveTabId('vault');
-    };
-
-    if (activeTabId === sessionId) {
-      if (fallbackSolo) setActiveTabId(fallbackSolo.id);
-      else setFallback();
-    } else if (removedWorkspaceId && activeTabId === removedWorkspaceId) {
-      setFallback();
-    } else if (workspaceId && activeTabId === workspaceId && !nextWorkspaces.find(w => w.id === workspaceId)) {
-      setFallback();
-    }
-  };
-
-  const closeWorkspace = (workspaceId: string) => {
-    const remainingWorkspaces = workspaces.filter(w => w.id !== workspaceId);
-    const remainingSessions = sessions.filter(s => s.workspaceId !== workspaceId);
-    setWorkspaces(remainingWorkspaces);
-    setSessions(remainingSessions);
-
-    if (activeTabId === workspaceId) {
-      const remainingOrphans = remainingSessions.filter(s => !s.workspaceId);
-      if (remainingWorkspaces.length > 0) {
-        setActiveTabId(remainingWorkspaces[remainingWorkspaces.length - 1].id);
-      } else if (remainingOrphans.length > 0) {
-        setActiveTabId(remainingOrphans[remainingOrphans.length - 1].id);
-      } else {
-        setActiveTabId('vault');
+  const closeWorkspace = useCallback((workspaceId: string) => {
+    setWorkspaces(prevWorkspaces => {
+      const remainingWorkspaces = prevWorkspaces.filter(w => w.id !== workspaceId);
+      
+      setSessions(prevSessions => prevSessions.filter(s => s.workspaceId !== workspaceId));
+      
+      const currentActiveTabId = activeTabStore.getActiveTabId();
+      if (currentActiveTabId === workspaceId) {
+        if (remainingWorkspaces.length > 0) {
+          setActiveTabId(remainingWorkspaces[remainingWorkspaces.length - 1].id);
+        } else {
+          setActiveTabId('vault');
+        }
       }
-    }
-  };
+      
+      return remainingWorkspaces;
+    });
+  }, []);
 
-  const startWorkspaceRename = (workspaceId: string) => {
-    const target = workspaces.find(w => w.id === workspaceId);
-    if (!target) return;
-    setWorkspaceRenameTarget(target);
-    setWorkspaceRenameValue(target.title);
-  };
+  const startWorkspaceRename = useCallback((workspaceId: string) => {
+    setWorkspaces(prevWorkspaces => {
+      const target = prevWorkspaces.find(w => w.id === workspaceId);
+      if (target) {
+        setWorkspaceRenameTarget(target);
+        setWorkspaceRenameValue(target.title);
+      }
+      return prevWorkspaces;
+    });
+  }, []);
 
-  const submitWorkspaceRename = () => {
-    const name = workspaceRenameValue.trim();
-    if (!name || !workspaceRenameTarget) return;
-    setWorkspaces(prev => prev.map(w => w.id === workspaceRenameTarget.id ? { ...w, title: name } : w));
+  const submitWorkspaceRename = useCallback(() => {
+    setWorkspaceRenameValue(prevValue => {
+      const name = prevValue.trim();
+      if (!name) return prevValue;
+      
+      setWorkspaceRenameTarget(prevTarget => {
+        if (!prevTarget) return prevTarget;
+        setWorkspaces(prev => prev.map(w => w.id === prevTarget.id ? { ...w, title: name } : w));
+        return null;
+      });
+      
+      return '';
+    });
+  }, []);
+
+  const resetWorkspaceRename = useCallback(() => {
     setWorkspaceRenameTarget(null);
     setWorkspaceRenameValue('');
-  };
+  }, []);
 
-  const resetWorkspaceRename = () => {
-    setWorkspaceRenameTarget(null);
-    setWorkspaceRenameValue('');
-  };
-
-  const createWorkspaceFromSessions = (
+  const createWorkspaceFromSessions = useCallback((
     baseSessionId: string,
     joiningSessionId: string,
     hint: SplitHint
   ) => {
     if (!hint || baseSessionId === joiningSessionId) return;
-    const base = sessions.find(s => s.id === baseSessionId);
-    const joining = sessions.find(s => s.id === joiningSessionId);
-    if (!base || !joining || base.workspaceId || joining.workspaceId) return;
+    
+    setSessions(prevSessions => {
+      const base = prevSessions.find(s => s.id === baseSessionId);
+      const joining = prevSessions.find(s => s.id === joiningSessionId);
+      if (!base || !joining || base.workspaceId || joining.workspaceId) return prevSessions;
 
-    const newWorkspace = createWorkspaceEntity(baseSessionId, joiningSessionId, hint);
-    setWorkspaces(prev => [...prev, newWorkspace]);
-    setSessions(prev => prev.map(s => {
-      if (s.id === baseSessionId || s.id === joiningSessionId) {
-        return { ...s, workspaceId: newWorkspace.id };
-      }
-      return s;
-    }));
-    setActiveTabId(newWorkspace.id);
-  };
+      const newWorkspace = createWorkspaceEntity(baseSessionId, joiningSessionId, hint);
+      setWorkspaces(prev => [...prev, newWorkspace]);
+      setActiveTabId(newWorkspace.id);
+      
+      return prevSessions.map(s => {
+        if (s.id === baseSessionId || s.id === joiningSessionId) {
+          return { ...s, workspaceId: newWorkspace.id };
+        }
+        return s;
+      });
+    });
+  }, []);
 
-  const addSessionToWorkspace = (
+  const addSessionToWorkspace = useCallback((
     workspaceId: string,
     sessionId: string,
     hint: SplitHint
   ) => {
-    const targetWorkspace = workspaces.find(w => w.id === workspaceId);
-    if (!targetWorkspace || !hint) return;
-    const session = sessions.find(s => s.id === sessionId);
-    if (!session || session.workspaceId) return;
+    if (!hint) return;
+    
+    setSessions(prevSessions => {
+      const session = prevSessions.find(s => s.id === sessionId);
+      if (!session || session.workspaceId) return prevSessions;
+      
+      setWorkspaces(prevWorkspaces => {
+        const targetWorkspace = prevWorkspaces.find(w => w.id === workspaceId);
+        if (!targetWorkspace) return prevWorkspaces;
+        
+        return prevWorkspaces.map(ws => {
+          if (ws.id !== workspaceId) return ws;
+          return { ...ws, root: insertPaneIntoWorkspace(ws.root, sessionId, hint) };
+        });
+      });
+      
+      setActiveTabId(workspaceId);
+      return prevSessions.map(s => s.id === sessionId ? { ...s, workspaceId } : s);
+    });
+  }, []);
 
-    setWorkspaces(prev => prev.map(ws => {
-      if (ws.id !== workspaceId) return ws;
-      return { ...ws, root: insertPaneIntoWorkspace(ws.root, sessionId, hint) };
-    }));
-
-    setSessions(prev => prev.map(s => s.id === sessionId ? { ...s, workspaceId } : s));
-    setActiveTabId(workspaceId);
-  };
-
-  const updateSplitSizes = (workspaceId: string, splitId: string, sizes: number[]) => {
+  const updateSplitSizes = useCallback((workspaceId: string, splitId: string, sizes: number[]) => {
     setWorkspaces(prev => prev.map(ws => {
       if (ws.id !== workspaceId) return ws;
       return { ...ws, root: updateWorkspaceSplitSizes(ws.root, splitId, sizes) };
     }));
-  };
+  }, []);
 
   const orphanSessions = useMemo(() => sessions.filter(s => !s.workspaceId), [sessions]);
 
@@ -193,38 +225,42 @@ export const useSessionState = () => {
     return [...orderedIds, ...newIds];
   }, [orphanSessions, workspaces, tabOrder]);
 
-  const reorderTabs = (draggedId: string, targetId: string, position: 'before' | 'after' = 'before') => {
+  const reorderTabs = useCallback((draggedId: string, targetId: string, position: 'before' | 'after' = 'before') => {
     if (draggedId === targetId) return;
     
-    const currentOrder = [...orderedTabs];
-    const draggedIndex = currentOrder.indexOf(draggedId);
-    const targetIndex = currentOrder.indexOf(targetId);
-    
-    if (draggedIndex === -1 || targetIndex === -1) return;
-    
-    // Remove dragged item first
-    currentOrder.splice(draggedIndex, 1);
-    
-    // Calculate new target index (adjusted after removal)
-    let newTargetIndex = targetIndex;
-    if (draggedIndex < targetIndex) {
-      newTargetIndex -= 1;
-    }
-    
-    // Insert at the correct position
-    if (position === 'after') {
-      newTargetIndex += 1;
-    }
-    
-    currentOrder.splice(newTargetIndex, 0, draggedId);
-    
-    setTabOrder(currentOrder);
-  };
+    setTabOrder(prevTabOrder => {
+      // We need to reconstruct orderedTabs logic here to get the current order
+      // This ensures we have the latest state without depending on orderedTabs memo
+      const currentOrder = [...prevTabOrder];
+      const draggedIndex = currentOrder.indexOf(draggedId);
+      const targetIndex = currentOrder.indexOf(targetId);
+      
+      if (draggedIndex === -1 || targetIndex === -1) return prevTabOrder;
+      
+      // Remove dragged item first
+      currentOrder.splice(draggedIndex, 1);
+      
+      // Calculate new target index (adjusted after removal)
+      let newTargetIndex = targetIndex;
+      if (draggedIndex < targetIndex) {
+        newTargetIndex -= 1;
+      }
+      
+      // Insert at the correct position
+      if (position === 'after') {
+        newTargetIndex += 1;
+      }
+      
+      currentOrder.splice(newTargetIndex, 0, draggedId);
+      
+      return currentOrder;
+    });
+  }, []);
 
   return {
     sessions,
     workspaces,
-    activeTabId,
+    // activeTabId removed - components should subscribe via useActiveTabId() from activeTabStore
     setActiveTabId,
     draggingSessionId,
     setDraggingSessionId,

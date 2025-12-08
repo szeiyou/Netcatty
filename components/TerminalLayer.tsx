@@ -1,8 +1,9 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState, useCallback, memo } from 'react';
 import { cn } from '../lib/utils';
 import Terminal from './Terminal';
 import AssistantPanel from './AssistantPanel';
 import { Host, SSHKey, Snippet, TerminalSession, TerminalTheme, Workspace, WorkspaceNode } from '../types';
+import { useActiveTabId } from '../application/state/activeTabStore';
 
 type WorkspaceRect = { x: number; y: number; w: number; h: number };
 
@@ -28,9 +29,7 @@ interface TerminalLayerProps {
   snippets: Snippet[];
   sessions: TerminalSession[];
   workspaces: Workspace[];
-  activeTabId: string;
   draggingSessionId: string | null;
-  isVisible: boolean;
   terminalTheme: TerminalTheme;
   showAssistant: boolean;
   onCloseSession: (sessionId: string, e?: React.MouseEvent) => void;
@@ -42,15 +41,13 @@ interface TerminalLayerProps {
   onSetDraggingSessionId: (id: string | null) => void;
 }
 
-export const TerminalLayer: React.FC<TerminalLayerProps> = ({
+const TerminalLayerInner: React.FC<TerminalLayerProps> = ({
   hosts,
   keys,
   snippets,
   sessions,
   workspaces,
-  activeTabId,
   draggingSessionId,
-  isVisible,
   terminalTheme,
   showAssistant,
   onCloseSession,
@@ -61,6 +58,13 @@ export const TerminalLayer: React.FC<TerminalLayerProps> = ({
   onUpdateSplitSizes,
   onSetDraggingSessionId,
 }) => {
+  // Subscribe to activeTabId from external store
+  const activeTabId = useActiveTabId();
+  const isVaultActive = activeTabId === 'vault';
+  const isSftpActive = activeTabId === 'sftp';
+  const isVisible = (!isVaultActive && !isSftpActive) || !!draggingSessionId;
+  
+  console.log('[TerminalLayer] render, isVisible:', isVisible, 'activeTabId:', activeTabId);
   const [workspaceArea, setWorkspaceArea] = useState<{ width: number; height: number }>({ width: 0, height: 0 });
   const workspaceOuterRef = useRef<HTMLDivElement>(null);
   const workspaceInnerRef = useRef<HTMLDivElement>(null);
@@ -79,7 +83,14 @@ export const TerminalLayer: React.FC<TerminalLayerProps> = ({
   const activeWorkspace = useMemo(() => workspaces.find(w => w.id === activeTabId), [workspaces, activeTabId]);
   const activeSession = useMemo(() => sessions.find(s => s.id === activeTabId), [sessions, activeTabId]);
 
-  const computeWorkspaceRects = (workspace?: Workspace, size?: { width: number; height: number }): Record<string, WorkspaceRect> => {
+  // Pre-compute host lookup map for O(1) access
+  const hostMap = useMemo(() => {
+    const map = new Map<string, Host>();
+    for (const h of hosts) map.set(h.id, h);
+    return map;
+  }, [hosts]);
+
+  const computeWorkspaceRects = useCallback((workspace?: Workspace, size?: { width: number; height: number }): Record<string, WorkspaceRect> => {
     if (!workspace) return {} as Record<string, WorkspaceRect>;
     const wTotal = size?.width || 1;
     const hTotal = size?.height || 1;
@@ -104,11 +115,11 @@ export const TerminalLayer: React.FC<TerminalLayerProps> = ({
     };
     walk(workspace.root, { x: 0, y: 0, w: wTotal, h: hTotal });
     return rects;
-  };
+  }, []);
 
   const activeWorkspaceRects = useMemo<Record<string, WorkspaceRect>>(
     () => computeWorkspaceRects(activeWorkspace, workspaceArea),
-    [activeWorkspace, workspaceArea]
+    [activeWorkspace, workspaceArea, computeWorkspaceRects]
   );
 
   useEffect(() => {
@@ -121,7 +132,7 @@ export const TerminalLayer: React.FC<TerminalLayerProps> = ({
     return () => observer.disconnect();
   }, [activeWorkspace]);
 
-  const collectResizers = (workspace?: Workspace, size?: { width: number; height: number }): ResizerHandle[] => {
+  const collectResizers = useCallback((workspace?: Workspace, size?: { width: number; height: number }): ResizerHandle[] => {
     if (!workspace || !size?.width || !size?.height) return [];
     const resizers: ResizerHandle[] = [];
     const walk = (node: WorkspaceNode, area: { x: number; y: number; w: number; h: number }) => {
@@ -155,9 +166,9 @@ export const TerminalLayer: React.FC<TerminalLayerProps> = ({
     };
     walk(workspace.root, { x: 0, y: 0, w: size.width, h: size.height });
     return resizers;
-  };
+  }, []);
 
-  const activeResizers = useMemo(() => collectResizers(activeWorkspace, workspaceArea), [activeWorkspace, workspaceArea]);
+  const activeResizers = useMemo(() => collectResizers(activeWorkspace, workspaceArea), [activeWorkspace, workspaceArea, collectResizers]);
 
   const computeSplitHint = (e: React.DragEvent): SplitHint => {
     const surface = workspaceOverlayRef.current || workspaceInnerRef.current || workspaceOuterRef.current;
@@ -326,7 +337,7 @@ export const TerminalLayer: React.FC<TerminalLayerProps> = ({
       )}
       <div ref={workspaceInnerRef} className="absolute inset-0 p-3">
         {sessions.map(session => {
-          const host = hosts.find(h => h.id === session.hostId) || {
+          const host = hostMap.get(session.hostId) || {
             id: session.hostId,
             label: session.hostLabel || 'Local Terminal',
             hostname: session.hostname || 'localhost',
@@ -438,3 +449,20 @@ export const TerminalLayer: React.FC<TerminalLayerProps> = ({
     </div>
   );
 };
+
+// Only re-render when data props change - activeTabId/isVisible are now managed internally via store subscription
+const terminalLayerAreEqual = (prev: TerminalLayerProps, next: TerminalLayerProps): boolean => {
+  return (
+    prev.hosts === next.hosts &&
+    prev.keys === next.keys &&
+    prev.snippets === next.snippets &&
+    prev.sessions === next.sessions &&
+    prev.workspaces === next.workspaces &&
+    prev.draggingSessionId === next.draggingSessionId &&
+    prev.terminalTheme === next.terminalTheme &&
+    prev.showAssistant === next.showAssistant
+  );
+};
+
+export const TerminalLayer = memo(TerminalLayerInner, terminalLayerAreEqual);
+TerminalLayer.displayName = 'TerminalLayer';

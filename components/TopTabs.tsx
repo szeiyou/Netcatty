@@ -1,22 +1,19 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback, memo } from 'react';
 import { TerminalSquare, Shield, Folder, LayoutGrid, Plus, Bell, User, Sun, Moon, X, Minus, Square, Copy } from 'lucide-react';
 import { TerminalSession, Workspace } from '../types';
 import { Button } from './ui/button';
 import { cn } from '../lib/utils';
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from './ui/context-menu';
+import { useActiveTabId, activeTabStore } from '../application/state/activeTabStore';
 
 interface TopTabsProps {
   theme: 'dark' | 'light';
-  isVaultActive: boolean;
-  isSftpActive: boolean;
-  activeTabId: string;
   sessions: TerminalSession[];
   orphanSessions: TerminalSession[];
   workspaces: Workspace[];
   orderedTabs: string[];
   draggingSessionId: string | null;
   isMacClient: boolean;
-  onSelectTab: (id: string) => void;
   onCloseSession: (sessionId: string, e?: React.MouseEvent) => void;
   onRenameWorkspace: (workspaceId: string) => void;
   onCloseWorkspace: (workspaceId: string) => void;
@@ -37,7 +34,7 @@ const sessionStatusDot = (status: TerminalSession['status']) => {
 };
 
 // Custom window controls for Windows/Linux (frameless window)
-const WindowControls: React.FC = () => {
+const WindowControls: React.FC = memo(() => {
   const [isMaximized, setIsMaximized] = useState(false);
 
   useEffect(() => {
@@ -96,20 +93,17 @@ const WindowControls: React.FC = () => {
       </button>
     </div>
   );
-};
+});
+WindowControls.displayName = 'WindowControls';
 
-export const TopTabs: React.FC<TopTabsProps> = ({
+const TopTabsInner: React.FC<TopTabsProps> = ({
   theme,
-  isVaultActive,
-  isSftpActive,
-  activeTabId,
   sessions,
   orphanSessions,
   workspaces,
   orderedTabs,
   draggingSessionId,
   isMacClient,
-  onSelectTab,
   onCloseSession,
   onRenameWorkspace,
   onCloseWorkspace,
@@ -119,17 +113,48 @@ export const TopTabs: React.FC<TopTabsProps> = ({
   onEndSessionDrag,
   onReorderTabs,
 }) => {
+  // Subscribe to activeTabId from external store
+  const activeTabId = useActiveTabId();
+  const isVaultActive = activeTabId === 'vault';
+  const isSftpActive = activeTabId === 'sftp';
+  const onSelectTab = activeTabStore.setActiveTabId;
+  
+  console.log('[TopTabs] render, activeTabId:', activeTabId);
   // Tab reorder drag state
   const [dropIndicator, setDropIndicator] = useState<{ tabId: string; position: 'before' | 'after' } | null>(null);
   const [isDraggingForReorder, setIsDraggingForReorder] = useState(false);
   const draggedTabIdRef = useRef<string | null>(null);
 
-  const handleTabDragStart = (e: React.DragEvent, tabId: string) => {
+  // Pre-compute lookup maps for O(1) access instead of O(n) find operations
+  const orphanSessionMap = useMemo(() => {
+    const map = new Map<string, TerminalSession>();
+    for (const s of orphanSessions) map.set(s.id, s);
+    return map;
+  }, [orphanSessions]);
+
+  const workspaceMap = useMemo(() => {
+    const map = new Map<string, Workspace>();
+    for (const w of workspaces) map.set(w.id, w);
+    return map;
+  }, [workspaces]);
+
+  // Pre-compute session counts per workspace for O(1) access
+  const workspacePaneCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const s of sessions) {
+      if (s.workspaceId) {
+        counts.set(s.workspaceId, (counts.get(s.workspaceId) || 0) + 1);
+      }
+    }
+    return counts;
+  }, [sessions]);
+
+  const handleTabDragStart = useCallback((e: React.DragEvent, tabId: string) => {
     e.dataTransfer.effectAllowed = 'move';
     e.dataTransfer.setData('tab-reorder-id', tabId);
     // Also set session-id for backward compatibility with workspace split functionality
     // Only orphan sessions can be dragged to create workspaces
-    const isOrphanSession = orphanSessions.some(s => s.id === tabId);
+    const isOrphanSession = orphanSessionMap.has(tabId);
     if (isOrphanSession) {
       e.dataTransfer.setData('session-id', tabId);
     }
@@ -139,16 +164,16 @@ export const TopTabs: React.FC<TopTabsProps> = ({
       setIsDraggingForReorder(true);
     }, 0);
     onStartSessionDrag(tabId);
-  };
+  }, [orphanSessionMap, onStartSessionDrag]);
 
-  const handleTabDragEnd = () => {
+  const handleTabDragEnd = useCallback(() => {
     draggedTabIdRef.current = null;
     setDropIndicator(null);
     setIsDraggingForReorder(false);
     onEndSessionDrag();
-  };
+  }, [onEndSessionDrag]);
 
-  const handleTabDragOver = (e: React.DragEvent, tabId: string) => {
+  const handleTabDragOver = useCallback((e: React.DragEvent, tabId: string) => {
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
 
@@ -162,17 +187,17 @@ export const TopTabs: React.FC<TopTabsProps> = ({
     const position: 'before' | 'after' = e.clientX < midpoint ? 'before' : 'after';
 
     setDropIndicator({ tabId, position });
-  };
+  }, []);
 
-  const handleTabDragLeave = (e: React.DragEvent) => {
+  const handleTabDragLeave = useCallback((e: React.DragEvent) => {
     // Only clear if we're leaving the tab entirely (not moving to a child element)
     const relatedTarget = e.relatedTarget as HTMLElement | null;
     if (!e.currentTarget.contains(relatedTarget)) {
       setDropIndicator(null);
     }
-  };
+  }, []);
 
-  const handleTabDrop = (e: React.DragEvent, targetTabId: string) => {
+  const handleTabDrop = useCallback((e: React.DragEvent, targetTabId: string) => {
     e.preventDefault();
     const draggedId = e.dataTransfer.getData('tab-reorder-id') || draggedTabIdRef.current;
 
@@ -182,51 +207,59 @@ export const TopTabs: React.FC<TopTabsProps> = ({
 
     setDropIndicator(null);
     setIsDraggingForReorder(false);
-  };
+  }, [dropIndicator, onReorderTabs]);
 
-  // Calculate shift direction for each tab based on drop indicator
-  const getTabShiftStyle = (tabId: string): React.CSSProperties => {
+  // Pre-compute tab shift styles for all tabs to avoid recalculation during render
+  const tabShiftStyles = useMemo(() => {
     if (!dropIndicator || !isDraggingForReorder || !draggedTabIdRef.current) {
       return {};
     }
-
+    const styles: Record<string, React.CSSProperties> = {};
     const draggedIndex = orderedTabs.indexOf(draggedTabIdRef.current);
-    const currentIndex = orderedTabs.indexOf(tabId);
     const targetIndex = orderedTabs.indexOf(dropIndicator.tabId);
-
-    // Don't shift the dragged tab itself
-    if (tabId === draggedTabIdRef.current) {
-      return {};
-    }
-
-    // Calculate the effective drop position
     const dropIndex = dropIndicator.position === 'before' ? targetIndex : targetIndex + 1;
 
-    // Determine if this tab needs to shift
-    if (draggedIndex < dropIndex) {
-      // Dragging forward: tabs between dragged and drop position shift left
-      if (currentIndex > draggedIndex && currentIndex < dropIndex) {
-        return { transform: 'translateX(-8px)' };
-      }
-    } else {
-      // Dragging backward: tabs between drop position and dragged shift right
-      if (currentIndex >= dropIndex && currentIndex < draggedIndex) {
-        return { transform: 'translateX(8px)' };
+    for (let i = 0; i < orderedTabs.length; i++) {
+      const tabId = orderedTabs[i];
+      if (tabId === draggedTabIdRef.current) continue;
+
+      if (draggedIndex < dropIndex) {
+        if (i > draggedIndex && i < dropIndex) {
+          styles[tabId] = { transform: 'translateX(-8px)' };
+        }
+      } else {
+        if (i >= dropIndex && i < draggedIndex) {
+          styles[tabId] = { transform: 'translateX(8px)' };
+        }
       }
     }
+    return styles;
+  }, [dropIndicator, isDraggingForReorder, orderedTabs]);
 
-    return {};
-  };
-
-  // Build ordered tab items
-  const renderOrderedTabs = () => {
+  // Build ordered tab items using pre-computed maps for O(1) lookups
+  const orderedTabItems = useMemo(() => {
     return orderedTabs.map((tabId) => {
-      const session = orphanSessions.find(s => s.id === tabId);
-      const workspace = workspaces.find(w => w.id === tabId);
-
+      const session = orphanSessionMap.get(tabId);
+      const workspace = workspaceMap.get(tabId);
       if (session) {
+        return { type: 'session' as const, id: tabId, session };
+      }
+      if (workspace) {
+        return { type: 'workspace' as const, id: tabId, workspace, paneCount: workspacePaneCounts.get(tabId) || 0 };
+      }
+      return null;
+    }).filter(Boolean);
+  }, [orderedTabs, orphanSessionMap, workspaceMap, workspacePaneCounts]);
+
+  // Render the tabs
+  const renderOrderedTabs = () => {
+    return orderedTabItems.map((item) => {
+      if (!item) return null;
+
+      if (item.type === 'session') {
+        const session = item.session;
         const isBeingDragged = draggingSessionId === session.id;
-        const shiftStyle = getTabShiftStyle(session.id);
+        const shiftStyle = tabShiftStyles[session.id] || {};
         const showDropIndicatorBefore = dropIndicator?.tabId === session.id && dropIndicator.position === 'before';
         const showDropIndicatorAfter = dropIndicator?.tabId === session.id && dropIndicator.position === 'after';
 
@@ -272,11 +305,12 @@ export const TopTabs: React.FC<TopTabsProps> = ({
         );
       }
 
-      if (workspace) {
-        const paneCount = sessions.filter(s => s.workspaceId === workspace.id).length;
+      if (item.type === 'workspace') {
+        const workspace = item.workspace;
+        const paneCount = item.paneCount;
         const isActive = activeTabId === workspace.id;
         const isBeingDragged = draggingSessionId === workspace.id;
-        const shiftStyle = getTabShiftStyle(workspace.id);
+        const shiftStyle = tabShiftStyles[workspace.id] || {};
         const showDropIndicatorBefore = dropIndicator?.tabId === workspace.id && dropIndicator.position === 'before';
         const showDropIndicatorAfter = dropIndicator?.tabId === workspace.id && dropIndicator.position === 'after';
 
@@ -390,3 +424,18 @@ export const TopTabs: React.FC<TopTabsProps> = ({
   );
 };
 
+// Custom comparison: only re-render when data props change - activeTabId is now managed internally via store subscription
+const topTabsAreEqual = (prev: TopTabsProps, next: TopTabsProps): boolean => {
+  return (
+    prev.theme === next.theme &&
+    prev.sessions === next.sessions &&
+    prev.orphanSessions === next.orphanSessions &&
+    prev.workspaces === next.workspaces &&
+    prev.orderedTabs === next.orderedTabs &&
+    prev.draggingSessionId === next.draggingSessionId &&
+    prev.isMacClient === next.isMacClient
+  );
+};
+
+export const TopTabs = memo(TopTabsInner, topTabsAreEqual);
+TopTabs.displayName = 'TopTabs';

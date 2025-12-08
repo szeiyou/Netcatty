@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, memo } from 'react';
 import {
   Activity,
   BookMarked,
@@ -32,11 +32,12 @@ import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } 
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from './ui/dialog';
 import { Label } from './ui/label';
 import { sanitizeHost } from '../domain/host';
+import { useIsVaultActive } from '../application/state/activeTabStore';
 
 type VaultSection = 'hosts' | 'keys' | 'snippets' | 'port';
 
+// Props without isActive - it's now subscribed internally
 interface VaultViewProps {
-  isActive: boolean;
   hosts: Host[];
   keys: SSHKey[];
   snippets: Snippet[];
@@ -59,8 +60,7 @@ interface VaultViewProps {
   onUpdateCustomGroups: (groups: string[]) => void;
 }
 
-export const VaultView: React.FC<VaultViewProps> = ({
-  isActive,
+const VaultViewInner: React.FC<VaultViewProps> = ({
   hosts,
   keys,
   snippets,
@@ -82,6 +82,9 @@ export const VaultView: React.FC<VaultViewProps> = ({
   onUpdateSnippetPackages,
   onUpdateCustomGroups,
 }) => {
+  // Subscribe to isActive from external store - only re-renders when vault active state changes
+  const isActive = useIsVaultActive();
+  console.log('[VaultView] render, isActive:', isActive);
   const [currentSection, setCurrentSection] = useState<VaultSection>('hosts');
   const [search, setSearch] = useState('');
   const [selectedGroupPath, setSelectedGroupPath] = useState<string | null>(null);
@@ -192,10 +195,16 @@ export const VaultView: React.FC<VaultViewProps> = ({
     onUpdateHosts(hosts.map(h => h.id === hostId ? { ...h, group: groupPath || '' } : h));
   };
 
+  // Use visibility + pointer-events instead of display:none to preserve component state
+  // and avoid re-rendering when switching tabs
+  const containerStyle: React.CSSProperties = isActive
+    ? {}
+    : { visibility: 'hidden', pointerEvents: 'none', position: 'absolute' };
+
   return (
     <div
       className="absolute inset-0 min-h-0 flex z-20"
-      style={{ display: isActive ? 'flex' : 'none' }}
+      style={containerStyle}
     >
       {/* Sidebar */}
       <div className="w-64 bg-secondary/80 border-r border-border/60 flex flex-col">
@@ -465,3 +474,19 @@ export const VaultView: React.FC<VaultViewProps> = ({
     </div>
   );
 };
+
+// Only re-render when data props change - isActive is now managed internally via store subscription
+const vaultViewAreEqual = (prev: VaultViewProps, next: VaultViewProps): boolean => {
+  return (
+    prev.hosts === next.hosts &&
+    prev.keys === next.keys &&
+    prev.snippets === next.snippets &&
+    prev.snippetPackages === next.snippetPackages &&
+    prev.customGroups === next.customGroups &&
+    prev.sessions === next.sessions &&
+    prev.showAssistant === next.showAssistant
+  );
+};
+
+export const VaultView = memo(VaultViewInner, vaultViewAreEqual);
+VaultView.displayName = 'VaultView';
