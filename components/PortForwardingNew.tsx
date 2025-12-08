@@ -438,12 +438,12 @@ const PortForwarding: React.FC<PortForwardingProps> = ({ hosts, keys, customGrou
                                 "h-10 w-10 rounded-lg flex items-center justify-center text-sm font-bold transition-colors",
                                 rule.status === 'active' ? (
                                     rule.type === 'local' ? "bg-blue-500 text-white" :
-                                    rule.type === 'remote' ? "bg-orange-500 text-white" :
-                                    "bg-purple-500 text-white"
+                                        rule.type === 'remote' ? "bg-orange-500 text-white" :
+                                            "bg-purple-500 text-white"
                                 ) : (
                                     rule.type === 'local' ? "bg-blue-500/15 text-blue-500" :
-                                    rule.type === 'remote' ? "bg-orange-500/15 text-orange-500" :
-                                    "bg-purple-500/15 text-purple-500"
+                                        rule.type === 'remote' ? "bg-orange-500/15 text-orange-500" :
+                                            "bg-purple-500/15 text-purple-500"
                                 )
                             )}>
                                 {rule.type[0].toUpperCase()}
@@ -454,9 +454,9 @@ const PortForwarding: React.FC<PortForwardingProps> = ({ hosts, keys, customGrou
                                     <span className={cn(
                                         "h-2 w-2 rounded-full flex-shrink-0",
                                         rule.status === 'active' ? "bg-emerald-500" :
-                                        rule.status === 'connecting' ? "bg-yellow-500 animate-pulse" :
-                                        rule.status === 'error' ? "bg-red-500" :
-                                        "bg-muted-foreground/40"
+                                            rule.status === 'connecting' ? "bg-yellow-500 animate-pulse" :
+                                                rule.status === 'error' ? "bg-red-500" :
+                                                    "bg-muted-foreground/40"
                                     )} />
                                 </div>
                                 <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
