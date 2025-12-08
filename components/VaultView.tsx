@@ -291,164 +291,164 @@ const VaultViewInner: React.FC<VaultViewProps> = ({
         )}
 
         {currentSection !== 'port' && (
-        <div className="flex-1 overflow-auto px-4 py-4 space-y-6">
-          {currentSection === 'hosts' && (
-            <>
-              <section className="space-y-2">
-                <div className="flex items-center gap-2 text-sm font-semibold">
-                  <button className="text-primary hover:underline" onClick={() => setSelectedGroupPath(null)}>All hosts</button>
-                  {selectedGroupPath && selectedGroupPath.split('/').filter(Boolean).map((part, idx, arr) => {
-                    const crumbPath = arr.slice(0, idx + 1).join('/');
-                    const isLast = idx === arr.length - 1;
-                    return (
-                      <span key={crumbPath} className="flex items-center gap-2">
-                        <span className="text-muted-foreground">›</span>
-                        <button className={cn(isLast ? "text-foreground font-semibold" : "text-primary hover:underline")} onClick={() => setSelectedGroupPath(crumbPath)}>
-                          {part}
-                        </button>
-                      </span>
-                    );
-                  })}
-                </div>
-                {displayedGroups.length > 0 && (
-                  <>
-                    <div className="flex items-center justify-between">
-                      <h3 className="text-sm font-semibold text-muted-foreground">Groups</h3>
-                      <div className="text-xs text-muted-foreground">{displayedGroups.length} total</div>
-                    </div>
-                  </>
-                )}
-                <div className={cn("grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4", displayedGroups.length === 0 ? "hidden" : "")}
-                  onDragOver={(e) => { e.preventDefault(); }}
-                  onDrop={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    const hostId = e.dataTransfer.getData('host-id');
-                    const groupPath = e.dataTransfer.getData('group-path');
-                    if (hostId) moveHostToGroup(hostId, selectedGroupPath);
-                    if (groupPath && selectedGroupPath !== null) moveGroup(groupPath, selectedGroupPath);
-                  }}>
-                  {displayedGroups.map(node => (
-                    <ContextMenu key={node.path}>
-                      <ContextMenuTrigger asChild>
-                        <div
-                          className="soft-card elevate rounded-lg p-4 cursor-pointer"
-                          draggable
-                          onDragStart={(e) => e.dataTransfer.setData('group-path', node.path)}
-                          onDoubleClick={() => setSelectedGroupPath(node.path)}
-                          onClick={() => setSelectedGroupPath(node.path)}
-                          onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
-                          onDrop={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            const hostId = e.dataTransfer.getData('host-id');
-                            const groupPath = e.dataTransfer.getData('group-path');
-                            if (hostId) moveHostToGroup(hostId, node.path);
-                            if (groupPath) moveGroup(groupPath, node.path);
-                          }}
-                        >
-                          <div className="flex items-center gap-3">
-                            <div className="h-10 w-10 rounded-lg bg-primary/15 text-primary flex items-center justify-center">
-                              <Grid size={18} />
-                            </div>
-                            <div>
-                              <div className="text-sm font-semibold">{node.name}</div>
-                              <div className="text-[11px] text-muted-foreground">{node.hosts.length} Hosts</div>
-                            </div>
-                          </div>
-                        </div>
-                      </ContextMenuTrigger>
-                      <ContextMenuContent>
-                        <ContextMenuItem onClick={() => { setTargetParentPath(node.path); setIsNewFolderOpen(true); }}>
-                          <FolderPlus className="mr-2 h-4 w-4" /> New Subgroup
-                        </ContextMenuItem>
-                        <ContextMenuItem className="text-destructive" onClick={() => deleteGroupPath(node.path)}>
-                          <Trash2 className="mr-2 h-4 w-4" /> Delete Group
-                        </ContextMenuItem>
-                      </ContextMenuContent>
-                    </ContextMenu>
-                  ))}
-                </div>
-              </section>
-
-              <section className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-sm font-semibold text-muted-foreground">Hosts</h3>
-                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                    <span>{displayedHosts.length} entries</span>
-                    <div className="bg-secondary/80 border border-border/70 rounded-md px-2 py-1 text-[11px]">{sessions.length} live</div>
+          <div className="flex-1 overflow-auto px-4 py-4 space-y-6">
+            {currentSection === 'hosts' && (
+              <>
+                <section className="space-y-2">
+                  <div className="flex items-center gap-2 text-sm font-semibold">
+                    <button className="text-primary hover:underline" onClick={() => setSelectedGroupPath(null)}>All hosts</button>
+                    {selectedGroupPath && selectedGroupPath.split('/').filter(Boolean).map((part, idx, arr) => {
+                      const crumbPath = arr.slice(0, idx + 1).join('/');
+                      const isLast = idx === arr.length - 1;
+                      return (
+                        <span key={crumbPath} className="flex items-center gap-2">
+                          <span className="text-muted-foreground">›</span>
+                          <button className={cn(isLast ? "text-foreground font-semibold" : "text-primary hover:underline")} onClick={() => setSelectedGroupPath(crumbPath)}>
+                            {part}
+                          </button>
+                        </span>
+                      );
+                    })}
                   </div>
-                </div>
-                <div className="grid gap-3 grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-                  {displayedHosts.map((host) => {
-                    const safeHost = sanitizeHost(host);
-                    const distroBadge = { text: (safeHost.os || 'L')[0].toUpperCase(), label: safeHost.distro || safeHost.os || 'Linux' };
-                    return (
-                      <ContextMenu key={host.id}>
-                        <ContextMenuTrigger>
+                  {displayedGroups.length > 0 && (
+                    <>
+                      <div className="flex items-center justify-between">
+                        <h3 className="text-sm font-semibold text-muted-foreground">Groups</h3>
+                        <div className="text-xs text-muted-foreground">{displayedGroups.length} total</div>
+                      </div>
+                    </>
+                  )}
+                  <div className={cn("grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4", displayedGroups.length === 0 ? "hidden" : "")}
+                    onDragOver={(e) => { e.preventDefault(); }}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      const hostId = e.dataTransfer.getData('host-id');
+                      const groupPath = e.dataTransfer.getData('group-path');
+                      if (hostId) moveHostToGroup(hostId, selectedGroupPath);
+                      if (groupPath && selectedGroupPath !== null) moveGroup(groupPath, selectedGroupPath);
+                    }}>
+                    {displayedGroups.map(node => (
+                      <ContextMenu key={node.path}>
+                        <ContextMenuTrigger asChild>
                           <div
-                            className="soft-card elevate rounded-xl cursor-pointer h-[72px] px-3 py-2"
+                            className="soft-card elevate rounded-lg p-4 cursor-pointer"
                             draggable
-                            onDragStart={(e) => {
-                              e.dataTransfer.effectAllowed = 'move';
-                              e.dataTransfer.setData('host-id', host.id);
+                            onDragStart={(e) => e.dataTransfer.setData('group-path', node.path)}
+                            onDoubleClick={() => setSelectedGroupPath(node.path)}
+                            onClick={() => setSelectedGroupPath(node.path)}
+                            onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                            onDrop={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              const hostId = e.dataTransfer.getData('host-id');
+                              const groupPath = e.dataTransfer.getData('group-path');
+                              if (hostId) moveHostToGroup(hostId, node.path);
+                              if (groupPath) moveGroup(groupPath, node.path);
                             }}
-                            onClick={() => onConnect(safeHost)}
                           >
-                            <div className="flex items-center gap-3 h-full">
-                              <DistroAvatar host={safeHost} fallback={distroBadge.text} />
-                              <div className="min-w-0 flex flex-col justify-center gap-0.5">
-                                <div className="text-sm font-semibold truncate leading-5">{safeHost.label}</div>
-                                <div className="text-[11px] text-muted-foreground font-mono truncate leading-4">{safeHost.username}@{safeHost.hostname}</div>
-                                {safeHost.distro && <div className="text-[10px] text-muted-foreground truncate leading-4">{distroBadge.label}</div>}
+                            <div className="flex items-center gap-3">
+                              <div className="h-10 w-10 rounded-lg bg-primary/15 text-primary flex items-center justify-center">
+                                <Grid size={18} />
+                              </div>
+                              <div>
+                                <div className="text-sm font-semibold">{node.name}</div>
+                                <div className="text-[11px] text-muted-foreground">{node.hosts.length} Hosts</div>
                               </div>
                             </div>
                           </div>
                         </ContextMenuTrigger>
                         <ContextMenuContent>
-                          <ContextMenuItem onClick={() => onConnect(host)}>
-                            <Plug className="mr-2 h-4 w-4" /> Connect
+                          <ContextMenuItem onClick={() => { setTargetParentPath(node.path); setIsNewFolderOpen(true); }}>
+                            <FolderPlus className="mr-2 h-4 w-4" /> New Subgroup
                           </ContextMenuItem>
-                          <ContextMenuItem onClick={() => onEditHost(host)}>
-                            <Edit2 className="mr-2 h-4 w-4" /> Edit
-                          </ContextMenuItem>
-                          <ContextMenuItem className="text-destructive" onClick={() => onDeleteHost(host.id)}>
-                            <Trash2 className="mr-2 h-4 w-4" /> Delete
+                          <ContextMenuItem className="text-destructive" onClick={() => deleteGroupPath(node.path)}>
+                            <Trash2 className="mr-2 h-4 w-4" /> Delete Group
                           </ContextMenuItem>
                         </ContextMenuContent>
                       </ContextMenu>
-                    );
-                  })}
-                  {displayedHosts.length === 0 && (
-                    <div className="col-span-full flex flex-col items-center justify-center py-24 text-muted-foreground">
-                      <div className="h-16 w-16 rounded-2xl bg-secondary/80 flex items-center justify-center mb-4">
-                        <LayoutGrid size={32} className="opacity-60" />
-                      </div>
-                      <h3 className="text-lg font-semibold text-foreground mb-2">Set up your hosts</h3>
-                      <p className="text-sm text-center max-w-sm">
-                        Save hosts to quickly connect to your servers, VMs, and containers.
-                      </p>
-                    </div>
-                  )}
-                </div>
-              </section>
-            </>
-          )}
+                    ))}
+                  </div>
+                </section>
 
-          {currentSection === 'keys' && (
-            <KeyManager keys={keys} onSave={k => onUpdateKeys([...keys, k])} onDelete={id => onUpdateKeys(keys.filter(k => k.id !== id))} />
-          )}
-          {currentSection === 'snippets' && (
-            <SnippetsManager
-              snippets={snippets}
-              packages={snippetPackages}
-              hosts={hosts}
-              onPackagesChange={onUpdateSnippetPackages}
-              onSave={s => onUpdateSnippets(snippets.find(ex => ex.id === s.id) ? snippets.map(ex => ex.id === s.id ? s : ex) : [...snippets, s])}
-              onDelete={id => onUpdateSnippets(snippets.filter(s => s.id !== id))}
-            />
-          )}
-        </div>
+                <section className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-sm font-semibold text-muted-foreground">Hosts</h3>
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <span>{displayedHosts.length} entries</span>
+                      <div className="bg-secondary/80 border border-border/70 rounded-md px-2 py-1 text-[11px]">{sessions.length} live</div>
+                    </div>
+                  </div>
+                  <div className="grid gap-3 grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                    {displayedHosts.map((host) => {
+                      const safeHost = sanitizeHost(host);
+                      const distroBadge = { text: (safeHost.os || 'L')[0].toUpperCase(), label: safeHost.distro || safeHost.os || 'Linux' };
+                      return (
+                        <ContextMenu key={host.id}>
+                          <ContextMenuTrigger>
+                            <div
+                              className="soft-card elevate rounded-xl cursor-pointer h-[72px] px-3 py-2"
+                              draggable
+                              onDragStart={(e) => {
+                                e.dataTransfer.effectAllowed = 'move';
+                                e.dataTransfer.setData('host-id', host.id);
+                              }}
+                              onClick={() => onConnect(safeHost)}
+                            >
+                              <div className="flex items-center gap-3 h-full">
+                                <DistroAvatar host={safeHost} fallback={distroBadge.text} />
+                                <div className="min-w-0 flex flex-col justify-center gap-0.5">
+                                  <div className="text-sm font-semibold truncate leading-5">{safeHost.label}</div>
+                                  <div className="text-[11px] text-muted-foreground font-mono truncate leading-4">{safeHost.username}@{safeHost.hostname}</div>
+                                  {safeHost.distro && <div className="text-[10px] text-muted-foreground truncate leading-4">{distroBadge.label}</div>}
+                                </div>
+                              </div>
+                            </div>
+                          </ContextMenuTrigger>
+                          <ContextMenuContent>
+                            <ContextMenuItem onClick={() => onConnect(host)}>
+                              <Plug className="mr-2 h-4 w-4" /> Connect
+                            </ContextMenuItem>
+                            <ContextMenuItem onClick={() => onEditHost(host)}>
+                              <Edit2 className="mr-2 h-4 w-4" /> Edit
+                            </ContextMenuItem>
+                            <ContextMenuItem className="text-destructive" onClick={() => onDeleteHost(host.id)}>
+                              <Trash2 className="mr-2 h-4 w-4" /> Delete
+                            </ContextMenuItem>
+                          </ContextMenuContent>
+                        </ContextMenu>
+                      );
+                    })}
+                    {displayedHosts.length === 0 && (
+                      <div className="col-span-full flex flex-col items-center justify-center py-24 text-muted-foreground">
+                        <div className="h-16 w-16 rounded-2xl bg-secondary/80 flex items-center justify-center mb-4">
+                          <LayoutGrid size={32} className="opacity-60" />
+                        </div>
+                        <h3 className="text-lg font-semibold text-foreground mb-2">Set up your hosts</h3>
+                        <p className="text-sm text-center max-w-sm">
+                          Save hosts to quickly connect to your servers, VMs, and containers.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                </section>
+              </>
+            )}
+
+            {currentSection === 'keys' && (
+              <KeyManager keys={keys} onSave={k => onUpdateKeys([...keys, k])} onDelete={id => onUpdateKeys(keys.filter(k => k.id !== id))} />
+            )}
+            {currentSection === 'snippets' && (
+              <SnippetsManager
+                snippets={snippets}
+                packages={snippetPackages}
+                hosts={hosts}
+                onPackagesChange={onUpdateSnippetPackages}
+                onSave={s => onUpdateSnippets(snippets.find(ex => ex.id === s.id) ? snippets.map(ex => ex.id === s.id ? s : ex) : [...snippets, s])}
+                onDelete={id => onUpdateSnippets(snippets.filter(s => s.id !== id))}
+              />
+            )}
+          </div>
         )}
         {currentSection === 'port' && <PortForwarding hosts={hosts} customGroups={customGroups} onNewHost={onNewHost} />}
       </div>
