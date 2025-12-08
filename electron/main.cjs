@@ -552,7 +552,7 @@ const registerSSHBridge = (win) => {
   electronModule.ipcMain.handle("nebula:local:homedir", getHomeDir);
   
   // Streaming transfer with progress and cancellation support
-  const activeTransfers = new Map(); // transferId -> { cancelled: boolean, stream?: ReadableStream }
+  const activeTransfers = new Map(); // transferId -> { cancelled: boolean, abortController?: AbortController }
   
   const startTransfer = async (event, payload) => {
     const { transferId, sourcePath, targetPath, sourceType, targetType, sourceSftpId, targetSftpId, totalBytes } = payload;
@@ -561,10 +561,23 @@ const registerSSHBridge = (win) => {
     // Register transfer for cancellation
     activeTransfers.set(transferId, { cancelled: false });
     
-    const sendProgress = (transferred, speed) => {
-      if (!activeTransfers.get(transferId)?.cancelled) {
-        sender.send("nebula:transfer:progress", { transferId, transferred, speed, totalBytes });
+    let lastTime = Date.now();
+    let lastTransferred = 0;
+    let speed = 0;
+    
+    const sendProgress = (transferred, total) => {
+      if (activeTransfers.get(transferId)?.cancelled) return;
+      
+      // Calculate speed
+      const now = Date.now();
+      const elapsed = now - lastTime;
+      if (elapsed >= 100) {
+        speed = Math.round((transferred - lastTransferred) / (elapsed / 1000));
+        lastTime = now;
+        lastTransferred = transferred;
       }
+      
+      sender.send("nebula:transfer:progress", { transferId, transferred, speed, totalBytes: total });
     };
     
     const sendComplete = () => {
@@ -577,106 +590,156 @@ const registerSSHBridge = (win) => {
       sender.send("nebula:transfer:error", { transferId, error: error.message || String(error) });
     };
     
+    const isCancelled = () => activeTransfers.get(transferId)?.cancelled;
+    
     try {
-      let readStream;
-      let writeStream;
       let fileSize = totalBytes || 0;
       
-      // Create read stream based on source type
-      if (sourceType === 'local') {
-        if (!fileSize) {
+      // Get file size if not provided
+      if (!fileSize) {
+        if (sourceType === 'local') {
           const stat = await fs.promises.stat(sourcePath);
           fileSize = stat.size;
-        }
-        readStream = fs.createReadStream(sourcePath);
-      } else if (sourceType === 'sftp') {
-        const client = sftpClients.get(sourceSftpId);
-        if (!client) throw new Error("Source SFTP session not found");
-        if (!fileSize) {
+        } else if (sourceType === 'sftp') {
+          const client = sftpClients.get(sourceSftpId);
+          if (!client) throw new Error("Source SFTP session not found");
           const stat = await client.stat(sourcePath);
           fileSize = stat.size;
         }
-        // ssh2-sftp-client's get with stream
-        readStream = client.sftp.createReadStream(sourcePath);
-      } else {
-        throw new Error("Invalid source type");
       }
       
-      // Create write stream based on target type
-      if (targetType === 'local') {
-        // Ensure directory exists
-        const dir = path.dirname(targetPath);
-        await fs.promises.mkdir(dir, { recursive: true });
-        writeStream = fs.createWriteStream(targetPath);
-      } else if (targetType === 'sftp') {
+      // Send initial progress
+      sendProgress(0, fileSize);
+      
+      // Handle different transfer scenarios
+      if (sourceType === 'local' && targetType === 'sftp') {
+        // Upload: Local -> SFTP (use fastPut with step callback)
         const client = sftpClients.get(targetSftpId);
         if (!client) throw new Error("Target SFTP session not found");
-        // Ensure directory exists
+        
+        // Ensure remote directory exists
         const dir = path.dirname(targetPath).replace(/\\/g, '/');
         try { await client.mkdir(dir, true); } catch {}
-        writeStream = client.sftp.createWriteStream(targetPath);
+        
+        await client.fastPut(sourcePath, targetPath, {
+          step: (totalTransferred, chunk, total) => {
+            if (isCancelled()) {
+              throw new Error('Transfer cancelled');
+            }
+            sendProgress(totalTransferred, total);
+          }
+        });
+        
+      } else if (sourceType === 'sftp' && targetType === 'local') {
+        // Download: SFTP -> Local (use fastGet with step callback)
+        const client = sftpClients.get(sourceSftpId);
+        if (!client) throw new Error("Source SFTP session not found");
+        
+        // Ensure local directory exists
+        const dir = path.dirname(targetPath);
+        await fs.promises.mkdir(dir, { recursive: true });
+        
+        await client.fastGet(sourcePath, targetPath, {
+          step: (totalTransferred, chunk, total) => {
+            if (isCancelled()) {
+              throw new Error('Transfer cancelled');
+            }
+            sendProgress(totalTransferred, total);
+          }
+        });
+        
+      } else if (sourceType === 'local' && targetType === 'local') {
+        // Local copy: use streams
+        const dir = path.dirname(targetPath);
+        await fs.promises.mkdir(dir, { recursive: true });
+        
+        await new Promise((resolve, reject) => {
+          const readStream = fs.createReadStream(sourcePath);
+          const writeStream = fs.createWriteStream(targetPath);
+          let transferred = 0;
+          
+          const transfer = activeTransfers.get(transferId);
+          if (transfer) {
+            transfer.readStream = readStream;
+            transfer.writeStream = writeStream;
+          }
+          
+          readStream.on('data', (chunk) => {
+            if (isCancelled()) {
+              readStream.destroy();
+              writeStream.destroy();
+              reject(new Error('Transfer cancelled'));
+              return;
+            }
+            transferred += chunk.length;
+            sendProgress(transferred, fileSize);
+          });
+          
+          readStream.on('error', reject);
+          writeStream.on('error', reject);
+          writeStream.on('finish', resolve);
+          
+          readStream.pipe(writeStream);
+        });
+        
+      } else if (sourceType === 'sftp' && targetType === 'sftp') {
+        // SFTP to SFTP: download to temp then upload
+        const tempPath = path.join(os.tmpdir(), `nebula-transfer-${transferId}`);
+        
+        const sourceClient = sftpClients.get(sourceSftpId);
+        const targetClient = sftpClients.get(targetSftpId);
+        if (!sourceClient) throw new Error("Source SFTP session not found");
+        if (!targetClient) throw new Error("Target SFTP session not found");
+        
+        // Download phase (0-50%)
+        await sourceClient.fastGet(sourcePath, tempPath, {
+          step: (totalTransferred, chunk, total) => {
+            if (isCancelled()) {
+              throw new Error('Transfer cancelled');
+            }
+            // Report as 0-50% of total
+            sendProgress(Math.floor(totalTransferred / 2), fileSize);
+          }
+        });
+        
+        if (isCancelled()) {
+          try { await fs.promises.unlink(tempPath); } catch {}
+          throw new Error('Transfer cancelled');
+        }
+        
+        // Upload phase (50-100%)
+        const dir = path.dirname(targetPath).replace(/\\/g, '/');
+        try { await targetClient.mkdir(dir, true); } catch {}
+        
+        await targetClient.fastPut(tempPath, targetPath, {
+          step: (totalTransferred, chunk, total) => {
+            if (isCancelled()) {
+              throw new Error('Transfer cancelled');
+            }
+            // Report as 50-100% of total
+            sendProgress(Math.floor(fileSize / 2) + Math.floor(totalTransferred / 2), fileSize);
+          }
+        });
+        
+        // Cleanup temp file
+        try { await fs.promises.unlink(tempPath); } catch {}
+        
       } else {
-        throw new Error("Invalid target type");
+        throw new Error("Invalid transfer configuration");
       }
       
-      // Store streams for potential cancellation
-      const transfer = activeTransfers.get(transferId);
-      if (transfer) {
-        transfer.readStream = readStream;
-        transfer.writeStream = writeStream;
-      }
-      
-      // Track progress
-      let transferred = 0;
-      let lastTime = Date.now();
-      let lastTransferred = 0;
-      let speed = 0;
-      
-      readStream.on('data', (chunk) => {
-        // Check if cancelled
-        if (activeTransfers.get(transferId)?.cancelled) {
-          readStream.destroy();
-          writeStream.destroy();
-          return;
-        }
-        
-        transferred += chunk.length;
-        
-        // Calculate speed every 200ms
-        const now = Date.now();
-        const elapsed = now - lastTime;
-        if (elapsed >= 200) {
-          speed = Math.round((transferred - lastTransferred) / (elapsed / 1000));
-          lastTime = now;
-          lastTransferred = transferred;
-          sendProgress(transferred, speed);
-        }
-      });
-      
-      readStream.on('error', (err) => {
-        writeStream.destroy();
-        sendError(err);
-      });
-      
-      writeStream.on('error', (err) => {
-        readStream.destroy();
-        sendError(err);
-      });
-      
-      writeStream.on('finish', () => {
-        if (!activeTransfers.get(transferId)?.cancelled) {
-          // Send final progress with 100%
-          sendProgress(fileSize, speed);
-          sendComplete();
-        }
-      });
-      
-      // Pipe read to write
-      readStream.pipe(writeStream);
+      // Send final 100% progress
+      sendProgress(fileSize, fileSize);
+      sendComplete();
       
       return { transferId, totalBytes: fileSize };
     } catch (err) {
-      sendError(err);
+      if (err.message === 'Transfer cancelled') {
+        activeTransfers.delete(transferId);
+        sender.send("nebula:transfer:cancelled", { transferId });
+      } else {
+        sendError(err);
+      }
       return { transferId, error: err.message };
     }
   };

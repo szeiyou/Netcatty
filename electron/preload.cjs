@@ -75,6 +75,13 @@ ipcRenderer.on("nebula:transfer:error", (_event, payload) => {
   transferErrorListeners.delete(payload.transferId);
 });
 
+ipcRenderer.on("nebula:transfer:cancelled", (_event, payload) => {
+  // Just cleanup listeners, the UI already knows it's cancelled
+  transferProgressListeners.delete(payload.transferId);
+  transferCompleteListeners.delete(payload.transferId);
+  transferErrorListeners.delete(payload.transferId);
+});
+
 const api = {
   startSSHSession: async (options) => {
     const result = await ipcRenderer.invoke("nebula:start", options);
