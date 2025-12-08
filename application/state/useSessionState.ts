@@ -15,6 +15,8 @@ export const useSessionState = () => {
   const [draggingSessionId, setDraggingSessionId] = useState<string | null>(null);
   const [workspaceRenameTarget, setWorkspaceRenameTarget] = useState<Workspace | null>(null);
   const [workspaceRenameValue, setWorkspaceRenameValue] = useState('');
+  // Tab order: stores ordered list of tab IDs (orphan session IDs and workspace IDs)
+  const [tabOrder, setTabOrder] = useState<string[]>([]);
 
   const createLocalTerminal = () => {
     const sessionId = crypto.randomUUID();
@@ -179,6 +181,46 @@ export const useSessionState = () => {
 
   const orphanSessions = useMemo(() => sessions.filter(s => !s.workspaceId), [sessions]);
 
+  // Get ordered tabs: combines orphan sessions and workspaces in the custom order
+  const orderedTabs = useMemo(() => {
+    const allTabIds = [
+      ...orphanSessions.map(s => s.id),
+      ...workspaces.map(w => w.id),
+    ];
+    // Filter tabOrder to only include existing tabs, then add any new tabs at the end
+    const orderedIds = tabOrder.filter(id => allTabIds.includes(id));
+    const newIds = allTabIds.filter(id => !orderedIds.includes(id));
+    return [...orderedIds, ...newIds];
+  }, [orphanSessions, workspaces, tabOrder]);
+
+  const reorderTabs = (draggedId: string, targetId: string, position: 'before' | 'after' = 'before') => {
+    if (draggedId === targetId) return;
+    
+    const currentOrder = [...orderedTabs];
+    const draggedIndex = currentOrder.indexOf(draggedId);
+    const targetIndex = currentOrder.indexOf(targetId);
+    
+    if (draggedIndex === -1 || targetIndex === -1) return;
+    
+    // Remove dragged item first
+    currentOrder.splice(draggedIndex, 1);
+    
+    // Calculate new target index (adjusted after removal)
+    let newTargetIndex = targetIndex;
+    if (draggedIndex < targetIndex) {
+      newTargetIndex -= 1;
+    }
+    
+    // Insert at the correct position
+    if (position === 'after') {
+      newTargetIndex += 1;
+    }
+    
+    currentOrder.splice(newTargetIndex, 0, draggedId);
+    
+    setTabOrder(currentOrder);
+  };
+
   return {
     sessions,
     workspaces,
@@ -201,5 +243,7 @@ export const useSessionState = () => {
     addSessionToWorkspace,
     updateSplitSizes,
     orphanSessions,
+    orderedTabs,
+    reorderTabs,
   };
 };

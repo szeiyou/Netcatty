@@ -73,6 +73,8 @@ function App() {
     addSessionToWorkspace,
     updateSplitSizes,
     orphanSessions,
+    orderedTabs,
+    reorderTabs,
   } = useSessionState();
 
   const isVaultActive = activeTabId === 'vault';
@@ -125,6 +127,7 @@ function App() {
         sessions={sessions}
         orphanSessions={orphanSessions}
         workspaces={workspaces}
+        orderedTabs={orderedTabs}
         draggingSessionId={draggingSessionId}
         isMacClient={isMacClient}
         onSelectTab={setActiveTabId}
@@ -135,6 +138,7 @@ function App() {
         onToggleTheme={() => setTheme(prev => prev === 'dark' ? 'light' : 'dark')}
         onStartSessionDrag={setDraggingSessionId}
         onEndSessionDrag={() => setDraggingSessionId(null)}
+        onReorderTabs={reorderTabs}
       />
 
       <div className="flex-1 relative min-h-0">
