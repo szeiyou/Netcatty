@@ -256,7 +256,7 @@ const TerminalComponent: React.FC<TerminalProps> = ({
     if (!containerRef.current || !fitAddonRef.current) return;
 
     let resizeTimeout: ReturnType<typeof setTimeout> | null = null;
-    
+
     const observer = new ResizeObserver(() => {
       // Clear previous timeout
       if (resizeTimeout) {
@@ -277,7 +277,7 @@ const TerminalComponent: React.FC<TerminalProps> = ({
 
   useEffect(() => {
     let resizeTimeout: ReturnType<typeof setTimeout> | null = null;
-    
+
     const handler = () => {
       // Clear previous timeout
       if (resizeTimeout) {
@@ -288,7 +288,7 @@ const TerminalComponent: React.FC<TerminalProps> = ({
         safeFit();
       }, 150);
     };
-    
+
     window.addEventListener('resize', handler);
     return () => {
       if (resizeTimeout) clearTimeout(resizeTimeout);
