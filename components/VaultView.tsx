@@ -450,7 +450,7 @@ const VaultViewInner: React.FC<VaultViewProps> = ({
             )}
           </div>
         )}
-        {currentSection === 'port' && <PortForwarding hosts={hosts} customGroups={customGroups} onNewHost={onNewHost} />}
+        {currentSection === 'port' && <PortForwarding hosts={hosts} keys={keys} customGroups={customGroups} onNewHost={onNewHost} />}
       </div>
 
       <Dialog open={isNewFolderOpen} onOpenChange={setIsNewFolderOpen}>

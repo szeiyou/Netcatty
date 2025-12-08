@@ -32,6 +32,37 @@ interface SftpTransferProgress {
   speed: number; // bytes per second
 }
 
+// Port Forwarding Types
+interface PortForwardOptions {
+  tunnelId: string;
+  type: 'local' | 'remote' | 'dynamic';
+  localPort: number;
+  bindAddress?: string;
+  remoteHost?: string;
+  remotePort?: number;
+  // SSH connection details
+  hostname: string;
+  port?: number;
+  username: string;
+  password?: string;
+  privateKey?: string;
+}
+
+interface PortForwardResult {
+  tunnelId: string;
+  success: boolean;
+  error?: string;
+}
+
+interface PortForwardStatusResult {
+  tunnelId: string;
+  status: 'inactive' | 'connecting' | 'active' | 'error';
+  type?: 'local' | 'remote' | 'dynamic';
+  error?: string;
+}
+
+type PortForwardStatusCallback = (status: 'inactive' | 'connecting' | 'active' | 'error', error?: string) => void;
+
 interface NebulaBridge {
   startSSHSession(options: NebulaSSHOptions): Promise<string>;
   startLocalSession?(options: { sessionId?: string; cols?: number; rows?: number; shell?: string; env?: Record<string, string> }): Promise<string>;
@@ -106,6 +137,13 @@ interface NebulaBridge {
   windowMaximize?(): Promise<boolean>;
   windowClose?(): Promise<void>;
   windowIsMaximized?(): Promise<boolean>;
+  
+  // Port Forwarding
+  startPortForward?(options: PortForwardOptions): Promise<PortForwardResult>;
+  stopPortForward?(tunnelId: string): Promise<PortForwardResult>;
+  getPortForwardStatus?(tunnelId: string): Promise<PortForwardStatusResult>;
+  listPortForwards?(): Promise<{ tunnelId: string; type: string; status: string }[]>;
+  onPortForwardStatus?(tunnelId: string, cb: PortForwardStatusCallback): () => void;
 }
 
 declare global {

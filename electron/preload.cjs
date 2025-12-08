@@ -82,6 +82,23 @@ ipcRenderer.on("nebula:transfer:cancelled", (_event, payload) => {
   transferErrorListeners.delete(payload.transferId);
 });
 
+// Port forwarding status listeners
+const portForwardStatusListeners = new Map();
+
+ipcRenderer.on("nebula:portforward:status", (_event, payload) => {
+  const { tunnelId, status, error } = payload;
+  const callbacks = portForwardStatusListeners.get(tunnelId);
+  if (callbacks) {
+    callbacks.forEach((cb) => {
+      try {
+        cb(status, error);
+      } catch (err) {
+        console.error("Port forward status callback failed", err);
+      }
+    });
+  }
+});
+
 const api = {
   startSSHSession: async (options) => {
     const result = await ipcRenderer.invoke("nebula:start", options);
@@ -194,6 +211,32 @@ const api = {
   windowMaximize: () => ipcRenderer.invoke("nebula:window:maximize"),
   windowClose: () => ipcRenderer.invoke("nebula:window:close"),
   windowIsMaximized: () => ipcRenderer.invoke("nebula:window:isMaximized"),
+  
+  // Port Forwarding API
+  startPortForward: async (options) => {
+    return ipcRenderer.invoke("nebula:portforward:start", options);
+  },
+  stopPortForward: async (tunnelId) => {
+    return ipcRenderer.invoke("nebula:portforward:stop", { tunnelId });
+  },
+  getPortForwardStatus: async (tunnelId) => {
+    return ipcRenderer.invoke("nebula:portforward:status", { tunnelId });
+  },
+  listPortForwards: async () => {
+    return ipcRenderer.invoke("nebula:portforward:list");
+  },
+  onPortForwardStatus: (tunnelId, cb) => {
+    if (!portForwardStatusListeners.has(tunnelId)) {
+      portForwardStatusListeners.set(tunnelId, new Set());
+    }
+    portForwardStatusListeners.get(tunnelId).add(cb);
+    return () => {
+      portForwardStatusListeners.get(tunnelId)?.delete(cb);
+      if (portForwardStatusListeners.get(tunnelId)?.size === 0) {
+        portForwardStatusListeners.delete(tunnelId);
+      }
+    };
+  },
 };
 
 // Merge with existing nebula (if any) to avoid stale objects on hot reload

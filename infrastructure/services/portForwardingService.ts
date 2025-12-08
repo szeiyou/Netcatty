@@ -1,0 +1,215 @@
+/**
+ * Port Forwarding Service
+ * Handles communication between the frontend and the Electron backend
+ * for establishing and managing SSH port forwarding tunnels.
+ */
+
+import { PortForwardingRule, PortForwardingType, Host } from '../../domain/models';
+
+export interface PortForwardingConnection {
+  ruleId: string;
+  tunnelId: string;
+  status: 'inactive' | 'connecting' | 'active' | 'error';
+  error?: string;
+  unsubscribe?: () => void;
+}
+
+// Map to track active connections
+const activeConnections = new Map<string, PortForwardingConnection>();
+
+/**
+ * Start a port forwarding tunnel
+ */
+export const startPortForward = async (
+  rule: PortForwardingRule,
+  host: Host,
+  keys: { id: string; privateKey: string }[],
+  onStatusChange: (status: PortForwardingRule['status'], error?: string) => void
+): Promise<{ success: boolean; error?: string }> => {
+  const nebula = window.nebula;
+  
+  if (!nebula?.startPortForward) {
+    // Fallback for browser/dev mode - simulate the connection
+    console.warn('[PortForwardingService] Backend not available, simulating connection...');
+    return simulateConnection(rule, onStatusChange);
+  }
+  
+  try {
+    // Generate a unique tunnel ID
+    const tunnelId = `pf-${rule.id}-${Date.now()}`;
+    
+    // Get the private key if using key auth
+    let privateKey: string | undefined;
+    if (host.identityFileId) {
+      const key = keys.find(k => k.id === host.identityFileId);
+      if (key) {
+        privateKey = key.privateKey;
+      }
+    }
+    
+    // Subscribe to status updates first
+    const unsubscribe = nebula.onPortForwardStatus?.(tunnelId, (status, error) => {
+      const conn = activeConnections.get(rule.id);
+      if (conn) {
+        conn.status = status;
+        conn.error = error;
+      }
+      onStatusChange(status, error ?? undefined);
+    });
+    
+    // Store connection info
+    activeConnections.set(rule.id, {
+      ruleId: rule.id,
+      tunnelId,
+      status: 'connecting',
+      unsubscribe,
+    });
+    
+    onStatusChange('connecting');
+    
+    // Start the tunnel
+    const result = await nebula.startPortForward({
+      tunnelId,
+      type: rule.type,
+      localPort: rule.localPort,
+      bindAddress: rule.bindAddress,
+      remoteHost: rule.remoteHost,
+      remotePort: rule.remotePort,
+      hostname: host.hostname,
+      port: host.port,
+      username: host.username,
+      password: host.password,
+      privateKey,
+    });
+    
+    if (!result.success) {
+      activeConnections.delete(rule.id);
+      unsubscribe?.();
+      onStatusChange('error', result.error);
+      return { success: false, error: result.error };
+    }
+    
+    return { success: true };
+    
+  } catch (err) {
+    const error = err instanceof Error ? err.message : 'Unknown error';
+    onStatusChange('error', error);
+    activeConnections.delete(rule.id);
+    return { success: false, error };
+  }
+};
+
+/**
+ * Stop a port forwarding tunnel
+ */
+export const stopPortForward = async (
+  ruleId: string,
+  onStatusChange: (status: PortForwardingRule['status']) => void
+): Promise<{ success: boolean; error?: string }> => {
+  const nebula = window.nebula;
+  const conn = activeConnections.get(ruleId);
+  
+  if (!conn) {
+    onStatusChange('inactive');
+    return { success: true };
+  }
+  
+  if (!nebula?.stopPortForward) {
+    // Fallback for browser/dev mode
+    console.warn('[PortForwardingService] Backend not available, simulating stop...');
+    conn.unsubscribe?.();
+    activeConnections.delete(ruleId);
+    onStatusChange('inactive');
+    return { success: true };
+  }
+  
+  try {
+    const result = await nebula.stopPortForward(conn.tunnelId);
+    
+    conn.unsubscribe?.();
+    activeConnections.delete(ruleId);
+    onStatusChange('inactive');
+    
+    return result;
+    
+  } catch (err) {
+    const error = err instanceof Error ? err.message : 'Unknown error';
+    return { success: false, error };
+  }
+};
+
+/**
+ * Get the current status of a tunnel
+ */
+export const getPortForwardStatus = async (
+  ruleId: string
+): Promise<PortForwardingRule['status']> => {
+  const conn = activeConnections.get(ruleId);
+  if (!conn) return 'inactive';
+  return conn.status;
+};
+
+/**
+ * Check if backend is available
+ */
+export const isBackendAvailable = (): boolean => {
+  return !!(window.nebula?.startPortForward);
+};
+
+/**
+ * Stop all active tunnels (cleanup on unmount)
+ */
+export const stopAllPortForwards = async (): Promise<void> => {
+  const nebula = window.nebula;
+  
+  for (const [ruleId, conn] of activeConnections) {
+    try {
+      if (nebula?.stopPortForward) {
+        await nebula.stopPortForward(conn.tunnelId);
+      }
+      conn.unsubscribe?.();
+    } catch (err) {
+      console.warn(`[PortForwardingService] Failed to stop tunnel ${conn.tunnelId}:`, err);
+    }
+  }
+  
+  activeConnections.clear();
+};
+
+/**
+ * Simulate connection for development/browser mode
+ */
+const simulateConnection = async (
+  rule: PortForwardingRule,
+  onStatusChange: (status: PortForwardingRule['status'], error?: string) => void
+): Promise<{ success: boolean; error?: string }> => {
+  onStatusChange('connecting');
+  
+  // Simulate connection delay
+  await new Promise(resolve => setTimeout(resolve, 1000));
+  
+  // Random success/failure for demo
+  const success = Math.random() > 0.1; // 90% success rate
+  
+  if (success) {
+    // Store simulated connection
+    activeConnections.set(rule.id, {
+      ruleId: rule.id,
+      tunnelId: `simulated-${rule.id}`,
+      status: 'active',
+    });
+    onStatusChange('active');
+    return { success: true };
+  } else {
+    onStatusChange('error', 'Simulated connection failure');
+    return { success: false, error: 'Simulated connection failure' };
+  }
+};
+
+export default {
+  startPortForward,
+  stopPortForward,
+  getPortForwardStatus,
+  isBackendAvailable,
+  stopAllPortForwards,
+};
