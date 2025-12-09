@@ -602,6 +602,44 @@ const registerSSHBridge = (win) => {
     return os.homedir();
   };
 
+  // Read system known_hosts file
+  const readKnownHosts = async () => {
+    const homeDir = os.homedir();
+    const knownHostsPaths = [];
+    
+    if (process.platform === "win32") {
+      // Windows: ~/.ssh/known_hosts
+      knownHostsPaths.push(path.join(homeDir, ".ssh", "known_hosts"));
+      // Also check OpenSSH system path
+      knownHostsPaths.push(path.join(process.env.PROGRAMDATA || "C:\\ProgramData", "ssh", "known_hosts"));
+    } else if (process.platform === "darwin") {
+      // macOS
+      knownHostsPaths.push(path.join(homeDir, ".ssh", "known_hosts"));
+      knownHostsPaths.push("/etc/ssh/ssh_known_hosts");
+    } else {
+      // Linux and others
+      knownHostsPaths.push(path.join(homeDir, ".ssh", "known_hosts"));
+      knownHostsPaths.push("/etc/ssh/ssh_known_hosts");
+    }
+    
+    let combinedContent = "";
+    
+    for (const knownHostsPath of knownHostsPaths) {
+      try {
+        if (fs.existsSync(knownHostsPath)) {
+          const content = fs.readFileSync(knownHostsPath, "utf8");
+          if (content.trim()) {
+            combinedContent += content + "\n";
+          }
+        }
+      } catch (err) {
+        console.warn(`Failed to read known_hosts from ${knownHostsPath}:`, err.message);
+      }
+    }
+    
+    return combinedContent || null;
+  };
+
   electronModule.ipcMain.handle("nebula:sftp:open", openSftp);
   electronModule.ipcMain.handle("nebula:sftp:list", listSftp);
   electronModule.ipcMain.handle("nebula:sftp:read", readSftp);
@@ -623,6 +661,7 @@ const registerSSHBridge = (win) => {
   electronModule.ipcMain.handle("nebula:local:mkdir", mkdirLocal);
   electronModule.ipcMain.handle("nebula:local:stat", statLocal);
   electronModule.ipcMain.handle("nebula:local:homedir", getHomeDir);
+  electronModule.ipcMain.handle("nebula:known-hosts:read", readKnownHosts);
   
   // Streaming transfer with progress and cancellation support
   const activeTransfers = new Map(); // transferId -> { cancelled: boolean, abortController?: AbortController }

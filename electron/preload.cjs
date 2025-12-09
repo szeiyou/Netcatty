@@ -246,6 +246,10 @@ const api = {
   getHomeDir: async () => {
     return ipcRenderer.invoke("nebula:local:homedir");
   },
+  // Read system known_hosts file
+  readKnownHosts: async () => {
+    return ipcRenderer.invoke("nebula:known-hosts:read");
+  },
   setTheme: async (theme) => {
     return ipcRenderer.invoke("nebula:setTheme", theme);
   },

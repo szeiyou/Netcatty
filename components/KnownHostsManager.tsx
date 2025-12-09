@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import {
     Search,
     Import,
@@ -13,6 +13,12 @@ import {
     Shield,
     ExternalLink,
     FolderOpen,
+    LayoutGrid,
+    List,
+    ArrowDownAZ,
+    ArrowUpAZ,
+    Calendar,
+    Check,
 } from 'lucide-react';
 import { KnownHost, Host } from '../types';
 import { Button } from './ui/button';
@@ -25,6 +31,11 @@ import {
     ContextMenuItem,
     ContextMenuTrigger,
 } from './ui/context-menu';
+import {
+    Popover,
+    PopoverContent,
+    PopoverTrigger,
+} from './ui/popover';
 import {
     Dialog,
     DialogContent,
@@ -45,6 +56,202 @@ interface KnownHostsManagerProps {
     onRefresh: () => void;
 }
 
+type ViewMode = 'grid' | 'list';
+type SortBy = 'name-asc' | 'name-desc' | 'newest' | 'oldest';
+
+// Helper functions outside component for stable references
+const formatDateFn = (timestamp: number) => {
+    return new Date(timestamp).toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+    });
+};
+
+const getKeyTypeColorFn = (keyType: string) => {
+    switch (keyType.toLowerCase()) {
+        case 'ssh-ed25519':
+            return 'text-emerald-500';
+        case 'ssh-rsa':
+            return 'text-amber-500';
+        case 'ecdsa-sha2-nistp256':
+        case 'ecdsa-sha2-nistp384':
+        case 'ecdsa-sha2-nistp521':
+            return 'text-blue-500';
+        default:
+            return 'text-muted-foreground';
+    }
+};
+
+// Memoized Grid Item Component
+interface HostItemProps {
+    knownHost: KnownHost;
+    converted: boolean;
+    viewMode: ViewMode;
+    onDelete: (id: string) => void;
+    onConvertToHost: (knownHost: KnownHost) => void;
+}
+
+const HostItem = React.memo<HostItemProps>(({ knownHost, converted, viewMode, onDelete, onConvertToHost }) => {
+    if (viewMode === 'grid') {
+        return (
+            <ContextMenu>
+                <ContextMenuTrigger asChild>
+                    <div
+                        className={cn(
+                            "group flex items-center gap-3 p-2.5 rounded-lg border border-border/50 bg-background hover:bg-secondary/50 transition-colors cursor-pointer",
+                            converted && "opacity-60"
+                        )}
+                    >
+                        <div className="h-11 w-11 rounded-lg bg-primary/10 text-primary flex items-center justify-center flex-shrink-0">
+                            <Server size={20} />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2">
+                                <span className="text-sm font-semibold truncate">
+                                    {knownHost.hostname}
+                                </span>
+                                {knownHost.port !== 22 && (
+                                    <span className="text-xs text-muted-foreground">
+                                        :{knownHost.port}
+                                    </span>
+                                )}
+                            </div>
+                            <div className="flex flex-col gap-0 text-xs text-muted-foreground">
+                                <span className={cn("flex items-center gap-1", getKeyTypeColorFn(knownHost.keyType))}>
+                                    <Key size={10} />
+                                    {knownHost.keyType}
+                                </span>
+                                <span className="flex items-center gap-1">
+                                    <Clock size={10} />
+                                    {formatDateFn(knownHost.discoveredAt)}
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                </ContextMenuTrigger>
+                <ContextMenuContent>
+                    {!converted && (
+                        <ContextMenuItem onClick={() => onConvertToHost(knownHost)}>
+                            <ArrowRight className="mr-2 h-4 w-4" />
+                            Convert to Managed Host
+                        </ContextMenuItem>
+                    )}
+                    {converted && (
+                        <ContextMenuItem disabled>
+                            <ExternalLink className="mr-2 h-4 w-4" />
+                            Already Managed
+                        </ContextMenuItem>
+                    )}
+                    <ContextMenuItem
+                        className="text-destructive"
+                        onClick={() => onDelete(knownHost.id)}
+                    >
+                        <Trash2 className="mr-2 h-4 w-4" />
+                        Remove
+                    </ContextMenuItem>
+                </ContextMenuContent>
+            </ContextMenu>
+        );
+    }
+
+    // List view
+    return (
+        <ContextMenu>
+            <ContextMenuTrigger asChild>
+                <div
+                    className={cn(
+                        "group flex items-center gap-3 px-4 py-3 rounded-lg border border-border/50 bg-background hover:bg-secondary/50 transition-colors cursor-pointer",
+                        converted && "opacity-60"
+                    )}
+                >
+                    <div className="h-10 w-10 rounded-lg bg-primary/10 text-primary flex items-center justify-center flex-shrink-0">
+                        <Server size={18} />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                            <span className="text-sm font-semibold truncate">
+                                {knownHost.hostname}
+                            </span>
+                            {knownHost.port !== 22 && (
+                                <span className="text-xs text-muted-foreground">
+                                    :{knownHost.port}
+                                </span>
+                            )}
+                            {converted && (
+                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-500">
+                                    Managed
+                                </span>
+                            )}
+                        </div>
+                        <div className="flex items-center gap-3 text-xs text-muted-foreground mt-1">
+                            <span className={cn("flex items-center gap-1", getKeyTypeColorFn(knownHost.keyType))}>
+                                <Key size={10} />
+                                {knownHost.keyType}
+                            </span>
+                            <span className="flex items-center gap-1">
+                                <Clock size={10} />
+                                {formatDateFn(knownHost.discoveredAt)}
+                            </span>
+                        </div>
+                    </div>
+                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                        {!converted && (
+                            <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8"
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    onConvertToHost(knownHost);
+                                }}
+                                title="Convert to managed host"
+                            >
+                                <ArrowRight size={14} />
+                            </Button>
+                        )}
+                        <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 text-destructive hover:text-destructive"
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                onDelete(knownHost.id);
+                            }}
+                            title="Remove"
+                        >
+                            <Trash2 size={14} />
+                        </Button>
+                    </div>
+                </div>
+            </ContextMenuTrigger>
+            <ContextMenuContent>
+                {!converted && (
+                    <ContextMenuItem onClick={() => onConvertToHost(knownHost)}>
+                        <ArrowRight className="mr-2 h-4 w-4" />
+                        Convert to Managed Host
+                    </ContextMenuItem>
+                )}
+                {converted && (
+                    <ContextMenuItem disabled>
+                        <ExternalLink className="mr-2 h-4 w-4" />
+                        Already Managed
+                    </ContextMenuItem>
+                )}
+                <ContextMenuItem
+                    className="text-destructive"
+                    onClick={() => onDelete(knownHost.id)}
+                >
+                    <Trash2 className="mr-2 h-4 w-4" />
+                    Remove
+                </ContextMenuItem>
+            </ContextMenuContent>
+        </ContextMenu>
+    );
+});
+
+HostItem.displayName = 'HostItem';
+
 const KnownHostsManager: React.FC<KnownHostsManagerProps> = ({
     knownHosts,
     hosts,
@@ -56,37 +263,66 @@ const KnownHostsManager: React.FC<KnownHostsManagerProps> = ({
     onRefresh,
 }) => {
     const [search, setSearch] = useState('');
+    const [deferredSearch, setDeferredSearch] = useState('');
     const [isImportDialogOpen, setIsImportDialogOpen] = useState(false);
     const [importPreview, setImportPreview] = useState<KnownHost[]>([]);
     const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+    const [isScanning, setIsScanning] = useState(false);
+    const [viewMode, setViewMode] = useState<ViewMode>('grid');
+    const [sortBy, setSortBy] = useState<SortBy>('newest');
+    const [viewPopoverOpen, setViewPopoverOpen] = useState(false);
+    const [sortPopoverOpen, setSortPopoverOpen] = useState(false);
     const fileInputRef = React.useRef<HTMLInputElement>(null);
     const hasScannedRef = React.useRef(false);
 
     // Auto-scan on first mount
     useEffect(() => {
-        if (!hasScannedRef.current && knownHosts.length === 0) {
+        if (!hasScannedRef.current) {
             hasScannedRef.current = true;
             handleScanSystem();
         }
     }, []);
 
-    const filteredHosts = useMemo(() => {
-        if (!search.trim()) return knownHosts;
-        const term = search.toLowerCase();
-        return knownHosts.filter(
-            (h) =>
-                h.hostname.toLowerCase().includes(term) ||
-                h.keyType.toLowerCase().includes(term)
-        );
-    }, [knownHosts, search]);
+    // Debounced search for performance
+    useEffect(() => {
+        const timer = setTimeout(() => {
+            setDeferredSearch(search);
+        }, 150);
+        return () => clearTimeout(timer);
+    }, [search]);
 
-    // Check if a known host has been converted to a managed host
-    const isConverted = (knownHost: KnownHost) => {
-        if (knownHost.convertedToHostId) {
-            return hosts.some((h) => h.id === knownHost.convertedToHostId);
+    // Sort and filter hosts
+    const filteredHosts = useMemo(() => {
+        let result = knownHosts;
+        
+        // Filter by search
+        if (deferredSearch.trim()) {
+            const term = deferredSearch.toLowerCase();
+            result = result.filter(
+                (h) =>
+                    h.hostname.toLowerCase().includes(term) ||
+                    h.keyType.toLowerCase().includes(term)
+            );
         }
-        return false;
-    };
+        
+        // Sort
+        result = [...result].sort((a, b) => {
+            switch (sortBy) {
+                case 'name-asc':
+                    return a.hostname.localeCompare(b.hostname);
+                case 'name-desc':
+                    return b.hostname.localeCompare(a.hostname);
+                case 'newest':
+                    return b.discoveredAt - a.discoveredAt;
+                case 'oldest':
+                    return a.discoveredAt - b.discoveredAt;
+                default:
+                    return 0;
+            }
+        });
+        
+        return result;
+    }, [knownHosts, deferredSearch, sortBy]);
 
     // Parse known_hosts file content
     const parseKnownHostsFile = (content: string): KnownHost[] => {
@@ -171,6 +407,7 @@ const KnownHostsManager: React.FC<KnownHostsManagerProps> = ({
     };
 
     const handleScanSystem = async () => {
+        setIsScanning(true);
         // Try to read from common known_hosts locations via Electron
         if (window.nebula?.readKnownHosts) {
             try {
@@ -191,30 +428,28 @@ const KnownHostsManager: React.FC<KnownHostsManagerProps> = ({
             }
         }
         onRefresh();
+        setIsScanning(false);
     };
 
-    const formatDate = (timestamp: number) => {
-        return new Date(timestamp).toLocaleDateString(undefined, {
-            year: 'numeric',
-            month: 'short',
-            day: 'numeric',
-        });
-    };
-
-    const getKeyTypeColor = (keyType: string) => {
-        switch (keyType.toLowerCase()) {
-            case 'ssh-ed25519':
-                return 'text-emerald-500';
-            case 'ssh-rsa':
-                return 'text-amber-500';
-            case 'ecdsa-sha2-nistp256':
-            case 'ecdsa-sha2-nistp384':
-            case 'ecdsa-sha2-nistp521':
-                return 'text-blue-500';
-            default:
-                return 'text-muted-foreground';
+    // Memoize host lookup for performance
+    const hostIdSet = useMemo(() => new Set(hosts.map(h => h.id)), [hosts]);
+    
+    // Check if a known host has been converted to a managed host
+    const isConverted = useCallback((knownHost: KnownHost) => {
+        if (knownHost.convertedToHostId) {
+            return hostIdSet.has(knownHost.convertedToHostId);
         }
-    };
+        return false;
+    }, [hostIdSet]);
+
+    // Memoized handlers to prevent re-renders
+    const handleDelete = useCallback((id: string) => {
+        onDelete(id);
+    }, [onDelete]);
+
+    const handleConvertToHost = useCallback((knownHost: KnownHost) => {
+        onConvertToHost(knownHost);
+    }, [onConvertToHost]);
 
     return (
         <div className="h-full flex flex-col">
@@ -231,14 +466,106 @@ const KnownHostsManager: React.FC<KnownHostsManagerProps> = ({
                         />
                     </div>
                 </div>
+                <div className="flex items-center gap-1">
+                    {/* View Mode Toggle */}
+                    <Popover open={viewPopoverOpen} onOpenChange={setViewPopoverOpen}>
+                        <PopoverTrigger asChild>
+                            <Button variant="ghost" size="icon" className="h-9 w-9">
+                                {viewMode === 'grid' ? <LayoutGrid size={16} /> : <List size={16} />}
+                            </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-36 p-1" align="end">
+                            <button
+                                className={cn(
+                                    "w-full flex items-center gap-2 px-3 py-2 text-sm rounded-md hover:bg-secondary transition-colors",
+                                    viewMode === 'grid' && "bg-secondary"
+                                )}
+                                onClick={() => { setViewMode('grid'); setViewPopoverOpen(false); }}
+                            >
+                                <LayoutGrid size={14} />
+                                Grid
+                                {viewMode === 'grid' && <Check size={14} className="ml-auto" />}
+                            </button>
+                            <button
+                                className={cn(
+                                    "w-full flex items-center gap-2 px-3 py-2 text-sm rounded-md hover:bg-secondary transition-colors",
+                                    viewMode === 'list' && "bg-secondary"
+                                )}
+                                onClick={() => { setViewMode('list'); setViewPopoverOpen(false); }}
+                            >
+                                <List size={14} />
+                                List
+                                {viewMode === 'list' && <Check size={14} className="ml-auto" />}
+                            </button>
+                        </PopoverContent>
+                    </Popover>
+                    
+                    {/* Sort Toggle */}
+                    <Popover open={sortPopoverOpen} onOpenChange={setSortPopoverOpen}>
+                        <PopoverTrigger asChild>
+                            <Button variant="ghost" size="icon" className="h-9 w-9">
+                                <Calendar size={16} />
+                            </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-48 p-1" align="end">
+                            <button
+                                className={cn(
+                                    "w-full flex items-center gap-2 px-3 py-2 text-sm rounded-md hover:bg-secondary transition-colors",
+                                    sortBy === 'name-asc' && "bg-secondary"
+                                )}
+                                onClick={() => { setSortBy('name-asc'); setSortPopoverOpen(false); }}
+                            >
+                                <ArrowDownAZ size={14} />
+                                A-z
+                                {sortBy === 'name-asc' && <Check size={14} className="ml-auto" />}
+                            </button>
+                            <button
+                                className={cn(
+                                    "w-full flex items-center gap-2 px-3 py-2 text-sm rounded-md hover:bg-secondary transition-colors",
+                                    sortBy === 'name-desc' && "bg-secondary"
+                                )}
+                                onClick={() => { setSortBy('name-desc'); setSortPopoverOpen(false); }}
+                            >
+                                <ArrowUpAZ size={14} />
+                                Z-a
+                                {sortBy === 'name-desc' && <Check size={14} className="ml-auto" />}
+                            </button>
+                            <div className="my-1 h-px bg-border" />
+                            <button
+                                className={cn(
+                                    "w-full flex items-center gap-2 px-3 py-2 text-sm rounded-md hover:bg-secondary transition-colors whitespace-nowrap",
+                                    sortBy === 'newest' && "bg-secondary"
+                                )}
+                                onClick={() => { setSortBy('newest'); setSortPopoverOpen(false); }}
+                            >
+                                <Calendar size={14} className="flex-shrink-0" />
+                                Newest to oldest
+                                {sortBy === 'newest' && <Check size={14} className="ml-auto flex-shrink-0" />}
+                            </button>
+                            <button
+                                className={cn(
+                                    "w-full flex items-center gap-2 px-3 py-2 text-sm rounded-md hover:bg-secondary transition-colors whitespace-nowrap",
+                                    sortBy === 'oldest' && "bg-secondary"
+                                )}
+                                onClick={() => { setSortBy('oldest'); setSortPopoverOpen(false); }}
+                            >
+                                <Calendar size={14} className="flex-shrink-0" />
+                                Oldest to newest
+                                {sortBy === 'oldest' && <Check size={14} className="ml-auto flex-shrink-0" />}
+                            </button>
+                        </PopoverContent>
+                    </Popover>
+                </div>
+                <div className="w-px h-5 bg-border/50" />
                 <div className="flex items-center gap-2">
                     <Button
                         variant="ghost"
                         size="sm"
                         className="h-9 px-3 text-xs"
                         onClick={handleScanSystem}
+                        disabled={isScanning}
                     >
-                        <RefreshCw size={14} className="mr-2" />
+                        <RefreshCw size={14} className={cn("mr-2", isScanning && "animate-spin")} />
                         Scan System
                     </Button>
                     <input
@@ -262,9 +589,15 @@ const KnownHostsManager: React.FC<KnownHostsManagerProps> = ({
 
             {/* Content */}
             <ScrollArea className="flex-1">
-                <div className="p-4 space-y-2">
+                <div className={cn(
+                    "p-4",
+                    viewMode === 'grid' ? "grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-3" : "space-y-2"
+                )}>
                     {filteredHosts.length === 0 ? (
-                        <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
+                        <div className={cn(
+                            "flex flex-col items-center justify-center py-16 text-muted-foreground",
+                            viewMode === 'grid' && "col-span-full"
+                        )}>
                             <div className="h-16 w-16 rounded-2xl bg-secondary/80 flex items-center justify-center mb-4">
                                 <Shield size={32} className="opacity-60" />
                             </div>
@@ -273,8 +606,8 @@ const KnownHostsManager: React.FC<KnownHostsManagerProps> = ({
                                 Known hosts are SSH servers you've connected to before. Import from your system's known_hosts file to get started.
                             </p>
                             <div className="flex gap-2">
-                                <Button variant="secondary" onClick={handleScanSystem}>
-                                    <RefreshCw size={14} className="mr-2" />
+                                <Button variant="secondary" onClick={handleScanSystem} disabled={isScanning}>
+                                    <RefreshCw size={14} className={cn("mr-2", isScanning && "animate-spin")} />
                                     Scan System
                                 </Button>
                                 <Button variant="outline" onClick={() => fileInputRef.current?.click()}>
@@ -284,101 +617,16 @@ const KnownHostsManager: React.FC<KnownHostsManagerProps> = ({
                             </div>
                         </div>
                     ) : (
-                        filteredHosts.map((knownHost) => {
-                            const converted = isConverted(knownHost);
-                            return (
-                                <ContextMenu key={knownHost.id}>
-                                    <ContextMenuTrigger asChild>
-                                        <div
-                                            className={cn(
-                                                "group flex items-center gap-3 px-4 py-3 rounded-lg border border-border/50 bg-background hover:bg-secondary/50 transition-colors cursor-pointer",
-                                                converted && "opacity-60"
-                                            )}
-                                        >
-                                            <div className="h-10 w-10 rounded-lg bg-primary/10 text-primary flex items-center justify-center flex-shrink-0">
-                                                <Server size={18} />
-                                            </div>
-                                            <div className="flex-1 min-w-0">
-                                                <div className="flex items-center gap-2">
-                                                    <span className="text-sm font-semibold truncate">
-                                                        {knownHost.hostname}
-                                                    </span>
-                                                    {knownHost.port !== 22 && (
-                                                        <span className="text-xs text-muted-foreground">
-                                                            :{knownHost.port}
-                                                        </span>
-                                                    )}
-                                                    {converted && (
-                                                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-500">
-                                                            Managed
-                                                        </span>
-                                                    )}
-                                                </div>
-                                                <div className="flex items-center gap-3 text-xs text-muted-foreground mt-1">
-                                                    <span className={cn("flex items-center gap-1", getKeyTypeColor(knownHost.keyType))}>
-                                                        <Key size={10} />
-                                                        {knownHost.keyType}
-                                                    </span>
-                                                    <span className="flex items-center gap-1">
-                                                        <Clock size={10} />
-                                                        {formatDate(knownHost.discoveredAt)}
-                                                    </span>
-                                                </div>
-                                            </div>
-                                            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                {!converted && (
-                                                    <Button
-                                                        variant="ghost"
-                                                        size="icon"
-                                                        className="h-8 w-8"
-                                                        onClick={(e) => {
-                                                            e.stopPropagation();
-                                                            onConvertToHost(knownHost);
-                                                        }}
-                                                        title="Convert to managed host"
-                                                    >
-                                                        <ArrowRight size={14} />
-                                                    </Button>
-                                                )}
-                                                <Button
-                                                    variant="ghost"
-                                                    size="icon"
-                                                    className="h-8 w-8 text-destructive hover:text-destructive"
-                                                    onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        onDelete(knownHost.id);
-                                                    }}
-                                                    title="Remove"
-                                                >
-                                                    <Trash2 size={14} />
-                                                </Button>
-                                            </div>
-                                        </div>
-                                    </ContextMenuTrigger>
-                                    <ContextMenuContent>
-                                        {!converted && (
-                                            <ContextMenuItem onClick={() => onConvertToHost(knownHost)}>
-                                                <ArrowRight className="mr-2 h-4 w-4" />
-                                                Convert to Managed Host
-                                            </ContextMenuItem>
-                                        )}
-                                        {converted && (
-                                            <ContextMenuItem disabled>
-                                                <ExternalLink className="mr-2 h-4 w-4" />
-                                                Already Managed
-                                            </ContextMenuItem>
-                                        )}
-                                        <ContextMenuItem
-                                            className="text-destructive"
-                                            onClick={() => onDelete(knownHost.id)}
-                                        >
-                                            <Trash2 className="mr-2 h-4 w-4" />
-                                            Remove
-                                        </ContextMenuItem>
-                                    </ContextMenuContent>
-                                </ContextMenu>
-                            );
-                        })
+                        filteredHosts.map((knownHost) => (
+                            <HostItem
+                                key={knownHost.id}
+                                knownHost={knownHost}
+                                converted={isConverted(knownHost)}
+                                viewMode={viewMode}
+                                onDelete={handleDelete}
+                                onConvertToHost={handleConvertToHost}
+                            />
+                        ))
                     )}
                 </div>
             </ScrollArea>
@@ -423,7 +671,7 @@ const KnownHostsManager: React.FC<KnownHostsManagerProps> = ({
                                             {host.hostname}
                                             {host.port !== 22 && `:${host.port}`}
                                         </div>
-                                        <div className={cn("text-xs", getKeyTypeColor(host.keyType))}>
+                                        <div className={cn("text-xs", getKeyTypeColorFn(host.keyType))}>
                                             {host.keyType}
                                         </div>
                                     </div>

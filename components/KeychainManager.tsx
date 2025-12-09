@@ -81,16 +81,32 @@ const createBiometricCredential = async (label: string): Promise<{
     try {
         // Check if WebAuthn is supported
         if (!window.PublicKeyCredential) {
-            throw new Error('WebAuthn is not supported in this browser');
+            throw new Error('WebAuthn is not supported in this environment');
+        }
+
+        // Check if we're in a secure context (HTTPS or localhost)
+        if (!window.isSecureContext) {
+            throw new Error('WebAuthn requires a secure context (HTTPS). This feature is not available in the current environment.');
         }
 
         // Check if platform authenticator is available (Windows Hello, Touch ID, etc.)
         const available = await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
         if (!available) {
-            throw new Error('No platform authenticator available (Windows Hello/Touch ID not set up)');
+            throw new Error('No platform authenticator available. Please ensure Windows Hello is set up in your system settings.');
         }
 
-        const rpId = window.location.hostname || 'localhost';
+        // For Electron apps, we need to handle the rpId carefully
+        // The rpId must match the origin's effective domain
+        let rpId: string;
+        const hostname = window.location.hostname;
+        
+        // In Electron file:// protocol or localhost dev server
+        if (!hostname || hostname === '' || hostname === 'localhost' || hostname === '127.0.0.1') {
+            rpId = 'localhost';
+        } else {
+            rpId = hostname;
+        }
+        
         const userId = new TextEncoder().encode(crypto.randomUUID());
 
         const credential = await navigator.credentials.create({
@@ -107,14 +123,13 @@ const createBiometricCredential = async (label: string): Promise<{
                 },
                 pubKeyCredParams: [
                     { alg: -7, type: 'public-key' },  // ES256 (ECDSA P-256)
-                    { alg: -257, type: 'public-key' }, // RS256
                 ],
                 authenticatorSelection: {
-                    authenticatorAttachment: 'platform', // Use platform authenticator (Windows Hello)
-                    residentKey: 'required', // Create resident/discoverable credential
-                    userVerification: 'required',
+                    authenticatorAttachment: 'platform',
+                    residentKey: 'discouraged',
+                    userVerification: 'preferred',
                 },
-                timeout: 60000,
+                timeout: 180000, // 3 minutes
                 attestation: 'none',
             },
         }) as PublicKeyCredential;
