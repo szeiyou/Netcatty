@@ -950,7 +950,7 @@ const PortForwarding: React.FC<PortForwardingProps> = ({ hosts, keys, customGrou
             {/* Main Content */}
             <div className={cn("flex-1 flex flex-col min-h-0", (showWizard || showEditPanel || showNewForm) ? "mr-[360px]" : "")}>
                 {/* Toolbar */}
-                <div className="h-14 px-4 flex items-center gap-3 bg-secondary/60 border-b border-border/60">
+                <div className="h-14 px-4 flex items-center gap-3 bg-secondary/60 border-b border-border/60 relative z-20">
                     <Popover open={showNewMenu} onOpenChange={setShowNewMenu}>
                         <PopoverTrigger asChild>
                             <Button variant="secondary" className="h-9 px-3 gap-2">

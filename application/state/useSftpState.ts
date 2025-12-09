@@ -75,6 +75,7 @@ export interface SftpPane {
   connection: SftpConnection | null;
   files: SftpFileEntry[];
   loading: boolean;
+  reconnecting: boolean;
   error: string | null;
   selectedFiles: Set<string>;
   filter: string;
@@ -86,6 +87,7 @@ export const useSftpState = (hosts: Host[], keys: SSHKey[]) => {
     connection: null,
     files: [],
     loading: false,
+    reconnecting: false,
     error: null,
     selectedFiles: new Set(),
     filter: '',
@@ -95,6 +97,7 @@ export const useSftpState = (hosts: Host[], keys: SSHKey[]) => {
     connection: null,
     files: [],
     loading: false,
+    reconnecting: false,
     error: null,
     selectedFiles: new Set(),
     filter: '',
@@ -167,7 +170,16 @@ export const useSftpState = (hosts: Host[], keys: SSHKey[]) => {
            msg.includes('connection reset');
   };
 
-  // Handle session error by clearing the connection state for a side
+  // Ref to track pending reconnections to avoid multiple reconnect attempts
+  const reconnectingRef = useRef<{ left: boolean; right: boolean }>({ left: false, right: false });
+  
+  // Store last connected host info for reconnection
+  const lastConnectedHostRef = useRef<{ left: Host | 'local' | null; right: Host | 'local' | null }>({ 
+    left: null, 
+    right: null 
+  });
+
+  // Handle session error - will trigger auto-reconnect if host info is available
   const handleSessionError = useCallback((side: 'left' | 'right', error: Error) => {
     const pane = side === 'left' ? leftPane : rightPane;
     const setPane = side === 'left' ? setLeftPane : setRightPane;
@@ -177,14 +189,28 @@ export const useSftpState = (hosts: Host[], keys: SSHKey[]) => {
       sftpSessionsRef.current.delete(pane.connection.id);
     }
     
-    setPane({
-      connection: null,
-      files: [],
-      loading: false,
-      error: 'SFTP session lost. Please reconnect.',
-      selectedFiles: new Set(),
-      filter: '',
-    });
+    // Check if we have host info to attempt reconnection
+    const lastHost = lastConnectedHostRef.current[side];
+    if (lastHost && pane.files.length > 0 && !reconnectingRef.current[side]) {
+      // We have files displayed, try to auto-reconnect
+      reconnectingRef.current[side] = true;
+      setPane(prev => ({
+        ...prev,
+        reconnecting: true,
+        error: 'Connection lost. Reconnecting...',
+      }));
+    } else {
+      // No host info or empty files, just clear the connection
+      setPane({
+        connection: null,
+        files: [],
+        loading: false,
+        reconnecting: false,
+        error: 'SFTP session lost. Please reconnect.',
+        selectedFiles: new Set(),
+        filter: '',
+      });
+    }
   }, [leftPane, rightPane]);
 
   // Cleanup on unmount
@@ -204,6 +230,9 @@ export const useSftpState = (hosts: Host[], keys: SSHKey[]) => {
     };
   }, []);
 
+  // Track if initial auto-connect has been done
+  const initialConnectDoneRef = useRef(false);
+
   // Get host credentials
   const getHostCredentials = useCallback((host: Host) => {
     const key = host.identityFileId ? keys.find(k => k.id === host.identityFileId) : null;
@@ -221,6 +250,9 @@ export const useSftpState = (hosts: Host[], keys: SSHKey[]) => {
     const currentPane = side === 'left' ? leftPane : rightPane;
     const setPane = side === 'left' ? setLeftPane : setRightPane;
     const connectionId = `${side}-${Date.now()}`;
+    
+    // Save host info for potential reconnection
+    lastConnectedHostRef.current[side] = host;
 
     // First, disconnect any existing connection
     if (currentPane.connection && !currentPane.connection.isLocal) {
@@ -257,21 +289,27 @@ export const useSftpState = (hosts: Host[], keys: SSHKey[]) => {
         ...prev,
         connection,
         loading: true,
+        reconnecting: false,
         error: null,
       }));
 
       try {
         const files = await listLocalFiles(homeDir);
+        // Clear reconnecting flag on success
+        reconnectingRef.current[side] = false;
         setPane(prev => ({
           ...prev,
           files,
           loading: false,
+          reconnecting: false,
         }));
       } catch (err) {
+        reconnectingRef.current[side] = false;
         setPane(prev => ({
           ...prev,
           error: err instanceof Error ? err.message : 'Failed to list directory',
           loading: false,
+          reconnecting: false,
         }));
       }
     } else {
@@ -289,8 +327,9 @@ export const useSftpState = (hosts: Host[], keys: SSHKey[]) => {
         ...prev,
         connection,
         loading: true,
+        reconnecting: prev.reconnecting, // Preserve reconnecting state during connection
         error: null,
-        files: [],
+        files: prev.reconnecting ? prev.files : [], // Keep files if reconnecting
       }));
 
       try {
@@ -317,6 +356,9 @@ export const useSftpState = (hosts: Host[], keys: SSHKey[]) => {
         }
 
         const files = await listRemoteFiles(sftpId, startPath);
+        
+        // Clear reconnecting flag on success
+        reconnectingRef.current[side] = false;
 
         setPane(prev => ({
           ...prev,
@@ -328,8 +370,10 @@ export const useSftpState = (hosts: Host[], keys: SSHKey[]) => {
           } : null,
           files,
           loading: false,
+          reconnecting: false,
         }));
       } catch (err) {
+        reconnectingRef.current[side] = false;
         setPane(prev => ({
           ...prev,
           connection: prev.connection ? {
@@ -339,15 +383,52 @@ export const useSftpState = (hosts: Host[], keys: SSHKey[]) => {
           } : null,
           error: err instanceof Error ? err.message : 'Connection failed',
           loading: false,
+          reconnecting: false,
         }));
       }
     }
   }, [getHostCredentials, leftPane, rightPane]);
 
+  // Auto-connect left pane to local filesystem on first mount
+  useEffect(() => {
+    if (!initialConnectDoneRef.current && !leftPane.connection) {
+      initialConnectDoneRef.current = true;
+      // Use setTimeout to ensure connect is defined before calling
+      setTimeout(() => {
+        connect('left', 'local');
+      }, 0);
+    }
+  }, [connect, leftPane.connection]);
+
+  // Auto-reconnect when reconnecting flag is set
+  useEffect(() => {
+    const attemptReconnect = async (side: 'left' | 'right') => {
+      const lastHost = lastConnectedHostRef.current[side];
+      if (lastHost && reconnectingRef.current[side]) {
+        // Small delay before reconnecting
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        if (reconnectingRef.current[side]) {
+          connect(side, lastHost);
+        }
+      }
+    };
+
+    if (leftPane.reconnecting && reconnectingRef.current.left) {
+      attemptReconnect('left');
+    }
+    if (rightPane.reconnecting && reconnectingRef.current.right) {
+      attemptReconnect('right');
+    }
+  }, [leftPane.reconnecting, rightPane.reconnecting, connect]);
+
   // Disconnect
   const disconnect = useCallback(async (side: 'left' | 'right') => {
     const pane = side === 'left' ? leftPane : rightPane;
     const setPane = side === 'left' ? setLeftPane : setRightPane;
+    
+    // Clear reconnection state
+    reconnectingRef.current[side] = false;
+    lastConnectedHostRef.current[side] = null;
     
     if (pane.connection && !pane.connection.isLocal) {
       const sftpId = sftpSessionsRef.current.get(pane.connection.id);
@@ -363,6 +444,7 @@ export const useSftpState = (hosts: Host[], keys: SSHKey[]) => {
       connection: null,
       files: [],
       loading: false,
+      reconnecting: false,
       error: null,
       selectedFiles: new Set(),
       filter: '',
@@ -620,31 +702,19 @@ export const useSftpState = (hosts: Host[], keys: SSHKey[]) => {
   }, []);
 
   // Range selection for shift-click
-  const rangeSelect = useCallback((side: 'left' | 'right', startIdx: number, endIdx: number) => {
-    const pane = side === 'left' ? leftPane : rightPane;
+  // Now accepts the actual file names to select directly from the UI
+  const rangeSelect = useCallback((side: 'left' | 'right', fileNames: string[]) => {
     const setPane = side === 'left' ? setLeftPane : setRightPane;
     
-    // Get the filtered files list (same as what's displayed)
-    const displayFiles = pane.files.filter(f => {
-      if (!pane.filter) return true;
-      return f.name.toLowerCase().includes(pane.filter.toLowerCase());
-    });
-    
-    // Add parent entry logic - need to account for ".." entry if not at root
-    const hasParent = pane.connection?.currentPath !== '/';
-    const adjustedStart = hasParent ? startIdx - 1 : startIdx;
-    const adjustedEnd = hasParent ? endIdx - 1 : endIdx;
-    
     const newSelection = new Set<string>();
-    for (let i = Math.max(0, adjustedStart); i <= Math.min(displayFiles.length - 1, adjustedEnd); i++) {
-      const file = displayFiles[i];
-      if (file && file.name !== '..') {
-        newSelection.add(file.name);
+    for (const name of fileNames) {
+      if (name && name !== '..') {
+        newSelection.add(name);
       }
     }
     
     setPane(prev => ({ ...prev, selectedFiles: newSelection }));
-  }, [leftPane, rightPane]);
+  }, []);
 
   const clearSelection = useCallback((side: 'left' | 'right') => {
     const setPane = side === 'left' ? setLeftPane : setRightPane;

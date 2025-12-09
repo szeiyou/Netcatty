@@ -92,7 +92,8 @@ const createBiometricCredential = async (label: string): Promise<{
         // Check if platform authenticator is available (Windows Hello, Touch ID, etc.)
         const available = await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
         if (!available) {
-            throw new Error('No platform authenticator available. Please ensure Windows Hello is set up in your system settings.');
+            const isMacOS = navigator.platform.toLowerCase().includes('mac') || navigator.userAgent.toLowerCase().includes('mac');
+            throw new Error(`No platform authenticator available. Please ensure ${isMacOS ? 'Touch ID' : 'Windows Hello'} is set up in your system settings.`);
         }
 
         // For Electron apps, we need to handle the rpId carefully
@@ -174,6 +175,15 @@ const KeychainManager: React.FC<KeychainManagerProps> = ({
     const [search, setSearch] = useState('');
     const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
     const [panel, setPanel] = useState<PanelMode>({ type: 'closed' });
+    
+    // Detect if running on macOS
+    const isMac = useMemo(() => {
+        return navigator.platform.toLowerCase().includes('mac') || 
+               navigator.userAgent.toLowerCase().includes('mac');
+    }, []);
+    
+    // Biometric authentication label based on platform
+    const biometricLabel = isMac ? 'TOUCH ID' : 'WINDOWS HELLO';
 
     // Draft state for forms
     const [draftKey, setDraftKey] = useState<Partial<SSHKey>>({});
@@ -452,7 +462,7 @@ const KeychainManager: React.FC<KeychainManagerProps> = ({
 
     // Get key type display
     const getKeyTypeDisplay = (key: SSHKey) => {
-        if (key.source === 'biometric') return 'Windows Hello';
+        if (key.source === 'biometric') return isMac ? 'Touch ID' : 'Windows Hello';
         if (key.source === 'fido2') return 'FIDO2';
         return key.type;
     };
@@ -630,7 +640,7 @@ const KeychainManager: React.FC<KeychainManagerProps> = ({
                             onClick={() => setActiveFilter('biometric')}
                         >
                             <Fingerprint size={14} />
-                            WINDOWS HELLO
+                            {biometricLabel}
                         </Button>
 
                         <Button
@@ -647,17 +657,19 @@ const KeychainManager: React.FC<KeychainManagerProps> = ({
                         </Button>
                     </div>
 
-                    {/* Search and View Mode */}
+                    {/* Search and View Mode - hide search when panel is open */}
                     <div className="ml-auto flex items-center gap-2 min-w-0 flex-shrink">
-                        <div className="relative flex-shrink min-w-[100px]">
-                            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-                            <Input
-                                value={search}
-                                onChange={e => setSearch(e.target.value)}
-                                placeholder="Search..."
-                                className="h-9 pl-8 w-full"
-                            />
-                        </div>
+                        {panel.type === 'closed' && (
+                            <div className="relative flex-shrink min-w-[100px]">
+                                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                                <Input
+                                    value={search}
+                                    onChange={e => setSearch(e.target.value)}
+                                    placeholder="Search..."
+                                    className="h-9 pl-8 w-full"
+                                />
+                            </div>
+                        )}
                         <Popover>
                             <PopoverTrigger asChild>
                                 <Button variant="ghost" size="icon" className="h-9 w-9 flex-shrink-0">
@@ -698,13 +710,13 @@ const KeychainManager: React.FC<KeychainManagerProps> = ({
                                 <Shield size={32} className="opacity-60" />
                             </div>
                             <h3 className="text-lg font-semibold text-foreground mb-2">
-                                {activeFilter === 'biometric' ? 'Set up Windows Hello' :
+                                {activeFilter === 'biometric' ? `Set up ${isMac ? 'Touch ID' : 'Windows Hello'}` :
                                     activeFilter === 'fido2' ? 'Add a security key' :
                                         'Set up your keys'}
                             </h3>
                             <p className="text-sm text-center max-w-sm mb-4">
                                 {activeFilter === 'biometric'
-                                    ? 'Create biometric SSH keys secured by Windows Hello for passwordless authentication.'
+                                    ? `Create biometric SSH keys secured by ${isMac ? 'Touch ID' : 'Windows Hello'} for passwordless authentication.`
                                     : activeFilter === 'fido2'
                                         ? 'Connect a hardware security key (YubiKey, etc.) for enhanced security.'
                                         : 'Import or generate SSH keys for secure authentication.'}
@@ -907,7 +919,7 @@ const KeychainManager: React.FC<KeychainManagerProps> = ({
                                 </div>
 
                                 <p className="text-sm text-muted-foreground text-center">
-                                    Biometric key based on Windows Hello API built into your system. This key is not possible to copy or steal.
+                                    Biometric Key based on Secure Enclave Process built-in into your {isMac ? 'mac' : 'system'}. This key is not possible to copy or steal.
                                 </p>
 
                                 <div className="space-y-2">
@@ -915,7 +927,7 @@ const KeychainManager: React.FC<KeychainManagerProps> = ({
                                     <Input
                                         value={draftKey.label || ''}
                                         onChange={e => setDraftKey({ ...draftKey, label: e.target.value })}
-                                        placeholder="Windows Hello"
+                                        placeholder={isMac ? 'Touch ID' : 'Windows Hello'}
                                     />
                                 </div>
 

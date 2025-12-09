@@ -436,7 +436,7 @@ interface SftpPaneViewProps {
     onRefresh: () => void;
     onOpenEntry: (entry: SftpFileEntry) => void;
     onToggleSelection: (fileName: string, multiSelect: boolean) => void;
-    onRangeSelect: (startIdx: number, endIdx: number) => void;
+    onRangeSelect: (fileNames: string[]) => void;
     onClearSelection: () => void;
     onSetFilter: (filter: string) => void;
     onCreateDirectory: (name: string) => Promise<void>;
@@ -500,7 +500,41 @@ const SftpPaneViewInner: React.FC<SftpPaneViewProps> = ({
     // Editable path state
     const [isEditingPath, setIsEditingPath] = useState(false);
     const [editingPathValue, setEditingPathValue] = useState('');
+    const [showPathSuggestions, setShowPathSuggestions] = useState(false);
+    const [pathSuggestionIndex, setPathSuggestionIndex] = useState(-1);
     const pathInputRef = useRef<HTMLInputElement>(null);
+    const pathDropdownRef = useRef<HTMLDivElement>(null);
+
+    // Path suggestions: combine current directory subfolders with recently visited paths
+    const pathSuggestions = useMemo(() => {
+        if (!isEditingPath || !pane.connection) return [];
+        
+        const currentValue = editingPathValue.trim().toLowerCase();
+        const suggestions: { path: string; type: 'folder' | 'history' }[] = [];
+        
+        // Add current subdirectories as suggestions
+        const folders = filteredFiles.filter(f => f.type === 'directory' && f.name !== '..');
+        folders.forEach(f => {
+            const fullPath = pane.connection?.currentPath === '/' 
+                ? `/${f.name}` 
+                : `${pane.connection?.currentPath}/${f.name}`;
+            if (!currentValue || fullPath.toLowerCase().includes(currentValue) || f.name.toLowerCase().includes(currentValue)) {
+                suggestions.push({ path: fullPath, type: 'folder' });
+            }
+        });
+        
+        // Common quick paths
+        const quickPaths = ['/home', '/var', '/etc', '/tmp', '/usr', '/opt', '/root'];
+        quickPaths.forEach(qp => {
+            if (!currentValue || qp.toLowerCase().includes(currentValue)) {
+                if (!suggestions.some(s => s.path === qp)) {
+                    suggestions.push({ path: qp, type: 'history' });
+                }
+            }
+        });
+        
+        return suggestions.slice(0, 8); // Limit to 8 suggestions
+    }, [isEditingPath, editingPathValue, filteredFiles, pane.connection]);
 
     const filteredHosts = useMemo(() => {
         const term = hostSearch.trim().toLowerCase();
@@ -600,23 +634,72 @@ const SftpPaneViewInner: React.FC<SftpPaneViewProps> = ({
         if (!pane.connection) return;
         setEditingPathValue(pane.connection.currentPath);
         setIsEditingPath(true);
+        setShowPathSuggestions(true);
+        setPathSuggestionIndex(-1);
         setTimeout(() => pathInputRef.current?.select(), 0);
     };
 
-    const handlePathSubmit = () => {
-        const newPath = editingPathValue.trim() || '/';
+    const handlePathSubmit = (pathOverride?: string) => {
+        const newPath = (pathOverride ?? editingPathValue).trim() || '/';
         setIsEditingPath(false);
+        setShowPathSuggestions(false);
+        setPathSuggestionIndex(-1);
         if (pane.connection && newPath !== pane.connection.currentPath) {
             onNavigateTo(newPath.startsWith('/') ? newPath : `/${newPath}`);
         }
     };
 
     const handlePathKeyDown = (e: React.KeyboardEvent) => {
+        if (showPathSuggestions && pathSuggestions.length > 0) {
+            if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                setPathSuggestionIndex(prev => 
+                    prev < pathSuggestions.length - 1 ? prev + 1 : 0
+                );
+                return;
+            } else if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                setPathSuggestionIndex(prev => 
+                    prev > 0 ? prev - 1 : pathSuggestions.length - 1
+                );
+                return;
+            } else if (e.key === 'Tab' && pathSuggestionIndex >= 0) {
+                e.preventDefault();
+                setEditingPathValue(pathSuggestions[pathSuggestionIndex].path);
+                return;
+            }
+        }
         if (e.key === 'Enter') {
-            handlePathSubmit();
+            if (pathSuggestionIndex >= 0 && pathSuggestions[pathSuggestionIndex]) {
+                handlePathSubmit(pathSuggestions[pathSuggestionIndex].path);
+            } else {
+                handlePathSubmit();
+            }
         } else if (e.key === 'Escape') {
             setIsEditingPath(false);
+            setShowPathSuggestions(false);
+            setPathSuggestionIndex(-1);
         }
+    };
+
+    const handlePathChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        setEditingPathValue(e.target.value);
+        setShowPathSuggestions(true);
+        setPathSuggestionIndex(-1);
+    };
+
+    const handlePathBlur = (e: React.FocusEvent) => {
+        // Delay to allow click on suggestion
+        setTimeout(() => {
+            if (!pathDropdownRef.current?.contains(document.activeElement)) {
+                handlePathSubmit();
+            }
+        }, 150);
+    };
+
+    const selectPathSuggestion = (path: string) => {
+        setEditingPathValue(path);
+        handlePathSubmit(path);
     };
 
     const handleCreateFolder = async () => {
@@ -661,19 +744,30 @@ const SftpPaneViewInner: React.FC<SftpPaneViewProps> = ({
         setIsDragOverPane(true);
     };
 
+    // Track the pane container ref for proper drag leave detection
+    const paneContainerRef = useRef<HTMLDivElement>(null);
+
     const handlePaneDragLeave = (e: React.DragEvent) => {
-        if (!fileListRef.current?.contains(e.relatedTarget as Node)) {
-            setIsDragOverPane(false);
+        // Only set isDragOverPane to false when actually leaving the pane container
+        // Check if the related target is outside of our pane container
+        const relatedTarget = e.relatedTarget as Node | null;
+        if (relatedTarget && paneContainerRef.current?.contains(relatedTarget)) {
+            // Still inside the pane, don't clear drag state
+            return;
         }
+        setIsDragOverPane(false);
+        setDragOverEntry(null);
     };
 
     const handlePaneDrop = (e: React.DragEvent) => {
         e.preventDefault();
+        e.stopPropagation();
         setIsDragOverPane(false);
         setDragOverEntry(null);
 
         if (!draggedFiles || draggedFiles[0]?.side === side) return;
         // Files are being dropped ON this pane FROM the other pane
+        // Transfer to current directory
         onReceiveFromOtherPane(draggedFiles.map(f => ({ name: f.name, isDirectory: f.isDirectory })));
     };
 
@@ -699,25 +793,28 @@ const SftpPaneViewInner: React.FC<SftpPaneViewProps> = ({
 
     const handleEntryDragOver = (entry: SftpFileEntry, e: React.DragEvent) => {
         if (!draggedFiles || draggedFiles[0]?.side === side) return;
-        if (entry.type !== 'directory' || entry.name === '..') return;
-
-        e.preventDefault();
-        e.stopPropagation();
-        setDragOverEntry(entry.name);
+        // Highlight directories as potential drop targets
+        if (entry.type === 'directory' && entry.name !== '..') {
+            e.preventDefault();
+            e.stopPropagation();
+            setDragOverEntry(entry.name);
+        }
     };
 
     const handleEntryDrop = (entry: SftpFileEntry, e: React.DragEvent) => {
-        e.preventDefault();
-        e.stopPropagation();
-        setDragOverEntry(null);
-        setIsDragOverPane(false);
-
+        // Only handle drop on directories, otherwise let it bubble to pane drop handler
         if (!draggedFiles || draggedFiles[0]?.side === side) return;
-        if (entry.type !== 'directory') return;
-
-        // Files dropped ON a directory in this pane FROM the other pane
-        // For now, just transfer to current directory (TODO: transfer into the target directory)
-        onReceiveFromOtherPane(draggedFiles.map(f => ({ name: f.name, isDirectory: f.isDirectory })));
+        
+        if (entry.type === 'directory' && entry.name !== '..') {
+            e.preventDefault();
+            e.stopPropagation();
+            setDragOverEntry(null);
+            setIsDragOverPane(false);
+            // Files dropped ON a directory - transfer to that directory
+            // TODO: transfer into the target directory instead of current directory
+            onReceiveFromOtherPane(draggedFiles.map(f => ({ name: f.name, isDirectory: f.isDirectory })));
+        }
+        // For non-directory entries, let the event bubble up to pane drop handler
     };
 
     const openRenameDialog = (name: string) => {
@@ -830,6 +927,7 @@ const SftpPaneViewInner: React.FC<SftpPaneViewProps> = ({
 
     return (
         <div
+            ref={paneContainerRef}
             className={cn(
                 "absolute inset-0 flex flex-col transition-colors",
                 isDragOverPane && "bg-primary/5"
@@ -843,10 +941,13 @@ const SftpPaneViewInner: React.FC<SftpPaneViewProps> = ({
                 <div className="flex items-center gap-2 text-sm font-semibold">
                     {pane.connection.isLocal ? <Monitor size={14} /> : <HardDrive size={14} />}
                     <span>{pane.connection.hostLabel}</span>
-                    {pane.connection.status === 'connecting' && (
+                    {(pane.connection.status === 'connecting' || pane.reconnecting) && (
                         <Loader2 size={12} className="animate-spin text-muted-foreground" />
                     )}
-                    {pane.connection.status === 'error' && (
+                    {pane.reconnecting && (
+                        <span className="text-xs text-muted-foreground">Reconnecting...</span>
+                    )}
+                    {pane.connection.status === 'error' && !pane.reconnecting && (
                         <AlertCircle size={12} className="text-destructive" />
                     )}
                 </div>
@@ -874,7 +975,7 @@ const SftpPaneViewInner: React.FC<SftpPaneViewProps> = ({
                         )}
                     </div>
                     <Button variant="ghost" size="icon" className="h-8 w-8" onClick={onRefresh} title="Refresh">
-                        <RefreshCw size={14} className={pane.loading ? 'animate-spin' : ''} />
+                        <RefreshCw size={14} className={(pane.loading || pane.reconnecting) ? 'animate-spin' : ''} />
                     </Button>
                 </div>
             </div>
@@ -885,17 +986,49 @@ const SftpPaneViewInner: React.FC<SftpPaneViewProps> = ({
                     <ChevronLeft size={14} />
                 </Button>
 
-                {/* Editable Breadcrumb */}
+                {/* Editable Breadcrumb with autocomplete */}
                 {isEditingPath ? (
-                    <Input
-                        ref={pathInputRef}
-                        value={editingPathValue}
-                        onChange={(e) => setEditingPathValue(e.target.value)}
-                        onBlur={handlePathSubmit}
-                        onKeyDown={handlePathKeyDown}
-                        className="h-7 flex-1 text-xs bg-background"
-                        autoFocus
-                    />
+                    <div className="relative flex-1">
+                        <Input
+                            ref={pathInputRef}
+                            value={editingPathValue}
+                            onChange={handlePathChange}
+                            onBlur={handlePathBlur}
+                            onKeyDown={handlePathKeyDown}
+                            onFocus={() => setShowPathSuggestions(true)}
+                            className="h-7 w-full text-xs bg-background"
+                            autoFocus
+                        />
+                        {/* Path suggestions dropdown */}
+                        {showPathSuggestions && pathSuggestions.length > 0 && (
+                            <div
+                                ref={pathDropdownRef}
+                                className="absolute top-full left-0 right-0 mt-1 bg-popover border border-border rounded-md shadow-lg z-50 max-h-48 overflow-auto"
+                            >
+                                {pathSuggestions.map((suggestion, idx) => (
+                                    <button
+                                        key={suggestion.path}
+                                        type="button"
+                                        className={cn(
+                                            "w-full px-3 py-2 text-left text-xs flex items-center gap-2 hover:bg-secondary/60 transition-colors",
+                                            idx === pathSuggestionIndex && "bg-secondary/80"
+                                        )}
+                                        onMouseDown={(e) => {
+                                            e.preventDefault();
+                                            selectPathSuggestion(suggestion.path);
+                                        }}
+                                    >
+                                        {suggestion.type === 'folder' ? (
+                                            <Folder size={12} className="text-primary shrink-0" />
+                                        ) : (
+                                            <Home size={12} className="text-muted-foreground shrink-0" />
+                                        )}
+                                        <span className="truncate font-mono">{suggestion.path}</span>
+                                    </button>
+                                ))}
+                            </div>
+                        )}
+                    </div>
                 ) : (
                     <div
                         className="flex-1 cursor-text hover:bg-secondary/50 rounded px-1 transition-colors"
@@ -1016,10 +1149,15 @@ const SftpPaneViewInner: React.FC<SftpPaneViewProps> = ({
                                             if (entry.name === '..') return;
 
                                             if (e.shiftKey && lastSelectedIndexRef.current !== null) {
-                                                // Shift-click: range select
+                                                // Shift-click: range select based on sortedDisplayFiles
                                                 const start = Math.min(lastSelectedIndexRef.current, idx);
                                                 const end = Math.max(lastSelectedIndexRef.current, idx);
-                                                onRangeSelect(start, end);
+                                                // Get file names from sorted display files
+                                                const selectedFileNames = sortedDisplayFiles
+                                                    .slice(start, end + 1)
+                                                    .filter(f => f.name !== '..')
+                                                    .map(f => f.name);
+                                                onRangeSelect(selectedFileNames);
                                             } else {
                                                 // Normal or Ctrl/Cmd click
                                                 onToggleSelection(entry.name, e.ctrlKey || e.metaKey);
@@ -1548,8 +1686,8 @@ const SftpViewInner: React.FC<SftpViewProps> = ({ hosts, keys }) => {
     const handleOpenEntryRight = useCallback((entry: SftpFileEntry) => sftp.openEntry('right', entry), [sftp.openEntry]);
     const handleToggleSelectionLeft = useCallback((name: string, multi: boolean) => sftp.toggleSelection('left', name, multi), [sftp.toggleSelection]);
     const handleToggleSelectionRight = useCallback((name: string, multi: boolean) => sftp.toggleSelection('right', name, multi), [sftp.toggleSelection]);
-    const handleRangeSelectLeft = useCallback((start: number, end: number) => sftp.rangeSelect('left', start, end), [sftp.rangeSelect]);
-    const handleRangeSelectRight = useCallback((start: number, end: number) => sftp.rangeSelect('right', start, end), [sftp.rangeSelect]);
+    const handleRangeSelectLeft = useCallback((fileNames: string[]) => sftp.rangeSelect('left', fileNames), [sftp.rangeSelect]);
+    const handleRangeSelectRight = useCallback((fileNames: string[]) => sftp.rangeSelect('right', fileNames), [sftp.rangeSelect]);
     const handleClearSelectionLeft = useCallback(() => sftp.clearSelection('left'), [sftp.clearSelection]);
     const handleClearSelectionRight = useCallback(() => sftp.clearSelection('right'), [sftp.clearSelection]);
     const handleSetFilterLeft = useCallback((filter: string) => sftp.setFilter('left', filter), [sftp.setFilter]);
