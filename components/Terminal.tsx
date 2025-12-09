@@ -287,6 +287,48 @@ const TerminalComponent: React.FC<TerminalProps> = ({
     }
   }, [fontSize, terminalTheme, isVisible]);
 
+  // Re-fit once webfonts are ready so canvas sizing uses correct font metrics
+  useEffect(() => {
+    let cancelled = false;
+    const waitForFonts = async () => {
+      try {
+        if (!(document as any).fonts?.ready) return;
+        await (document as any).fonts.ready;
+        if (cancelled) return;
+
+        const term = termRef.current as any;
+        const fitAddon = fitAddonRef.current;
+        try {
+          term?.renderer?.remeasureFont?.();
+        } catch (err) {
+          console.warn("Font remeasure failed", err);
+        }
+
+        try {
+          fitAddon?.fit();
+        } catch (err) {
+          console.warn("Fit after fonts ready failed", err);
+        }
+
+        const id = sessionRef.current;
+        if (id && term && window.nebula?.resizeSession) {
+          try {
+            window.nebula.resizeSession(id, term.cols, term.rows);
+          } catch (err) {
+            console.warn("Resize session after fonts ready failed", err);
+          }
+        }
+      } catch (err) {
+        console.warn("Waiting for fonts failed", err);
+      }
+    };
+
+    waitForFonts();
+    return () => {
+      cancelled = true;
+    };
+  }, [host.id, sessionId]);
+
   // Debounced fit for resize operations - wait until resize ends
   useEffect(() => {
     if (!containerRef.current || !fitAddonRef.current) return;
