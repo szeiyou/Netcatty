@@ -92,19 +92,26 @@ export const useVaultState = () => {
       protocol: 'ssh',
     };
     
-    // Update the known host to mark it as converted
-    const updatedKnownHosts = knownHosts.map(kh => 
-      kh.id === knownHost.id 
-        ? { ...kh, convertedToHostId: newHost.id }
-        : kh
-    );
-    updateKnownHosts(updatedKnownHosts);
+    // Update the known host to mark it as converted using functional update
+    setKnownHosts(prevKnownHosts => {
+      const updated = prevKnownHosts.map(kh => 
+        kh.id === knownHost.id 
+          ? { ...kh, convertedToHostId: newHost.id }
+          : kh
+      );
+      localStorageAdapter.write(STORAGE_KEY_KNOWN_HOSTS, updated);
+      return updated;
+    });
     
-    // Add to hosts
-    updateHosts([...hosts, newHost]);
+    // Add to hosts using functional update
+    setHosts(prevHosts => {
+      const updated = [...prevHosts, sanitizeHost(newHost)];
+      localStorageAdapter.write(STORAGE_KEY_HOSTS, updated);
+      return updated;
+    });
     
     return newHost;
-  }, [hosts, knownHosts, updateHosts]);
+  }, []);
 
   useEffect(() => {
     const savedHosts = localStorageAdapter.read<Host[]>(STORAGE_KEY_HOSTS);

@@ -14,9 +14,27 @@ import { Label } from './components/ui/label';
 import { useSettingsState } from './application/state/useSettingsState';
 import { useVaultState } from './application/state/useVaultState';
 import { useSessionState } from './application/state/useSessionState';
+import { useIsVaultActive } from './application/state/activeTabStore';
 import { ToastProvider } from './components/ui/toast';
+import { cn } from './lib/utils';
+
+// Visibility container for VaultView - isolates isActive subscription
+const VaultViewContainer: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const isActive = useIsVaultActive();
+  const containerStyle: React.CSSProperties = isActive
+    ? {}
+    : { visibility: 'hidden', pointerEvents: 'none', position: 'absolute', zIndex: -1 };
+  
+  return (
+    <div className={cn("absolute inset-0", isActive ? "z-20" : "")} style={containerStyle}>
+      {children}
+    </div>
+  );
+};
 
 function App() {
+  console.log('[App] render');
+  
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isQuickSwitcherOpen, setIsQuickSwitcherOpen] = useState(false);
@@ -163,31 +181,33 @@ function App() {
       />
 
       <div className="flex-1 relative min-h-0">
-        <VaultView
-          hosts={hosts}
-          keys={keys}
-          snippets={snippets}
-          snippetPackages={snippetPackages}
-          customGroups={customGroups}
-          knownHosts={knownHosts}
-          sessions={sessions}
-          showAssistant={showAssistant}
-          onToggleAssistant={handleToggleAssistant}
-          onOpenSettings={handleOpenSettings}
-          onOpenQuickSwitcher={handleOpenQuickSwitcher}
-          onCreateLocalTerminal={createLocalTerminal}
-          onNewHost={handleNewHost}
-          onEditHost={handleEditHost}
-          onDeleteHost={handleDeleteHost}
-          onConnect={connectToHost}
-          onUpdateHosts={updateHosts}
-          onUpdateKeys={updateKeys}
-          onUpdateSnippets={updateSnippets}
-          onUpdateSnippetPackages={updateSnippetPackages}
-          onUpdateCustomGroups={updateCustomGroups}
-          onUpdateKnownHosts={updateKnownHosts}
-          onConvertKnownHost={convertKnownHostToHost}
-        />
+        <VaultViewContainer>
+          <VaultView
+            hosts={hosts}
+            keys={keys}
+            snippets={snippets}
+            snippetPackages={snippetPackages}
+            customGroups={customGroups}
+            knownHosts={knownHosts}
+            sessions={sessions}
+            showAssistant={showAssistant}
+            onToggleAssistant={handleToggleAssistant}
+            onOpenSettings={handleOpenSettings}
+            onOpenQuickSwitcher={handleOpenQuickSwitcher}
+            onCreateLocalTerminal={createLocalTerminal}
+            onNewHost={handleNewHost}
+            onEditHost={handleEditHost}
+            onDeleteHost={handleDeleteHost}
+            onConnect={connectToHost}
+            onUpdateHosts={updateHosts}
+            onUpdateKeys={updateKeys}
+            onUpdateSnippets={updateSnippets}
+            onUpdateSnippetPackages={updateSnippetPackages}
+            onUpdateCustomGroups={updateCustomGroups}
+            onUpdateKnownHosts={updateKnownHosts}
+            onConvertKnownHost={convertKnownHostToHost}
+          />
+        </VaultViewContainer>
 
         <SftpView hosts={hosts} keys={keys} />
 

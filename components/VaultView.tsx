@@ -1,4 +1,4 @@
-import React, { useMemo, useState, memo } from 'react';
+import React, { useMemo, useState, memo, useCallback } from 'react';
 import { AppLogo } from './AppLogo';
 import {
   Activity,
@@ -90,8 +90,11 @@ const VaultViewInner: React.FC<VaultViewProps> = ({
   onUpdateKnownHosts,
   onConvertKnownHost,
 }) => {
-  // Subscribe to isActive from external store - only re-renders when vault active state changes
-  const isActive = useIsVaultActive();
+  // Debug: track what's causing re-renders
+  const renderCountRef = React.useRef(0);
+  renderCountRef.current++;
+  console.log(`[VaultViewInner] render #${renderCountRef.current} - knownHosts: ${knownHosts.length}`);
+  
   const [currentSection, setCurrentSection] = useState<VaultSection>('hosts');
   const [search, setSearch] = useState('');
   const [selectedGroupPath, setSelectedGroupPath] = useState<string | null>(null);
@@ -155,6 +158,55 @@ const VaultViewInner: React.FC<VaultViewProps> = ({
     return (Object.values(node.children) as GroupNode[]).sort((a, b) => a.name.localeCompare(b.name));
   }, [buildGroupTree, selectedGroupPath]);
 
+  // Known Hosts callbacks - use refs to keep stable references
+  // Store latest values in refs so callbacks don't need to depend on them
+  const knownHostsRef = React.useRef(knownHosts);
+  const onUpdateKnownHostsRef = React.useRef(onUpdateKnownHosts);
+  
+  // Keep refs up to date
+  React.useEffect(() => {
+    knownHostsRef.current = knownHosts;
+    onUpdateKnownHostsRef.current = onUpdateKnownHosts;
+  });
+
+  // Stable callbacks that read from refs
+  const handleSaveKnownHost = useCallback((kh: KnownHost) => {
+    onUpdateKnownHostsRef.current([...knownHostsRef.current, kh]);
+  }, []);
+
+  const handleUpdateKnownHost = useCallback((kh: KnownHost) => {
+    onUpdateKnownHostsRef.current(knownHostsRef.current.map(existing => existing.id === kh.id ? kh : existing));
+  }, []);
+
+  const handleDeleteKnownHost = useCallback((id: string) => {
+    onUpdateKnownHostsRef.current(knownHostsRef.current.filter(kh => kh.id !== id));
+  }, []);
+
+  const handleImportKnownHosts = useCallback((newHosts: KnownHost[]) => {
+    onUpdateKnownHostsRef.current([...knownHostsRef.current, ...newHosts]);
+  }, []);
+
+  const handleRefreshKnownHosts = useCallback(() => {
+    // Placeholder for system scan
+  }, []);
+
+  // Memoize the KnownHostsManager element to prevent re-renders when VaultViewInner re-renders
+  const knownHostsManagerElement = useMemo(() => {
+    console.log('[VaultViewInner] knownHostsManagerElement useMemo recalculated');
+    return (
+      <KnownHostsManager
+        knownHosts={knownHosts}
+        hosts={hosts}
+        onSave={handleSaveKnownHost}
+        onUpdate={handleUpdateKnownHost}
+        onDelete={handleDeleteKnownHost}
+        onConvertToHost={onConvertKnownHost}
+        onImportFromFile={handleImportKnownHosts}
+        onRefresh={handleRefreshKnownHosts}
+      />
+    );
+  }, [knownHosts, hosts, onConvertKnownHost]);
+
   const submitNewFolder = () => {
     if (!newFolderName.trim()) return;
     const fullPath = targetParentPath ? `${targetParentPath}/${newFolderName.trim()}` : newFolderName.trim();
@@ -202,17 +254,10 @@ const VaultViewInner: React.FC<VaultViewProps> = ({
     onUpdateHosts(hosts.map(h => h.id === hostId ? { ...h, group: groupPath || '' } : h));
   };
 
-  // Use visibility + pointer-events instead of display:none to preserve component state
-  // and avoid re-rendering when switching tabs
-  // When inactive, also set z-index to -1 to prevent rendering artifacts
-  const containerStyle: React.CSSProperties = isActive
-    ? {}
-    : { visibility: 'hidden', pointerEvents: 'none', position: 'absolute', zIndex: -1 };
-
+  // Component no longer handles visibility - that's done by VaultViewWrapper
   return (
     <div
-      className={cn("absolute inset-0 min-h-0 flex", isActive ? "z-20" : "")}
-      style={containerStyle}
+      className="absolute inset-0 min-h-0 flex"
     >
       {/* Sidebar */}
       <div className="w-64 bg-secondary/80 border-r border-border/60 flex flex-col">
@@ -464,18 +509,10 @@ const VaultViewInner: React.FC<VaultViewProps> = ({
           />
         )}
         {currentSection === 'port' && <PortForwarding hosts={hosts} keys={keys} customGroups={customGroups} onNewHost={onNewHost} />}
-        {currentSection === 'knownhosts' && (
-          <KnownHostsManager
-            knownHosts={knownHosts}
-            hosts={hosts}
-            onSave={kh => onUpdateKnownHosts([...knownHosts, kh])}
-            onUpdate={kh => onUpdateKnownHosts(knownHosts.map(existing => existing.id === kh.id ? kh : existing))}
-            onDelete={id => onUpdateKnownHosts(knownHosts.filter(kh => kh.id !== id))}
-            onConvertToHost={onConvertKnownHost}
-            onImportFromFile={(newHosts) => onUpdateKnownHosts([...knownHosts, ...newHosts])}
-            onRefresh={() => {/* Placeholder for system scan */ }}
-          />
-        )}
+        {/* Always render KnownHostsManager but hide with CSS to prevent unmounting */}
+        <div style={{ display: currentSection === 'knownhosts' ? 'contents' : 'none' }}>
+          {knownHostsManagerElement}
+        </div>
       </div>
 
       <Dialog open={isNewFolderOpen} onOpenChange={setIsNewFolderOpen}>
@@ -498,7 +535,7 @@ const VaultViewInner: React.FC<VaultViewProps> = ({
 
 // Only re-render when data props change - isActive is now managed internally via store subscription
 const vaultViewAreEqual = (prev: VaultViewProps, next: VaultViewProps): boolean => {
-  return (
+  const isEqual = (
     prev.hosts === next.hosts &&
     prev.keys === next.keys &&
     prev.snippets === next.snippets &&
@@ -508,7 +545,28 @@ const vaultViewAreEqual = (prev: VaultViewProps, next: VaultViewProps): boolean 
     prev.sessions === next.sessions &&
     prev.showAssistant === next.showAssistant
   );
+  
+  console.log('[VaultView memo] comparing, isEqual:', isEqual);
+  
+  if (!isEqual) {
+    console.log('[VaultView memo] props changed:', {
+      hosts: prev.hosts !== next.hosts,
+      keys: prev.keys !== next.keys,
+      snippets: prev.snippets !== next.snippets,
+      snippetPackages: prev.snippetPackages !== next.snippetPackages,
+      customGroups: prev.customGroups !== next.customGroups,
+      knownHosts: prev.knownHosts !== next.knownHosts,
+      sessions: prev.sessions !== next.sessions,
+      showAssistant: prev.showAssistant !== next.showAssistant,
+    });
+  }
+  
+  return isEqual;
 };
 
-export const VaultView = memo(VaultViewInner, vaultViewAreEqual);
+const MemoizedVaultViewInner = memo(VaultViewInner, vaultViewAreEqual);
+
+// Just export the memoized component directly
+// Visibility control is handled by parent (App.tsx)
+export const VaultView = MemoizedVaultViewInner;
 VaultView.displayName = 'VaultView';

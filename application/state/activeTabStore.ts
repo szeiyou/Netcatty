@@ -11,6 +11,7 @@ class ActiveTabStore {
 
   setActiveTabId = (id: string) => {
     if (this.activeTabId !== id) {
+      console.log('[ActiveTabStore] setActiveTabId:', id, 'listeners:', this.listeners.size);
       this.activeTabId = id;
       this.listeners.forEach(listener => listener());
     }
@@ -43,11 +44,15 @@ export const useIsTabActive = (tabId: string) => {
   return useSyncExternalStore(activeTabStore.subscribe, getSnapshot);
 };
 
+// Stable snapshot functions - defined once outside components
+const getIsVaultActive = () => activeTabStore.getActiveTabId() === 'vault';
+const getIsSftpActive = () => activeTabStore.getActiveTabId() === 'sftp';
+
 // Check if vault is active
 export const useIsVaultActive = () => {
   return useSyncExternalStore(
     activeTabStore.subscribe,
-    () => activeTabStore.getActiveTabId() === 'vault'
+    getIsVaultActive
   );
 };
 
@@ -55,7 +60,7 @@ export const useIsVaultActive = () => {
 export const useIsSftpActive = () => {
   return useSyncExternalStore(
     activeTabStore.subscribe,
-    () => activeTabStore.getActiveTabId() === 'sftp'
+    getIsSftpActive
   );
 };
 
