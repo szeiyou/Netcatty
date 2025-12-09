@@ -27,14 +27,6 @@ import {
     PopoverContent,
     PopoverTrigger,
 } from './ui/popover';
-import {
-    Dialog,
-    DialogContent,
-    DialogDescription,
-    DialogFooter,
-    DialogHeader,
-    DialogTitle,
-} from './ui/dialog';
 
 interface KnownHostsManagerProps {
     knownHosts: KnownHost[];
@@ -251,48 +243,6 @@ const HostItem = React.memo<HostItemProps>(({ knownHost, converted, viewMode, on
 
 HostItem.displayName = 'HostItem';
 
-// Memoized Import Preview Item
-interface ImportPreviewItemProps {
-    host: KnownHost;
-    selected: boolean;
-    onToggle: (id: string, checked: boolean) => void;
-}
-
-const ImportPreviewItem = React.memo<ImportPreviewItemProps>(({ host, selected, onToggle }) => {
-    const handleChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-        onToggle(host.id, e.target.checked);
-    }, [host.id, onToggle]);
-
-    return (
-        <label
-            className={cn(
-                "flex items-center gap-3 px-3 py-2 rounded-lg border cursor-pointer transition-colors",
-                selected
-                    ? "border-primary bg-primary/5"
-                    : "border-border/50 hover:bg-secondary/50"
-            )}
-        >
-            <input
-                type="checkbox"
-                checked={selected}
-                onChange={handleChange}
-                className="rounded"
-            />
-            <div className="flex-1 min-w-0">
-                <div className="text-sm font-medium truncate">
-                    {host.hostname}
-                    {host.port !== 22 && `:${host.port}`}
-                </div>
-                <div className={cn("text-xs", getKeyTypeColorFn(host.keyType))}>
-                    {host.keyType}
-                </div>
-            </div>
-        </label>
-    );
-});
-
-ImportPreviewItem.displayName = 'ImportPreviewItem';
-
 const KnownHostsManager: React.FC<KnownHostsManagerProps> = ({
     knownHosts,
     hosts,
@@ -310,9 +260,6 @@ const KnownHostsManager: React.FC<KnownHostsManagerProps> = ({
 
     const [search, setSearch] = useState('');
     const deferredSearch = useDeferredValue(search);
-    const [isImportDialogOpen, setIsImportDialogOpen] = useState(false);
-    const [importPreview, setImportPreview] = useState<KnownHost[]>([]);
-    const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
     const [isScanning, setIsScanning] = useState(false);
     const [viewMode, setViewMode] = useState<ViewMode>('grid');
     const [sortBy, setSortBy] = useState<SortBy>('newest');
@@ -383,13 +330,13 @@ const KnownHostsManager: React.FC<KnownHostsManagerProps> = ({
             const content = event.target?.result as string;
             const parsed = parseKnownHostsFile(content);
 
-            // Filter out already existing hosts
+            // Filter out already existing hosts and directly import
             const existingHostnames = new Set(knownHosts.map((h) => `${h.hostname}:${h.port}`));
             const newHosts = parsed.filter((h) => !existingHostnames.has(`${h.hostname}:${h.port}`));
 
-            setImportPreview(newHosts);
-            setSelectedIds(new Set(newHosts.map((h) => h.id)));
-            setIsImportDialogOpen(true);
+            if (newHosts.length > 0) {
+                onImportFromFile(newHosts);
+            }
         };
         reader.readAsText(file);
 
@@ -397,15 +344,7 @@ const KnownHostsManager: React.FC<KnownHostsManagerProps> = ({
         if (fileInputRef.current) {
             fileInputRef.current.value = '';
         }
-    }, [knownHosts]);
-
-    const handleImportConfirm = useCallback(() => {
-        const toImport = importPreview.filter((h) => selectedIds.has(h.id));
-        onImportFromFile(toImport);
-        setIsImportDialogOpen(false);
-        setImportPreview([]);
-        setSelectedIds(new Set());
-    }, [importPreview, selectedIds, onImportFromFile]);
+    }, [knownHosts, onImportFromFile]);
 
     const handleScanSystem = useCallback(async () => {
         setIsScanning(true);
@@ -418,10 +357,9 @@ const KnownHostsManager: React.FC<KnownHostsManagerProps> = ({
                     const existingHostnames = new Set(knownHosts.map((h) => `${h.hostname}:${h.port}`));
                     const newHosts = parsed.filter((h) => !existingHostnames.has(`${h.hostname}:${h.port}`));
 
+                    // Directly import new hosts without dialog
                     if (newHosts.length > 0) {
-                        setImportPreview(newHosts);
-                        setSelectedIds(new Set(newHosts.map((h) => h.id)));
-                        setIsImportDialogOpen(true);
+                        onImportFromFile(newHosts);
                     }
                 }
             } catch (err) {
@@ -430,7 +368,7 @@ const KnownHostsManager: React.FC<KnownHostsManagerProps> = ({
         }
         onRefresh();
         setIsScanning(false);
-    }, [knownHosts, onRefresh]);
+    }, [knownHosts, onRefresh, onImportFromFile]);
 
     // Memoize host lookup for performance
     const hostIdSet = useMemo(() => new Set(hosts.map(h => h.id)), [hosts]);
@@ -465,21 +403,6 @@ const KnownHostsManager: React.FC<KnownHostsManagerProps> = ({
     const setSortNewest = useCallback(() => { setSortBy('newest'); setSortPopoverOpen(false); }, []);
     const setSortOldest = useCallback(() => { setSortBy('oldest'); setSortPopoverOpen(false); }, []);
     const openFilePicker = useCallback(() => fileInputRef.current?.click(), []);
-
-    // Import dialog handler
-    const handleToggleSelected = useCallback((id: string, checked: boolean) => {
-        setSelectedIds(prev => {
-            const next = new Set(prev);
-            if (checked) {
-                next.add(id);
-            } else {
-                next.delete(id);
-            }
-            return next;
-        });
-    }, []);
-
-    const closeImportDialog = useCallback(() => setIsImportDialogOpen(false), []);
 
     // Memoize the rendered list to prevent re-renders
     const renderedItems = useMemo(() => {
@@ -678,42 +601,7 @@ const KnownHostsManager: React.FC<KnownHostsManagerProps> = ({
                     )}
                 </div>
             </ScrollArea>
-
-            {/* Import Dialog */}
-            <Dialog open={isImportDialogOpen} onOpenChange={setIsImportDialogOpen}>
-                <DialogContent className="max-w-lg">
-                    <DialogHeader>
-                        <DialogTitle>Import Known Hosts</DialogTitle>
-                        <DialogDescription>
-                            Found {importPreview.length} new host{importPreview.length !== 1 ? 's' : ''} to import.
-                        </DialogDescription>
-                    </DialogHeader>
-                    <ScrollArea className="max-h-[300px]">
-                        <div className="space-y-2 pr-4">
-                            {importPreview.map((host) => (
-                                <ImportPreviewItem
-                                    key={host.id}
-                                    host={host}
-                                    selected={selectedIds.has(host.id)}
-                                    onToggle={handleToggleSelected}
-                                />
-                            ))}
-                        </div>
-                    </ScrollArea>
-                    <DialogFooter>
-                        <Button variant="ghost" onClick={closeImportDialog}>
-                            Cancel
-                        </Button>
-                        <Button
-                            onClick={handleImportConfirm}
-                            disabled={selectedIds.size === 0}
-                        >
-                            Import {selectedIds.size} Host{selectedIds.size !== 1 ? 's' : ''}
-                        </Button>
-                    </DialogFooter>
-                </DialogContent>
-            </Dialog>
-        </div>
+    </div>
     );
 };
 

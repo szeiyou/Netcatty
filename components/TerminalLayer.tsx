@@ -407,6 +407,7 @@ const TerminalLayerInner: React.FC<TerminalLayerProps> = ({
                 snippets={snippets}
                 isVisible={isVisible}
                 inWorkspace={inActiveWorkspace}
+                isResizing={!!resizing}
                 fontSize={14}
                 terminalTheme={terminalTheme}
                 sessionId={session.id}

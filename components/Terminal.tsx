@@ -17,6 +17,7 @@ interface TerminalProps {
   snippets: Snippet[];
   isVisible: boolean;
   inWorkspace?: boolean;
+  isResizing?: boolean;
   fontSize: number;
   terminalTheme: TerminalTheme;
   sessionId: string;
@@ -41,6 +42,7 @@ const TerminalComponent: React.FC<TerminalProps> = ({
   snippets,
   isVisible,
   inWorkspace,
+  isResizing,
   fontSize,
   terminalTheme,
   sessionId,
@@ -329,13 +331,16 @@ const TerminalComponent: React.FC<TerminalProps> = ({
     };
   }, [host.id, sessionId]);
 
-  // Debounced fit for resize operations - wait until resize ends
+  // Debounced fit for resize operations - only fit when not actively resizing
   useEffect(() => {
     if (!containerRef.current || !fitAddonRef.current) return;
 
     let resizeTimeout: ReturnType<typeof setTimeout> | null = null;
 
     const observer = new ResizeObserver(() => {
+      // Skip fit during active resize drag
+      if (isResizing) return;
+      
       // Clear previous timeout
       if (resizeTimeout) {
         clearTimeout(resizeTimeout);
@@ -351,7 +356,30 @@ const TerminalComponent: React.FC<TerminalProps> = ({
       if (resizeTimeout) clearTimeout(resizeTimeout);
       observer.disconnect();
     };
-  }, [isVisible]);
+  }, [isVisible, isResizing]);
+
+  // Fit when resizing ends (isResizing changes from true to false)
+  const prevIsResizingRef = useRef(isResizing);
+  useEffect(() => {
+    if (prevIsResizingRef.current && !isResizing && isVisible) {
+      // Resizing just ended, fit the terminal
+      const timer = setTimeout(() => {
+        safeFit();
+      }, 50);
+      return () => clearTimeout(timer);
+    }
+    prevIsResizingRef.current = isResizing;
+  }, [isResizing, isVisible]);
+
+  // Re-fit when inWorkspace changes (terminal moves into/out of workspace)
+  useEffect(() => {
+    if (!isVisible || !fitAddonRef.current) return;
+    // Delay fit to allow layout changes to complete
+    const timer = setTimeout(() => {
+      safeFit();
+    }, 100);
+    return () => clearTimeout(timer);
+  }, [inWorkspace, isVisible]);
 
   useEffect(() => {
     let resizeTimeout: ReturnType<typeof setTimeout> | null = null;
