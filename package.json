@@ -24,7 +24,7 @@
     "@radix-ui/react-slot": "1.2.4",
     "@radix-ui/react-tabs": "1.1.13",
     "clsx": "2.1.0",
-    "ghostty-web": "^0.3.0",
+    "ghostty-web": "^0.4.0",
     "lucide-react": "0.556.0",
     "node-pty": "^1.0.0",
     "react": "^19.2.1",

@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState, memo } from 'react';
-import { Ghostty, Terminal as GhosttyTerminal, FitAddon } from 'ghostty-web';
+import { init as initGhostty, Terminal as GhosttyTerminal, FitAddon } from 'ghostty-web';
 import { Host, SSHKey, Snippet, TerminalSession, TerminalTheme } from '../types';
 import { Zap, FolderInput, Loader2, AlertCircle, ShieldCheck, Clock, Play, X, Lock, Key, User, Eye, EyeOff, ChevronDown } from 'lucide-react';
 import { DistroAvatar } from './DistroAvatar';
@@ -28,12 +28,15 @@ interface TerminalProps {
   onUpdateHost?: (host: Host) => void;
 }
 
-let ghosttyPromise: Promise<Ghostty> | null = null;
-const ensureGhostty = () => {
-  if (!ghosttyPromise) {
-    ghosttyPromise = Ghostty.load('ghostty-vt.wasm');
+let ghosttyInitialized = false;
+let ghosttyInitPromise: Promise<void> | null = null;
+const ensureGhostty = async () => {
+  if (ghosttyInitialized) return;
+  if (!ghosttyInitPromise) {
+    ghosttyInitPromise = initGhostty();
   }
-  return ghosttyPromise;
+  await ghosttyInitPromise;
+  ghosttyInitialized = true;
 };
 
 const TerminalComponent: React.FC<TerminalProps> = ({
@@ -149,18 +152,17 @@ const TerminalComponent: React.FC<TerminalProps> = ({
 
     const boot = async () => {
       try {
-        const ghostty = await ensureGhostty();
+        await ensureGhostty();
         if (disposed || !containerRef.current) return;
 
         const term = new GhosttyTerminal({
           cursorBlink: true,
           fontSize,
-          fontFamily: '"JetBrains Mono", monospace',
+          fontFamily: '"JetBrains Mono", "Cascadia Code", "Fira Code", "SF Mono", "Menlo", "DejaVu Sans Mono", monospace',
           theme: {
             ...terminalTheme.colors,
             selectionBackground: terminalTheme.colors.selection,
           },
-          ghostty,
         });
 
         const fitAddon = new FitAddon();

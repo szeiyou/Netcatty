@@ -8,6 +8,12 @@
     <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css" />
     <style>
+      /* Load extended Unicode ranges for terminal box drawing characters */
+      @font-face {
+        font-family: 'JetBrains Mono Extended';
+        src: local('JetBrains Mono'), local('JetBrainsMono-Regular');
+        unicode-range: U+2500-257F, U+2580-259F, U+25A0-25FF, U+2700-27BF;
+      }
       :root {
         --background: 216 33% 96%;
         --foreground: 222 47% 12%;
