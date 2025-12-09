@@ -199,9 +199,10 @@ const PortForwarding: React.FC<PortForwardingProps> = ({ hosts, keys, customGrou
         remotePort: undefined,
         hostId: undefined,
     });
-    // User preference: skip wizard next time
+    // User preference: prefer wizard (false) or form (true)
     const [preferFormMode, setPreferFormMode] = useState(() => {
         try {
+            // Default to wizard mode (false) if not set
             return localStorage.getItem('pf-prefer-form-mode') === 'true';
         } catch {
             return false;
@@ -358,6 +359,12 @@ const PortForwarding: React.FC<PortForwardingProps> = ({ hosts, keys, customGrou
 
     // Open wizard from form
     const openWizardFromForm = () => {
+        // User opens wizard - prefer wizard mode next time
+        setPreferFormMode(false);
+        try {
+            localStorage.setItem('pf-prefer-form-mode', 'false');
+        } catch { }
+
         // Transfer current form draft to wizard
         setWizardType(newFormDraft.type || 'local');
         setDraftRule({ ...newFormDraft });
@@ -886,7 +893,7 @@ const PortForwarding: React.FC<PortForwardingProps> = ({ hosts, keys, customGrou
                                 <ChevronDown size={14} className={cn("transition-transform", showNewMenu ? "rotate-180" : "")} />
                             </Button>
                         </PopoverTrigger>
-                        <PopoverContent className="w-52 p-1" align="start">
+                        <PopoverContent className="w-52 p-1 z-[100]" align="start">
                             <Button
                                 variant="ghost"
                                 className="w-full justify-start gap-3 h-10"
@@ -1182,6 +1189,7 @@ const PortForwarding: React.FC<PortForwardingProps> = ({ hosts, keys, customGrou
                             <p className="text-xs text-muted-foreground">Personal vault</p>
                         </div>
                         <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => {
+                            // Just close wizard, don't change preference
                             setShowWizard(false);
                             resetWizard();
                         }}>
@@ -1413,33 +1421,9 @@ const PortForwarding: React.FC<PortForwardingProps> = ({ hosts, keys, customGrou
                             <h3 className="text-sm font-semibold">New Port Forwarding</h3>
                             <p className="text-xs text-muted-foreground">Personal vault</p>
                         </div>
-                        <div className="flex items-center gap-1">
-                            <Popover>
-                                <PopoverTrigger asChild>
-                                    <Button variant="ghost" size="icon" className="h-8 w-8">
-                                        <MoreVertical size={16} />
-                                    </Button>
-                                </PopoverTrigger>
-                                <PopoverContent className="w-40 p-1" align="end">
-                                    <Button
-                                        variant="ghost"
-                                        className="w-full justify-start gap-2 h-9"
-                                        onClick={() => {
-                                            // Clear preference
-                                            setPreferFormMode(false);
-                                            try {
-                                                localStorage.removeItem('pf-prefer-form-mode');
-                                            } catch { }
-                                        }}
-                                    >
-                                        Reset preference
-                                    </Button>
-                                </PopoverContent>
-                            </Popover>
-                            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={closeNewForm}>
-                                <ArrowRight size={16} />
-                            </Button>
-                        </div>
+                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={closeNewForm}>
+                            <ArrowRight size={16} />
+                        </Button>
                     </div>
 
                     {/* Content */}
