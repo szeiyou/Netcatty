@@ -357,7 +357,7 @@ const TerminalLayerInner: React.FC<TerminalLayerProps> = ({
           )}
         </div>
       )}
-      <div ref={workspaceInnerRef} className="absolute inset-0">
+      <div ref={workspaceInnerRef} className="absolute inset-0 overflow-hidden">
         {sessions.map(session => {
           const host = hostMap.get(session.hostId) || {
             id: session.hostId,
@@ -420,15 +420,25 @@ const TerminalLayerInner: React.FC<TerminalLayerProps> = ({
             </div>
           );
         })}
-        {activeResizers.map(handle => (
+        {activeResizers.map(handle => {
+          const isVertical = handle.direction === 'vertical';
+          // Expand hit area perpendicular to the split line, but stay within bounds
+          // Vertical split (left-right): expand horizontally, keep vertical bounds
+          // Horizontal split (top-bottom): expand vertically, keep horizontal bounds
+          const left = isVertical ? handle.rect.x - 3 : handle.rect.x;
+          const top = isVertical ? handle.rect.y : handle.rect.y - 3;
+          const width = isVertical ? handle.rect.w + 6 : handle.rect.w;
+          const height = isVertical ? handle.rect.h : handle.rect.h + 6;
+          
+          return (
           <div
             key={handle.id}
-            className={cn("absolute group", handle.direction === 'vertical' ? "cursor-ew-resize" : "cursor-ns-resize")}
+            className={cn("absolute group", isVertical ? "cursor-ew-resize" : "cursor-ns-resize")}
             style={{
-              left: `${handle.rect.x - 3}px`,
-              top: `${handle.rect.y - 3}px`,
-              width: `${handle.rect.w + 6}px`,
-              height: `${handle.rect.h + 6}px`,
+              left: `${left}px`,
+              top: `${top}px`,
+              width: `${width}px`,
+              height: `${height}px`,
               zIndex: 25,
             }}
             onMouseDown={(e) => {
@@ -455,15 +465,12 @@ const TerminalLayerInner: React.FC<TerminalLayerProps> = ({
             <div
               className={cn(
                 "absolute bg-border/70 group-hover:bg-primary/60 transition-colors",
-                handle.direction === 'vertical' ? "w-px h-full left-1/2 -translate-x-1/2" : "h-px w-full top-1/2 -translate-y-1/2"
+                isVertical ? "w-px h-full left-1/2 -translate-x-1/2" : "h-px w-full top-1/2 -translate-y-1/2"
               )}
-              style={{
-                top: handle.direction === 'vertical' ? 0 : undefined,
-                left: handle.direction === 'vertical' ? undefined : 0,
-              }}
             />
           </div>
-        ))}
+          );
+        })}
       </div>
       {showAssistant && (
         <div className="absolute right-0 top-0 bottom-0 z-20 shadow-2xl animate-in slide-in-from-right-10">

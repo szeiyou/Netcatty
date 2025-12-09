@@ -601,7 +601,7 @@ const KnownHostsManager: React.FC<KnownHostsManagerProps> = ({
                     )}
                 </div>
             </ScrollArea>
-    </div>
+        </div>
     );
 };
 

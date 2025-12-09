@@ -340,7 +340,7 @@ const TerminalComponent: React.FC<TerminalProps> = ({
     const observer = new ResizeObserver(() => {
       // Skip fit during active resize drag
       if (isResizing) return;
-      
+
       // Clear previous timeout
       if (resizeTimeout) {
         clearTimeout(resizeTimeout);
@@ -720,15 +720,12 @@ const TerminalComponent: React.FC<TerminalProps> = ({
 
       {inWorkspace && (
         <div className="absolute left-0 right-0 top-0 z-20 pointer-events-none">
-          <div className="flex items-center gap-2 px-2 py-1 bg-black/55 text-white backdrop-blur-md pointer-events-auto">
-            <div className="flex-1 min-w-0 flex items-center gap-2 text-[11px] font-semibold truncate">
-              <span className="truncate">{host.label}</span>
-              <span className={cn("inline-block h-2 w-2 rounded-full", statusDotTone)} />
-              <span className="text-white/80 font-mono text-[10px] font-normal truncate">
-                {host.username}@{host.hostname}:{host.port || 22}
-              </span>
+          <div className="flex items-center gap-1 px-2 py-1 bg-black/55 text-white backdrop-blur-md pointer-events-auto min-w-0">
+            <div className="flex-1 min-w-0 flex items-center gap-1 text-[11px] font-semibold">
+              <span className="truncate max-w-[80px]">{host.label}</span>
+              <span className={cn("inline-block h-2 w-2 rounded-full flex-shrink-0", statusDotTone)} />
             </div>
-            <div className="flex items-center gap-1.5">
+            <div className="flex items-center gap-0.5 flex-shrink-0">
               {renderControls('compact', { showClose: true })}
             </div>
           </div>
