@@ -143,10 +143,10 @@ const TerminalComponent: React.FC<TerminalProps> = ({
 
   useEffect(() => {
     let disposed = false;
-    setStatus('connecting');
+    // Don't set status yet - will determine after checking auth requirements
     setError(null);
     hasConnectedRef.current = false;
-    setProgressLogs(['Initializing secure channel...']);
+    setProgressLogs([]);
     setShowLogs(false);
     setIsCancelling(false);
 
@@ -189,6 +189,8 @@ const TerminalComponent: React.FC<TerminalProps> = ({
         });
 
         if (host.protocol === 'local' || host.hostname === 'localhost') {
+          setStatus('connecting');
+          setProgressLogs(['Initializing secure channel...']);
           await startLocal(term);
         } else {
           // Check if host needs authentication info
@@ -197,12 +199,15 @@ const TerminalComponent: React.FC<TerminalProps> = ({
           const hasPendingAuth = pendingAuthRef.current;
 
           if (!hasPassword && !hasKey && !hasPendingAuth && !host.username) {
-            // No auth info available - show auth dialog
+            // No auth info available - show auth dialog without starting connection
             setNeedsAuth(true);
-            setStatus('connecting');
+            // Keep status as disconnected - don't trigger timeout timer
+            setStatus('disconnected');
             return;
           }
 
+          setStatus('connecting');
+          setProgressLogs(['Initializing secure channel...']);
           await startSSH(term);
         }
       } catch (err) {
@@ -618,9 +623,16 @@ const TerminalComponent: React.FC<TerminalProps> = ({
 
     // Hide auth dialog and start connection
     setNeedsAuth(false);
+    setStatus('connecting');
     setProgressLogs(['Authenticating with provided credentials...']);
 
     if (termRef.current) {
+      // Clear terminal before connecting
+      try {
+        termRef.current.clear?.();
+      } catch (err) {
+        console.warn("Failed to clear terminal", err);
+      }
       startSSH(termRef.current);
     }
   };
@@ -749,7 +761,10 @@ const TerminalComponent: React.FC<TerminalProps> = ({
         )}
 
         {status !== 'connected' && (
-          <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/30">
+          <div className={cn(
+            "absolute inset-0 z-20 flex items-center justify-center",
+            needsAuth ? "bg-black" : "bg-black/30"
+          )}>
             <div className="w-[560px] max-w-[90vw] bg-background/95 border border-border/60 rounded-2xl shadow-xl p-6 space-y-4">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
@@ -812,13 +827,13 @@ const TerminalComponent: React.FC<TerminalProps> = ({
                 /* Auth form */
                 <>
                   {/* Auth method tabs */}
-                  <div className="flex border border-border/60 rounded-lg overflow-hidden">
+                  <div className="flex gap-1 p-1 bg-secondary/80 rounded-lg border border-border/60">
                     <button
                       className={cn(
-                        "flex-1 flex items-center justify-center gap-2 py-2.5 text-sm transition-colors",
+                        "flex-1 flex items-center justify-center gap-2 py-2 text-sm font-medium rounded-md transition-all",
                         authMethod === 'password'
-                          ? "bg-primary text-primary-foreground"
-                          : "bg-background hover:bg-secondary text-muted-foreground"
+                          ? "bg-primary text-primary-foreground shadow-sm"
+                          : "text-muted-foreground hover:text-foreground hover:bg-secondary"
                       )}
                       onClick={() => setAuthMethod('password')}
                     >
@@ -827,10 +842,10 @@ const TerminalComponent: React.FC<TerminalProps> = ({
                     </button>
                     <button
                       className={cn(
-                        "flex-1 flex items-center justify-center gap-2 py-2.5 text-sm transition-colors",
+                        "flex-1 flex items-center justify-center gap-2 py-2 text-sm font-medium rounded-md transition-all",
                         authMethod === 'key'
-                          ? "bg-primary text-primary-foreground"
-                          : "bg-background hover:bg-secondary text-muted-foreground"
+                          ? "bg-primary text-primary-foreground shadow-sm"
+                          : "text-muted-foreground hover:text-foreground hover:bg-secondary"
                       )}
                       onClick={() => setAuthMethod('key')}
                     >

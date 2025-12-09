@@ -91,13 +91,13 @@ const AuthDialog: React.FC<AuthDialogProps> = ({
 
                 {/* Auth method tabs */}
                 <div className="px-6">
-                    <div className="flex border border-border/60 rounded-lg overflow-hidden">
+                    <div className="flex gap-1 p-1 bg-secondary/80 rounded-lg border border-border/60">
                         <button
                             className={cn(
-                                "flex-1 flex items-center justify-center gap-2 py-2.5 text-sm transition-colors",
+                                "flex-1 flex items-center justify-center gap-2 py-2 text-sm font-medium rounded-md transition-all",
                                 authMethod === 'password'
-                                    ? "bg-primary text-primary-foreground"
-                                    : "bg-background hover:bg-secondary text-muted-foreground"
+                                    ? "bg-primary text-primary-foreground shadow-sm"
+                                    : "text-muted-foreground hover:text-foreground hover:bg-secondary"
                             )}
                             onClick={() => setAuthMethod('password')}
                         >
@@ -106,10 +106,10 @@ const AuthDialog: React.FC<AuthDialogProps> = ({
                         </button>
                         <button
                             className={cn(
-                                "flex-1 flex items-center justify-center gap-2 py-2.5 text-sm transition-colors",
+                                "flex-1 flex items-center justify-center gap-2 py-2 text-sm font-medium rounded-md transition-all",
                                 authMethod === 'key'
-                                    ? "bg-primary text-primary-foreground"
-                                    : "bg-background hover:bg-secondary text-muted-foreground"
+                                    ? "bg-primary text-primary-foreground shadow-sm"
+                                    : "text-muted-foreground hover:text-foreground hover:bg-secondary"
                             )}
                             onClick={() => setAuthMethod('key')}
                         >
