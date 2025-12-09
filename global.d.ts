@@ -144,6 +144,9 @@ interface NebulaBridge {
   getPortForwardStatus?(tunnelId: string): Promise<PortForwardStatusResult>;
   listPortForwards?(): Promise<{ tunnelId: string; type: string; status: string }[]>;
   onPortForwardStatus?(tunnelId: string, cb: PortForwardStatusCallback): () => void;
+  
+  // Known Hosts
+  readKnownHosts?(): Promise<string | null>;
 }
 
 declare global {

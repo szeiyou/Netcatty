@@ -35,6 +35,7 @@ interface TerminalLayerProps {
   onCloseSession: (sessionId: string, e?: React.MouseEvent) => void;
   onUpdateSessionStatus: (sessionId: string, status: TerminalSession['status']) => void;
   onUpdateHostDistro: (hostId: string, distro: string) => void;
+  onUpdateHost: (host: Host) => void;
   onCreateWorkspaceFromSessions: (baseSessionId: string, joiningSessionId: string, hint: Exclude<SplitHint, null>) => void;
   onAddSessionToWorkspace: (workspaceId: string, sessionId: string, hint: Exclude<SplitHint, null>) => void;
   onUpdateSplitSizes: (workspaceId: string, splitId: string, sizes: number[]) => void;
@@ -53,6 +54,7 @@ const TerminalLayerInner: React.FC<TerminalLayerProps> = ({
   onCloseSession,
   onUpdateSessionStatus,
   onUpdateHostDistro,
+  onUpdateHost,
   onCreateWorkspaceFromSessions,
   onAddSessionToWorkspace,
   onUpdateSplitSizes,
@@ -80,6 +82,10 @@ const TerminalLayerInner: React.FC<TerminalLayerProps> = ({
   const handleOsDetected = useCallback((hostId: string, distro: string) => {
     onUpdateHostDistro(hostId, distro);
   }, [onUpdateHostDistro]);
+
+  const handleUpdateHost = useCallback((host: Host) => {
+    onUpdateHost(host);
+  }, [onUpdateHost]);
 
   const [workspaceArea, setWorkspaceArea] = useState<{ width: number; height: number }>({ width: 0, height: 0 });
   const workspaceOuterRef = useRef<HTMLDivElement>(null);
@@ -351,7 +357,7 @@ const TerminalLayerInner: React.FC<TerminalLayerProps> = ({
           )}
         </div>
       )}
-      <div ref={workspaceInnerRef} className="absolute inset-0 p-3">
+      <div ref={workspaceInnerRef} className="absolute inset-0">
         {sessions.map(session => {
           const host = hostMap.get(session.hostId) || {
             id: session.hostId,
@@ -388,7 +394,7 @@ const TerminalLayerInner: React.FC<TerminalLayerProps> = ({
             <div
               key={session.id}
               className={cn(
-                "absolute bg-background border border-border/60",
+                "absolute bg-background",
                 inActiveWorkspace && "workspace-pane",
                 isVisible && "z-10"
               )}
@@ -408,6 +414,7 @@ const TerminalLayerInner: React.FC<TerminalLayerProps> = ({
                 onStatusChange={handleStatusChange}
                 onSessionExit={handleSessionExit}
                 onOsDetected={handleOsDetected}
+                onUpdateHost={handleUpdateHost}
               />
             </div>
           );
@@ -476,7 +483,8 @@ const terminalLayerAreEqual = (prev: TerminalLayerProps, next: TerminalLayerProp
     prev.workspaces === next.workspaces &&
     prev.draggingSessionId === next.draggingSessionId &&
     prev.terminalTheme === next.terminalTheme &&
-    prev.showAssistant === next.showAssistant
+    prev.showAssistant === next.showAssistant &&
+    prev.onUpdateHost === next.onUpdateHost
   );
 };
 

@@ -42,12 +42,15 @@ function App() {
     snippets,
     customGroups,
     snippetPackages,
+    knownHosts,
     updateHosts,
     updateKeys,
     updateSnippets,
     updateSnippetPackages,
     updateCustomGroups,
+    updateKnownHosts,
     updateHostDistro,
+    convertKnownHostToHost,
     exportData,
     importDataFromString,
   } = useVaultState();
@@ -166,6 +169,7 @@ function App() {
           snippets={snippets}
           snippetPackages={snippetPackages}
           customGroups={customGroups}
+          knownHosts={knownHosts}
           sessions={sessions}
           showAssistant={showAssistant}
           onToggleAssistant={handleToggleAssistant}
@@ -181,6 +185,8 @@ function App() {
           onUpdateSnippets={updateSnippets}
           onUpdateSnippetPackages={updateSnippetPackages}
           onUpdateCustomGroups={updateCustomGroups}
+          onUpdateKnownHosts={updateKnownHosts}
+          onConvertKnownHost={convertKnownHostToHost}
         />
 
         <SftpView hosts={hosts} keys={keys} />
@@ -197,6 +203,7 @@ function App() {
           onCloseSession={closeSession}
           onUpdateSessionStatus={updateSessionStatus}
           onUpdateHostDistro={updateHostDistro}
+          onUpdateHost={(host) => updateHosts(hosts.map(h => h.id === host.id ? host : h))}
           onCreateWorkspaceFromSessions={createWorkspaceFromSessions}
           onAddSessionToWorkspace={addSessionToWorkspace}
           onUpdateSplitSizes={updateSplitSizes}

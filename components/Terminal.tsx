@@ -1,9 +1,11 @@
 import React, { useEffect, useRef, useState, memo } from 'react';
 import { Ghostty, Terminal as GhosttyTerminal, FitAddon } from 'ghostty-web';
 import { Host, SSHKey, Snippet, TerminalSession, TerminalTheme } from '../types';
-import { Zap, FolderInput, Loader2, AlertCircle, ShieldCheck, Clock, Play, X } from 'lucide-react';
+import { Zap, FolderInput, Loader2, AlertCircle, ShieldCheck, Clock, Play, X, Lock, Key, User, Eye, EyeOff, ChevronDown } from 'lucide-react';
 import { DistroAvatar } from './DistroAvatar';
 import { Button } from './ui/button';
+import { Input } from './ui/input';
+import { Label } from './ui/label';
 import { cn } from '../lib/utils';
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
 import { ScrollArea } from './ui/scroll-area';
@@ -22,6 +24,7 @@ interface TerminalProps {
   onSessionExit?: (sessionId: string) => void;
   onOsDetected?: (hostId: string, distro: string) => void;
   onCloseSession?: (sessionId: string) => void;
+  onUpdateHost?: (host: Host) => void;
 }
 
 let ghosttyPromise: Promise<Ghostty> | null = null;
@@ -45,6 +48,7 @@ const TerminalComponent: React.FC<TerminalProps> = ({
   onSessionExit,
   onOsDetected,
   onCloseSession,
+  onUpdateHost,
 }) => {
   const CONNECTION_TIMEOUT = 12000;
   const containerRef = useRef<HTMLDivElement>(null);
@@ -64,6 +68,22 @@ const TerminalComponent: React.FC<TerminalProps> = ({
   const [isCancelling, setIsCancelling] = useState(false);
   const [showSFTP, setShowSFTP] = useState(false);
   const [progressValue, setProgressValue] = useState(15);
+  
+  // Auth dialog state for hosts without credentials
+  const [needsAuth, setNeedsAuth] = useState(false);
+  const [authUsername, setAuthUsername] = useState(host.username || 'root');
+  const [authMethod, setAuthMethod] = useState<'password' | 'key'>('password');
+  const [authPassword, setAuthPassword] = useState('');
+  const [authKeyId, setAuthKeyId] = useState<string | null>(null);
+  const [showAuthPassword, setShowAuthPassword] = useState(false);
+  const [saveCredentials, setSaveCredentials] = useState(true);
+  
+  // Pending connection credentials (set after auth dialog submit)
+  const pendingAuthRef = useRef<{
+    username: string;
+    password?: string;
+    keyId?: string;
+  } | null>(null);
 
   const updateStatus = (next: TerminalSession['status']) => {
     setStatus(next);
@@ -167,6 +187,18 @@ const TerminalComponent: React.FC<TerminalProps> = ({
         if (host.protocol === 'local' || host.hostname === 'localhost') {
           await startLocal(term);
         } else {
+          // Check if host needs authentication info
+          const hasPassword = host.authMethod === 'password' && host.password;
+          const hasKey = host.authMethod === 'key' && host.identityFileId;
+          const hasPendingAuth = pendingAuthRef.current;
+          
+          if (!hasPassword && !hasKey && !hasPendingAuth && !host.username) {
+            // No auth info available - show auth dialog
+            setNeedsAuth(true);
+            setStatus('connecting');
+            return;
+          }
+          
           await startSSH(term);
         }
       } catch (err) {
@@ -316,17 +348,23 @@ const TerminalComponent: React.FC<TerminalProps> = ({
       return;
     }
 
-    const key = host.identityFileId
-      ? keys.find((k) => k.id === host.identityFileId)
+    // Use pending auth if available, otherwise use host config
+    const pendingAuth = pendingAuthRef.current;
+    const effectiveUsername = pendingAuth?.username || host.username || 'root';
+    const effectivePassword = pendingAuth?.password || (host.authMethod !== 'key' ? host.password : undefined);
+    const effectiveKeyId = pendingAuth?.keyId || host.identityFileId;
+    
+    const key = effectiveKeyId
+      ? keys.find((k) => k.id === effectiveKeyId)
       : undefined;
 
     try {
       const id = await window.nebula.startSSHSession({
         sessionId,
         hostname: host.hostname,
-        username: host.username || 'root',
+        username: effectiveUsername,
         port: host.port || 22,
-        password: host.authMethod !== 'key' ? host.password : undefined,
+        password: effectivePassword,
         privateKey: key?.privateKey,
         keyId: key?.id,
         agentForwarding: host.agentForwarding,
@@ -452,16 +490,20 @@ const TerminalComponent: React.FC<TerminalProps> = ({
 
   const handleCancelConnect = () => {
     setIsCancelling(true);
+    setNeedsAuth(false);
     setError('Connection cancelled');
     setProgressLogs((prev) => [...prev, 'Cancelled by user.']);
     cleanupSession();
     updateStatus('disconnected');
     setTimeout(() => setIsCancelling(false), 600);
+    onCloseSession?.(sessionId);
   };
 
   const handleRetry = () => {
     if (!termRef.current) return;
     cleanupSession();
+    setNeedsAuth(false);
+    pendingAuthRef.current = null;
     setStatus('connecting');
     setError(null);
     setProgressLogs(['Retrying secure channel...']);
@@ -469,6 +511,44 @@ const TerminalComponent: React.FC<TerminalProps> = ({
     if (host.protocol === 'local' || host.hostname === 'localhost') {
       startLocal(termRef.current);
     } else {
+      startSSH(termRef.current);
+    }
+  };
+
+  const isAuthValid = () => {
+    if (!authUsername.trim()) return false;
+    if (authMethod === 'password') return authPassword.trim().length > 0;
+    if (authMethod === 'key') return !!authKeyId;
+    return false;
+  };
+
+  const handleAuthSubmit = () => {
+    if (!isAuthValid()) return;
+    
+    // Set pending auth credentials
+    pendingAuthRef.current = {
+      username: authUsername,
+      password: authMethod === 'password' ? authPassword : undefined,
+      keyId: authMethod === 'key' ? authKeyId ?? undefined : undefined,
+    };
+
+    // Save credentials to host if requested
+    if (saveCredentials && onUpdateHost) {
+      const updatedHost: Host = {
+        ...host,
+        username: authUsername,
+        authMethod: authMethod,
+        password: authMethod === 'password' ? authPassword : undefined,
+        identityFileId: authMethod === 'key' ? authKeyId ?? undefined : undefined,
+      };
+      onUpdateHost(updatedHost);
+    }
+
+    // Hide auth dialog and start connection
+    setNeedsAuth(false);
+    setProgressLogs(['Authenticating with provided credentials...']);
+    
+    if (termRef.current) {
       startSSH(termRef.current);
     }
   };
@@ -585,12 +665,12 @@ const TerminalComponent: React.FC<TerminalProps> = ({
 
       <div
         className={cn(
-          "h-full flex-1 min-w-0 transition-all duration-300 relative",
-          inWorkspace ? "pt-9 px-2 pb-2" : "p-2"
+          "h-full flex-1 min-w-0 transition-all duration-300 relative overflow-hidden",
+          inWorkspace ? "pt-8" : ""
         )}
         style={{ backgroundColor: terminalTheme.colors.background }}
       >
-        <div ref={containerRef} className="h-full w-full" />
+        <div ref={containerRef} className="absolute inset-0" style={inWorkspace ? { top: '32px' } : undefined} />
         {error && (
           <div className="absolute bottom-3 left-3 text-xs text-destructive bg-background/80 border border-destructive/40 rounded px-3 py-2 shadow-lg">
             {error}
@@ -606,103 +686,247 @@ const TerminalComponent: React.FC<TerminalProps> = ({
                   <div>
                     <div className="text-sm font-semibold">{host.label}</div>
                     <div className="text-[11px] text-muted-foreground font-mono">
-                      {host.username}@{host.hostname}:{host.port || 22}
+                      SSH {host.hostname}:{host.port || 22}
                     </div>
                   </div>
                 </div>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="h-8 text-xs"
-                  onClick={() => setShowLogs((v) => !v)}
-                >
-                  {showLogs ? 'Hide logs' : 'Show logs'}
-                </Button>
+                {!needsAuth && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-8 text-xs"
+                    onClick={() => setShowLogs((v) => !v)}
+                  >
+                    {showLogs ? 'Hide logs' : 'Show logs'}
+                  </Button>
+                )}
               </div>
 
-              <div className="flex items-center gap-3">
-                <div className="h-8 w-8 rounded-lg bg-primary/15 text-primary flex items-center justify-center shadow-inner">
-                  {status === 'connecting' ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <AlertCircle className="h-4 w-4" />
-                  )}
-                </div>
-                <div className="flex-1 h-2 rounded-full bg-border/60 overflow-hidden relative">
-                  <div
-                    className="absolute inset-y-0 left-0 bg-gradient-to-r from-primary via-primary/80 to-primary rounded-full"
-                    style={{
-                      width: status === 'connecting' ? `${progressValue}%` : '100%',
-                      transition: 'width 150ms cubic-bezier(0.4, 0, 0.2, 1)'
-                    }}
-                  />
-                  <div
-                    className="absolute inset-0 overflow-hidden rounded-full"
-                  >
+              {/* Progress indicator - icons with progress bar below */}
+              <div className="space-y-2">
+                <div className="flex items-center gap-3">
+                  <div className={cn(
+                    "h-8 w-8 rounded-full flex items-center justify-center flex-shrink-0",
+                    needsAuth ? "bg-primary text-primary-foreground" : status === 'connected' ? "bg-emerald-500/20 text-emerald-500" : "bg-primary/15 text-primary"
+                  )}>
+                    <User size={14} />
+                  </div>
+                  <div className="flex-1 h-1.5 rounded-full bg-border/60 overflow-hidden relative">
                     <div
-                      className="h-full w-[200%] bg-gradient-to-r from-transparent via-white/30 to-transparent animate-[progress-shimmer_2s_ease-in-out_infinite]"
+                      className={cn(
+                        "absolute inset-y-0 left-0 rounded-full transition-all duration-300",
+                        error ? "bg-destructive" : "bg-primary"
+                      )}
+                      style={{
+                        width: needsAuth ? '0%' : status === 'connecting' ? `${progressValue}%` : error ? '100%' : '100%',
+                      }}
                     />
                   </div>
-                </div>
-                <div className="h-8 w-8 rounded-lg border border-border/70 flex items-center justify-center">
-                  <ShieldCheck className="h-4 w-4 text-muted-foreground" />
+                  <div className={cn(
+                    "h-8 w-8 rounded-full flex items-center justify-center flex-shrink-0",
+                    status === 'connected' ? "bg-emerald-500/20 text-emerald-500" : "bg-muted text-muted-foreground"
+                  )}>
+                    {'>_'}
+                  </div>
                 </div>
               </div>
 
-              <div className="flex items-center justify-between text-xs text-muted-foreground">
-                <div className="flex items-center gap-2">
-                  <Clock className="h-3 w-3" />
-                  <span>
-                    {status === 'connecting'
-                      ? `Timeout in ${timeLeft}s`
-                      : error || 'Disconnected'}
-                  </span>
-                </div>
-                <div className="flex items-center gap-2">
-                  {status === 'connecting' ? (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-8"
-                      onClick={handleCancelConnect}
-                      disabled={isCancelling}
+              {needsAuth ? (
+                /* Auth form */
+                <>
+                  {/* Auth method tabs */}
+                  <div className="flex border border-border/60 rounded-lg overflow-hidden">
+                    <button
+                      className={cn(
+                        "flex-1 flex items-center justify-center gap-2 py-2.5 text-sm transition-colors",
+                        authMethod === 'password'
+                          ? "bg-primary text-primary-foreground"
+                          : "bg-background hover:bg-secondary text-muted-foreground"
+                      )}
+                      onClick={() => setAuthMethod('password')}
                     >
-                      {isCancelling ? 'Cancelling...' : 'Cancel'}
-                    </Button>
-                  ) : (
-                    <div className="flex gap-2">
-                      <Button variant="ghost" size="sm" className="h-8" onClick={handleCancelConnect}>
-                        Close
-                      </Button>
-                      <Button size="sm" className="h-8" onClick={handleRetry}>
-                        <Play className="h-3 w-3 mr-2" /> Start over
-                      </Button>
-                    </div>
-                  )}
-                </div>
-              </div>
+                      <Lock size={14} />
+                      Password
+                    </button>
+                    <button
+                      className={cn(
+                        "flex-1 flex items-center justify-center gap-2 py-2.5 text-sm transition-colors",
+                        authMethod === 'key'
+                          ? "bg-primary text-primary-foreground"
+                          : "bg-background hover:bg-secondary text-muted-foreground"
+                      )}
+                      onClick={() => setAuthMethod('key')}
+                    >
+                      <Key size={14} />
+                      Public Key
+                    </button>
+                  </div>
 
-              {showLogs && (
-                <div className="rounded-xl border border-border/60 bg-background/70 shadow-inner">
-                  <ScrollArea className="max-h-52 p-3">
-                    <div className="space-y-2 text-sm text-foreground/90">
-                      {progressLogs.map((line, idx) => (
-                        <div key={idx} className="flex items-start gap-2">
-                          <div className="mt-0.5">
-                            <ShieldCheck className="h-3.5 w-3.5 text-primary" />
-                          </div>
-                          <div>{line}</div>
+                  <div className="space-y-3">
+                    <div className="space-y-2">
+                      <Label htmlFor="auth-username">Username</Label>
+                      <Input
+                        id="auth-username"
+                        value={authUsername}
+                        onChange={(e) => setAuthUsername(e.target.value)}
+                        placeholder="root"
+                      />
+                    </div>
+
+                    {authMethod === 'password' ? (
+                      <div className="space-y-2">
+                        <Label htmlFor="auth-password">Password</Label>
+                        <div className="relative">
+                          <Input
+                            id="auth-password"
+                            type={showAuthPassword ? 'text' : 'password'}
+                            value={authPassword}
+                            onChange={(e) => setAuthPassword(e.target.value)}
+                            placeholder="Enter password"
+                            className="pr-10"
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' && authUsername.trim() && authPassword.trim()) {
+                                handleAuthSubmit();
+                              }
+                            }}
+                          />
+                          <button
+                            type="button"
+                            className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                            onClick={() => setShowAuthPassword(!showAuthPassword)}
+                          >
+                            {showAuthPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                          </button>
                         </div>
-                      ))}
-                      {error && (
-                        <div className="flex items-start gap-2 text-destructive">
-                          <AlertCircle className="h-3.5 w-3.5 mt-0.5" />
-                          <div>{error}</div>
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        <Label>Select Key</Label>
+                        {keys.filter(k => k.category === 'key').length === 0 ? (
+                          <div className="text-sm text-muted-foreground p-3 border border-dashed border-border/60 rounded-lg text-center">
+                            No keys available. Add keys in the Keychain section.
+                          </div>
+                        ) : (
+                          <div className="space-y-2 max-h-40 overflow-y-auto">
+                            {keys.filter(k => k.category === 'key').map((key) => (
+                              <button
+                                key={key.id}
+                                className={cn(
+                                  "w-full flex items-center gap-3 px-3 py-2.5 rounded-lg border transition-colors text-left",
+                                  authKeyId === key.id
+                                    ? "border-primary bg-primary/5"
+                                    : "border-border/50 hover:bg-secondary/50"
+                                )}
+                                onClick={() => setAuthKeyId(key.id)}
+                              >
+                                <div className={cn(
+                                  "h-8 w-8 rounded-lg flex items-center justify-center",
+                                  key.source === 'biometric' ? "bg-purple-500/20 text-purple-500" : "bg-primary/20 text-primary"
+                                )}>
+                                  <Key size={14} />
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <div className="text-sm font-medium truncate">{key.label}</div>
+                                  <div className="text-xs text-muted-foreground">Type {key.type}</div>
+                                </div>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex items-center justify-between pt-2">
+                    <Button variant="secondary" onClick={handleCancelConnect}>
+                      Close
+                    </Button>
+                    <div className="flex items-center gap-2">
+                      <Popover>
+                        <PopoverTrigger asChild>
+                          <Button
+                            disabled={!isAuthValid()}
+                            onClick={handleAuthSubmit}
+                          >
+                            Continue & Save
+                            <ChevronDown size={14} className="ml-2" />
+                          </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-40 p-1 z-50" align="end">
+                          <button
+                            className="w-full px-3 py-2 text-sm text-left hover:bg-secondary rounded-md"
+                            onClick={() => {
+                              setSaveCredentials(false);
+                              handleAuthSubmit();
+                            }}
+                            disabled={!isAuthValid()}
+                          >
+                            Continue
+                          </button>
+                        </PopoverContent>
+                      </Popover>
+                    </div>
+                  </div>
+                </>
+              ) : (
+                /* Connection progress */
+                <>
+                  <div className="flex items-center justify-between text-xs text-muted-foreground">
+                    <div className="flex items-center gap-2">
+                      <Clock className="h-3 w-3" />
+                      <span>
+                        {status === 'connecting'
+                          ? `Timeout in ${timeLeft}s`
+                          : error || 'Disconnected'}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {status === 'connecting' ? (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-8"
+                          onClick={handleCancelConnect}
+                          disabled={isCancelling}
+                        >
+                          {isCancelling ? 'Cancelling...' : 'Close'}
+                        </Button>
+                      ) : (
+                        <div className="flex gap-2">
+                          <Button variant="ghost" size="sm" className="h-8" onClick={handleCancelConnect}>
+                            Close
+                          </Button>
+                          <Button size="sm" className="h-8" onClick={handleRetry}>
+                            <Play className="h-3 w-3 mr-2" /> Start over
+                          </Button>
                         </div>
                       )}
                     </div>
-                  </ScrollArea>
-                </div>
+                  </div>
+
+                  {showLogs && (
+                    <div className="rounded-xl border border-border/60 bg-background/70 shadow-inner">
+                      <ScrollArea className="max-h-52 p-3">
+                        <div className="space-y-2 text-sm text-foreground/90">
+                          {progressLogs.map((line, idx) => (
+                            <div key={idx} className="flex items-start gap-2">
+                              <div className="mt-0.5">
+                                <ShieldCheck className="h-3.5 w-3.5 text-primary" />
+                              </div>
+                              <div>{line}</div>
+                            </div>
+                          ))}
+                          {error && (
+                            <div className="flex items-start gap-2 text-destructive">
+                              <AlertCircle className="h-3.5 w-3.5 mt-0.5" />
+                              <div>{error}</div>
+                            </div>
+                          )}
+                        </div>
+                      </ScrollArea>
+                    </div>
+                  )}
+                </>
               )}
             </div>
           </div>

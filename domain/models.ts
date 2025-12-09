@@ -23,12 +23,36 @@ export interface Host {
   distro?: string; // detected distro id (e.g., ubuntu, debian)
 }
 
+export type KeyType = 'RSA' | 'ECDSA' | 'ED25519';
+export type KeySource = 'generated' | 'imported' | 'biometric' | 'fido2';
+export type KeyCategory = 'key' | 'certificate' | 'identity';
+export type IdentityAuthMethod = 'password' | 'key' | 'certificate' | 'fido2';
+
 export interface SSHKey {
   id: string;
   label: string;
-  type: 'RSA' | 'ECDSA' | 'ED25519';
+  type: KeyType;
   privateKey: string;
   publicKey?: string;
+  certificate?: string;
+  passphrase?: string; // encrypted or stored securely
+  savePassphrase?: boolean;
+  source: KeySource;
+  category: KeyCategory;
+  // For biometric/FIDO2 keys
+  credentialId?: string; // WebAuthn credential ID (base64)
+  rpId?: string; // Relying Party ID
+  created: number;
+}
+
+// Identity combines username with authentication method
+export interface Identity {
+  id: string;
+  label: string;
+  username: string;
+  authMethod: IdentityAuthMethod;
+  password?: string; // For password auth
+  keyId?: string; // Reference to SSHKey for key/certificate auth
   created: number;
 }
 
@@ -211,4 +235,16 @@ export interface PortForwardingRule {
   error?: string;
   createdAt: number;
   lastUsedAt?: number;
+}
+
+// Known Hosts - discovered from system SSH known_hosts file
+export interface KnownHost {
+  id: string;
+  hostname: string; // The host pattern from known_hosts
+  port: number;
+  keyType: string; // ssh-rsa, ssh-ed25519, ecdsa-sha2-nistp256, etc.
+  publicKey: string; // The host's public key fingerprint or full key
+  discoveredAt: number;
+  lastSeen?: number;
+  convertedToHostId?: string; // If converted to managed host
 }

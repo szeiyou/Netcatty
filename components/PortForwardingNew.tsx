@@ -1006,7 +1006,7 @@ const PortForwarding: React.FC<PortForwardingProps> = ({ hosts, keys, customGrou
                                     <ChevronDown size={10} className="ml-0.5" />
                                 </Button>
                             </PopoverTrigger>
-                            <PopoverContent className="w-32 p-1" align="end">
+                            <PopoverContent className="w-32 p-1 z-50" align="end">
                                 <Button
                                     variant={viewMode === 'grid' ? 'secondary' : 'ghost'}
                                     className="w-full justify-start gap-2 h-9"
@@ -1034,7 +1034,7 @@ const PortForwarding: React.FC<PortForwardingProps> = ({ hosts, keys, customGrou
                                     <ChevronDown size={10} className="ml-0.5" />
                                 </Button>
                             </PopoverTrigger>
-                            <PopoverContent className="w-44 p-1" align="end">
+                            <PopoverContent className="w-44 p-1 z-50" align="end">
                                 {(Object.keys(SORT_LABELS) as SortMode[]).map(mode => (
                                     <Button
                                         key={mode}

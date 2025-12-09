@@ -20,11 +20,12 @@ import {
   Trash2,
   TerminalSquare,
 } from 'lucide-react';
-import { Host, SSHKey, Snippet, GroupNode, TerminalSession } from '../types';
+import { Host, SSHKey, Snippet, GroupNode, TerminalSession, KnownHost } from '../types';
 import { DistroAvatar } from './DistroAvatar';
 import SnippetsManager from './SnippetsManager';
-import KeyManager from './KeyManager';
+import KeychainManager from './KeychainManager';
 import PortForwarding from './PortForwardingNew';
+import KnownHostsManager from './KnownHostsManager';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
@@ -35,7 +36,7 @@ import { Label } from './ui/label';
 import { sanitizeHost } from '../domain/host';
 import { useIsVaultActive } from '../application/state/activeTabStore';
 
-type VaultSection = 'hosts' | 'keys' | 'snippets' | 'port';
+type VaultSection = 'hosts' | 'keys' | 'snippets' | 'port' | 'knownhosts';
 
 // Props without isActive - it's now subscribed internally
 interface VaultViewProps {
@@ -44,6 +45,7 @@ interface VaultViewProps {
   snippets: Snippet[];
   snippetPackages: string[];
   customGroups: string[];
+  knownHosts: KnownHost[];
   sessions: TerminalSession[];
   showAssistant: boolean;
   onToggleAssistant: () => void;
@@ -59,6 +61,8 @@ interface VaultViewProps {
   onUpdateSnippets: (snippets: Snippet[]) => void;
   onUpdateSnippetPackages: (pkgs: string[]) => void;
   onUpdateCustomGroups: (groups: string[]) => void;
+  onUpdateKnownHosts: (knownHosts: KnownHost[]) => void;
+  onConvertKnownHost: (knownHost: KnownHost) => void;
 }
 
 const VaultViewInner: React.FC<VaultViewProps> = ({
@@ -67,6 +71,7 @@ const VaultViewInner: React.FC<VaultViewProps> = ({
   snippets,
   snippetPackages,
   customGroups,
+  knownHosts,
   sessions,
   showAssistant,
   onToggleAssistant,
@@ -82,6 +87,8 @@ const VaultViewInner: React.FC<VaultViewProps> = ({
   onUpdateSnippets,
   onUpdateSnippetPackages,
   onUpdateCustomGroups,
+  onUpdateKnownHosts,
+  onConvertKnownHost,
 }) => {
   // Subscribe to isActive from external store - only re-renders when vault active state changes
   const isActive = useIsVaultActive();
@@ -229,7 +236,7 @@ const VaultViewInner: React.FC<VaultViewProps> = ({
           <Button variant={currentSection === 'snippets' ? 'secondary' : 'ghost'} className="w-full justify-start gap-3 h-10" onClick={() => { setCurrentSection('snippets'); }}>
             <FileCode size={16} /> Snippets
           </Button>
-          <Button variant="ghost" className="w-full justify-start gap-3 h-10">
+          <Button variant={currentSection === 'knownhosts' ? 'secondary' : 'ghost'} className="w-full justify-start gap-3 h-10" onClick={() => setCurrentSection('knownhosts')}>
             <BookMarked size={16} /> Known Hosts
           </Button>
           <Button variant="ghost" className="w-full justify-start gap-3 h-10">
@@ -291,7 +298,7 @@ const VaultViewInner: React.FC<VaultViewProps> = ({
           </header>
         )}
 
-        {currentSection !== 'port' && (
+        {currentSection !== 'port' && currentSection !== 'keys' && currentSection !== 'knownhosts' && (
           <div className="flex-1 overflow-auto px-4 py-4 space-y-6">
             {currentSection === 'hosts' && (
               <>
@@ -436,9 +443,6 @@ const VaultViewInner: React.FC<VaultViewProps> = ({
               </>
             )}
 
-            {currentSection === 'keys' && (
-              <KeyManager keys={keys} onSave={k => onUpdateKeys([...keys, k])} onDelete={id => onUpdateKeys(keys.filter(k => k.id !== id))} />
-            )}
             {currentSection === 'snippets' && (
               <SnippetsManager
                 snippets={snippets}
@@ -451,7 +455,27 @@ const VaultViewInner: React.FC<VaultViewProps> = ({
             )}
           </div>
         )}
+        {currentSection === 'keys' && (
+          <KeychainManager 
+            keys={keys} 
+            onSave={k => onUpdateKeys([...keys, k])} 
+            onUpdate={k => onUpdateKeys(keys.map(existing => existing.id === k.id ? k : existing))}
+            onDelete={id => onUpdateKeys(keys.filter(k => k.id !== id))} 
+          />
+        )}
         {currentSection === 'port' && <PortForwarding hosts={hosts} keys={keys} customGroups={customGroups} onNewHost={onNewHost} />}
+        {currentSection === 'knownhosts' && (
+          <KnownHostsManager
+            knownHosts={knownHosts}
+            hosts={hosts}
+            onSave={kh => onUpdateKnownHosts([...knownHosts, kh])}
+            onUpdate={kh => onUpdateKnownHosts(knownHosts.map(existing => existing.id === kh.id ? kh : existing))}
+            onDelete={id => onUpdateKnownHosts(knownHosts.filter(kh => kh.id !== id))}
+            onConvertToHost={onConvertKnownHost}
+            onImportFromFile={(newHosts) => onUpdateKnownHosts([...knownHosts, ...newHosts])}
+            onRefresh={() => {/* Placeholder for system scan */}}
+          />
+        )}
       </div>
 
       <Dialog open={isNewFolderOpen} onOpenChange={setIsNewFolderOpen}>
@@ -480,6 +504,7 @@ const vaultViewAreEqual = (prev: VaultViewProps, next: VaultViewProps): boolean 
     prev.snippets === next.snippets &&
     prev.snippetPackages === next.snippetPackages &&
     prev.customGroups === next.customGroups &&
+    prev.knownHosts === next.knownHosts &&
     prev.sessions === next.sessions &&
     prev.showAssistant === next.showAssistant
   );

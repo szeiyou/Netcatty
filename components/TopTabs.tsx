@@ -467,6 +467,18 @@ const TopTabsInner: React.FC<TopTabsProps> = ({
             style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
           >
             {renderOrderedTabs()}
+            {/* Add new tab button - follows last tab when not overflowing */}
+            {!hasOverflow && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 flex-shrink-0 app-no-drag"
+                onClick={onOpenQuickSwitcher}
+                title="Open quick switcher"
+              >
+                <Plus size={14} />
+              </Button>
+            )}
           </div>
 
           {/* Right fade mask */}
@@ -478,16 +490,18 @@ const TopTabsInner: React.FC<TopTabsProps> = ({
           )}
         </div>
 
-        {/* Add new tab / more button */}
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-8 w-8 flex-shrink-0 app-no-drag"
-          onClick={onOpenQuickSwitcher}
-          title={hasOverflow ? "More tabs" : "Open quick switcher"}
-        >
-          {hasOverflow ? <MoreHorizontal size={14} /> : <Plus size={14} />}
-        </Button>
+        {/* More tabs button - only when overflowing */}
+        {hasOverflow && (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 flex-shrink-0 app-no-drag"
+            onClick={onOpenQuickSwitcher}
+            title="More tabs"
+          >
+            <MoreHorizontal size={14} />
+          </Button>
+        )}
 
         {/* Fixed right controls */}
         <div className="flex-shrink-0 flex items-center gap-2 app-no-drag">
