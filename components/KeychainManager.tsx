@@ -175,13 +175,13 @@ const KeychainManager: React.FC<KeychainManagerProps> = ({
     const [search, setSearch] = useState('');
     const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
     const [panel, setPanel] = useState<PanelMode>({ type: 'closed' });
-    
+
     // Detect if running on macOS
     const isMac = useMemo(() => {
-        return navigator.platform.toLowerCase().includes('mac') || 
-               navigator.userAgent.toLowerCase().includes('mac');
+        return navigator.platform.toLowerCase().includes('mac') ||
+            navigator.userAgent.toLowerCase().includes('mac');
     }, []);
-    
+
     // Biometric authentication label based on platform
     const biometricLabel = isMac ? 'TOUCH ID' : 'WINDOWS HELLO';
 

@@ -508,21 +508,21 @@ const SftpPaneViewInner: React.FC<SftpPaneViewProps> = ({
     // Path suggestions: combine current directory subfolders with recently visited paths
     const pathSuggestions = useMemo(() => {
         if (!isEditingPath || !pane.connection) return [];
-        
+
         const currentValue = editingPathValue.trim().toLowerCase();
         const suggestions: { path: string; type: 'folder' | 'history' }[] = [];
-        
+
         // Add current subdirectories as suggestions
         const folders = filteredFiles.filter(f => f.type === 'directory' && f.name !== '..');
         folders.forEach(f => {
-            const fullPath = pane.connection?.currentPath === '/' 
-                ? `/${f.name}` 
+            const fullPath = pane.connection?.currentPath === '/'
+                ? `/${f.name}`
                 : `${pane.connection?.currentPath}/${f.name}`;
             if (!currentValue || fullPath.toLowerCase().includes(currentValue) || f.name.toLowerCase().includes(currentValue)) {
                 suggestions.push({ path: fullPath, type: 'folder' });
             }
         });
-        
+
         // Common quick paths
         const quickPaths = ['/home', '/var', '/etc', '/tmp', '/usr', '/opt', '/root'];
         quickPaths.forEach(qp => {
@@ -532,7 +532,7 @@ const SftpPaneViewInner: React.FC<SftpPaneViewProps> = ({
                 }
             }
         });
-        
+
         return suggestions.slice(0, 8); // Limit to 8 suggestions
     }, [isEditingPath, editingPathValue, filteredFiles, pane.connection]);
 
@@ -653,13 +653,13 @@ const SftpPaneViewInner: React.FC<SftpPaneViewProps> = ({
         if (showPathSuggestions && pathSuggestions.length > 0) {
             if (e.key === 'ArrowDown') {
                 e.preventDefault();
-                setPathSuggestionIndex(prev => 
+                setPathSuggestionIndex(prev =>
                     prev < pathSuggestions.length - 1 ? prev + 1 : 0
                 );
                 return;
             } else if (e.key === 'ArrowUp') {
                 e.preventDefault();
-                setPathSuggestionIndex(prev => 
+                setPathSuggestionIndex(prev =>
                     prev > 0 ? prev - 1 : pathSuggestions.length - 1
                 );
                 return;
@@ -804,7 +804,7 @@ const SftpPaneViewInner: React.FC<SftpPaneViewProps> = ({
     const handleEntryDrop = (entry: SftpFileEntry, e: React.DragEvent) => {
         // Only handle drop on directories, otherwise let it bubble to pane drop handler
         if (!draggedFiles || draggedFiles[0]?.side === side) return;
-        
+
         if (entry.type === 'directory' && entry.name !== '..') {
             e.preventDefault();
             e.stopPropagation();
