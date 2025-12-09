@@ -127,8 +127,8 @@ export const TrafficDiagram: React.FC<TrafficDiagramProps> = ({ type, isAnimatin
             {/* ========== REMOTE FORWARDING ========== */}
             {type === 'remote' && (
                 <div className="relative w-full h-full">
-                    {/* Left Server - same line as firewall */}
-                    <div className={`absolute left-6 top-5 z-10 transition-opacity duration-300 ${getOpacity('target')}`}>
+                    {/* Left Server - the remote SSH server where port will be opened */}
+                    <div className={`absolute left-6 top-5 z-10 transition-opacity duration-300 ${getOpacity('ssh-server')}`}>
                         <ServerIcon className="h-10 w-10" />
                     </div>
 
@@ -137,12 +137,12 @@ export const TrafficDiagram: React.FC<TrafficDiagramProps> = ({ type, isAnimatin
                         <FirewallIcon className="h-14 w-14" />
                     </div>
 
-                    {/* Right Server - same line as firewall */}
-                    <div className={`absolute right-6 top-5 z-10 transition-opacity duration-300 ${getOpacity('ssh-server')}`}>
+                    {/* Right Server - the destination where traffic will be forwarded */}
+                    <div className={`absolute right-6 top-5 z-10 transition-opacity duration-300 ${getOpacity('target')}`}>
                         <ServerIcon className="h-10 w-10" />
                     </div>
 
-                    {/* App Logo - bottom center */}
+                    {/* App Logo - bottom center (Netcatty client) */}
                     <div className={`absolute left-1/2 -translate-x-1/2 bottom-4 z-10 transition-opacity duration-300 ${getOpacity('app')}`}>
                         <AppLogo className="h-12 w-12" />
                     </div>

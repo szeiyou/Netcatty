@@ -50,7 +50,7 @@ import {
 } from '../infrastructure/services/portForwardingService';
 import { toast } from './ui/toast';
 
-type WizardStep = 'type' | 'local-config' | 'remote-config' | 'destination' | 'host-selection';
+type WizardStep = 'type' | 'local-config' | 'remote-host-selection' | 'remote-config' | 'destination' | 'host-selection' | 'label';
 
 interface PortForwardingProps {
     hosts: Host[];
@@ -447,23 +447,30 @@ const PortForwarding: React.FC<PortForwardingProps> = ({ hosts, keys, customGrou
     };
 
     // Handle wizard navigation
-    // Flow: type -> config -> destination (local/remote only) -> host-selection
+    // Flow for local: type -> local-config -> destination -> host-selection
+    // Flow for remote: type -> remote-host-selection (select host first) -> remote-config (port on remote) -> destination -> label
+    // Flow for dynamic: type -> local-config -> host-selection
     const getNextStep = (): WizardStep | null => {
         switch (wizardStep) {
             case 'type':
                 if (wizardType === 'dynamic') return 'local-config';
                 if (wizardType === 'local') return 'local-config';
-                if (wizardType === 'remote') return 'remote-config';
+                if (wizardType === 'remote') return 'remote-host-selection';
                 return null;
             case 'local-config':
                 if (wizardType === 'dynamic') return 'host-selection';
                 if (wizardType === 'local') return 'destination';
                 return null;
+            case 'remote-host-selection':
+                return 'remote-config';
             case 'remote-config':
                 return 'destination';
             case 'destination':
-                return 'host-selection'; // Host selection is always last for local/remote
+                if (wizardType === 'remote') return 'label';
+                return 'host-selection'; // Host selection is last for local
             case 'host-selection':
+                return null;
+            case 'label':
                 return null;
             default:
                 return null;
@@ -476,14 +483,18 @@ const PortForwarding: React.FC<PortForwardingProps> = ({ hosts, keys, customGrou
                 return null;
             case 'local-config':
                 return 'type';
-            case 'remote-config':
+            case 'remote-host-selection':
                 return 'type';
+            case 'remote-config':
+                return 'remote-host-selection';
             case 'destination':
                 if (wizardType === 'local') return 'local-config';
                 if (wizardType === 'remote') return 'remote-config';
                 return null;
             case 'host-selection':
                 if (wizardType === 'dynamic') return 'local-config';
+                return 'destination';
+            case 'label':
                 return 'destination';
             default:
                 return null;
@@ -497,12 +508,16 @@ const PortForwarding: React.FC<PortForwardingProps> = ({ hosts, keys, customGrou
                 return true;
             case 'local-config':
                 return !!(draftRule.localPort && draftRule.localPort > 0 && draftRule.localPort < 65536);
+            case 'remote-host-selection':
+                return !!draftRule.hostId;
             case 'remote-config':
                 return !!(draftRule.localPort && draftRule.localPort > 0 && draftRule.localPort < 65536);
             case 'destination':
                 return !!(draftRule.remoteHost && draftRule.remotePort && draftRule.remotePort > 0);
             case 'host-selection':
                 return !!draftRule.hostId;
+            case 'label':
+                return true; // Label is optional
             default:
                 return false;
         }
@@ -759,15 +774,44 @@ const PortForwarding: React.FC<PortForwardingProps> = ({ hosts, keys, customGrou
                     </>
                 );
 
-            case 'remote-config':
+            case 'remote-host-selection':
                 return (
                     <>
-                        <div className="text-sm font-medium mb-3">Set the remote port to open:</div>
+                        <div className="text-sm font-medium mb-3">Select the remote host:</div>
 
                         <TrafficDiagram type={wizardType} isAnimating={true} highlightRole="ssh-server" />
 
                         <p className="text-sm text-muted-foreground mt-2 mb-4 leading-relaxed">
-                            This port will be opened on the remote host and will forward traffic to the destination.
+                            Select a host where the port will be open. The traffic from this port will be forwarded to the destination host.
+                        </p>
+
+                        <Button
+                            variant="default"
+                            className="w-full h-11"
+                            onClick={() => setShowHostSelector(true)}
+                        >
+                            {selectedHost ? (
+                                <div className="flex items-center gap-2 w-full">
+                                    <DistroAvatar host={selectedHost} fallback={selectedHost.os[0].toUpperCase()} className="h-6 w-6" />
+                                    <span>{selectedHost.label}</span>
+                                    <Check size={14} className="ml-auto" />
+                                </div>
+                            ) : (
+                                'Select a host'
+                            )}
+                        </Button>
+                    </>
+                );
+
+            case 'remote-config':
+                return (
+                    <>
+                        <div className="text-sm font-medium mb-3">Set the port and binding address:</div>
+
+                        <TrafficDiagram type={wizardType} isAnimating={true} highlightRole="ssh-server" />
+
+                        <p className="text-sm text-muted-foreground mt-2 mb-4 leading-relaxed">
+                            We will forward traffic from specified port and interface address of the selected host.
                         </p>
 
                         <div className="space-y-4">
@@ -782,7 +826,7 @@ const PortForwarding: React.FC<PortForwardingProps> = ({ hosts, keys, customGrou
                                 />
                             </div>
                             <div className="space-y-2">
-                                <Label className="text-xs">Bind address on remote</Label>
+                                <Label className="text-xs">Bind address</Label>
                                 <Input
                                     placeholder="127.0.0.1"
                                     className="h-10"
@@ -797,29 +841,29 @@ const PortForwarding: React.FC<PortForwardingProps> = ({ hosts, keys, customGrou
             case 'destination':
                 return (
                     <>
-                        <div className="text-sm font-medium mb-3">Set the destination:</div>
+                        <div className="text-sm font-medium mb-3">Select the destination host:</div>
 
                         <TrafficDiagram type={wizardType} isAnimating={true} highlightRole="target" />
 
                         <p className="text-sm text-muted-foreground mt-2 mb-4 leading-relaxed">
                             {wizardType === 'local'
                                 ? 'Enter the remote destination that you want to access through the tunnel.'
-                                : 'Enter the local destination where traffic will be forwarded.'
+                                : 'The destination address and port where the traffic will be forwarded.'
                             }
                         </p>
 
                         <div className="space-y-4">
                             <div className="space-y-2">
-                                <Label className="text-xs">Destination host *</Label>
+                                <Label className="text-xs">Destination address *</Label>
                                 <Input
-                                    placeholder="e.g. localhost or 192.168.1.100"
+                                    placeholder="e.g. 127.0.0.1 or 192.168.1.100"
                                     className="h-10"
                                     value={draftRule.remoteHost || ''}
                                     onChange={e => setDraftRule(prev => ({ ...prev, remoteHost: e.target.value }))}
                                 />
                             </div>
                             <div className="space-y-2">
-                                <Label className="text-xs">Destination port *</Label>
+                                <Label className="text-xs">Destination port number *</Label>
                                 <Input
                                     type="number"
                                     placeholder="e.g. 3306"
@@ -835,12 +879,15 @@ const PortForwarding: React.FC<PortForwardingProps> = ({ hosts, keys, customGrou
             case 'host-selection':
                 return (
                     <>
-                        <div className="text-sm font-medium mb-3">Select the intermediate host:</div>
+                        <div className="text-sm font-medium mb-3">Select the SSH server:</div>
 
                         <TrafficDiagram type={wizardType} isAnimating={true} highlightRole="ssh-server" />
 
                         <p className="text-sm text-muted-foreground mt-2 mb-4 leading-relaxed">
-                            The intermediate host will receive the traffic that will be forwarded to the local (current) host.
+                            {wizardType === 'dynamic'
+                                ? 'Select the SSH server that will act as your SOCKS proxy.'
+                                : 'Select the SSH server that will tunnel your traffic to the destination.'
+                            }
                         </p>
 
                         <Button
@@ -861,9 +908,28 @@ const PortForwarding: React.FC<PortForwardingProps> = ({ hosts, keys, customGrou
 
                         {/* Rule label */}
                         <div className="space-y-2 mt-6">
-                            <Label className="text-xs">Rule label (optional)</Label>
+                            <Label className="text-xs">Label</Label>
                             <Input
                                 placeholder={wizardType === 'dynamic' ? "e.g. SOCKS Proxy" : "e.g. MySQL Production"}
+                                className="h-10"
+                                value={draftRule.label || ''}
+                                onChange={e => setDraftRule(prev => ({ ...prev, label: e.target.value }))}
+                            />
+                        </div>
+                    </>
+                );
+
+            case 'label':
+                return (
+                    <>
+                        <div className="text-sm font-medium mb-3">Select the label:</div>
+
+                        <TrafficDiagram type={wizardType} isAnimating={true} />
+
+                        <div className="space-y-2 mt-4">
+                            <Label className="text-xs">Label</Label>
+                            <Input
+                                placeholder="e.g. Remote Rule"
                                 className="h-10"
                                 value={draftRule.label || ''}
                                 onChange={e => setDraftRule(prev => ({ ...prev, label: e.target.value }))}
@@ -1229,7 +1295,7 @@ const PortForwarding: React.FC<PortForwardingProps> = ({ hosts, keys, customGrou
                                 }
                             }}
                         >
-                            {isLastStep() ? (isEditing ? 'Save Changes' : 'Create Rule') : 'Continue'}
+                            {isLastStep() ? (isEditing ? 'Save Changes' : 'Done') : 'Continue'}
                         </Button>
                         <Button
                             variant="ghost"
