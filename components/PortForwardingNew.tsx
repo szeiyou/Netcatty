@@ -321,7 +321,7 @@ const PortForwarding: React.FC<PortForwardingProps> = ({ hosts, keys, customGrou
     // Start new rule - wizard or form based on user preference
     const startNewRule = (type: PortForwardingType) => {
         setShowNewMenu(false);
-        
+
         if (preferFormMode) {
             // Form mode: show all-in-one form
             resetNewForm();
@@ -345,8 +345,8 @@ const PortForwarding: React.FC<PortForwardingProps> = ({ hosts, keys, customGrou
         setPreferFormMode(true);
         try {
             localStorage.setItem('pf-prefer-form-mode', 'true');
-        } catch {}
-        
+        } catch { }
+
         // Transfer current draft to form
         setNewFormDraft({
             ...draftRule,
@@ -722,7 +722,7 @@ const PortForwarding: React.FC<PortForwardingProps> = ({ hosts, keys, customGrou
                     <>
                         <div className="text-sm font-medium mb-3">Set the local port and binding address:</div>
 
-                        <TrafficDiagram type={wizardType} isAnimating={true} />
+                        <TrafficDiagram type={wizardType} isAnimating={true} highlightRole="app" />
 
                         <p className="text-sm text-muted-foreground mt-2 mb-4 leading-relaxed">
                             This port will be open on the local (current) device, and it will receive the traffic.
@@ -757,7 +757,7 @@ const PortForwarding: React.FC<PortForwardingProps> = ({ hosts, keys, customGrou
                     <>
                         <div className="text-sm font-medium mb-3">Set the remote port to open:</div>
 
-                        <TrafficDiagram type={wizardType} isAnimating={true} />
+                        <TrafficDiagram type={wizardType} isAnimating={true} highlightRole="ssh-server" />
 
                         <p className="text-sm text-muted-foreground mt-2 mb-4 leading-relaxed">
                             This port will be opened on the remote host and will forward traffic to the destination.
@@ -792,7 +792,7 @@ const PortForwarding: React.FC<PortForwardingProps> = ({ hosts, keys, customGrou
                     <>
                         <div className="text-sm font-medium mb-3">Set the destination:</div>
 
-                        <TrafficDiagram type={wizardType} isAnimating={true} />
+                        <TrafficDiagram type={wizardType} isAnimating={true} highlightRole="target" />
 
                         <p className="text-sm text-muted-foreground mt-2 mb-4 leading-relaxed">
                             {wizardType === 'local'
@@ -830,7 +830,7 @@ const PortForwarding: React.FC<PortForwardingProps> = ({ hosts, keys, customGrou
                     <>
                         <div className="text-sm font-medium mb-3">Select the intermediate host:</div>
 
-                        <TrafficDiagram type={wizardType} isAnimating={true} />
+                        <TrafficDiagram type={wizardType} isAnimating={true} highlightRole="ssh-server" />
 
                         <p className="text-sm text-muted-foreground mt-2 mb-4 leading-relaxed">
                             The intermediate host will receive the traffic that will be forwarded to the local (current) host.
@@ -1056,13 +1056,15 @@ const PortForwarding: React.FC<PortForwardingProps> = ({ hosts, keys, customGrou
 
                     {/* Content */}
                     <ScrollArea className="flex-1">
-                        <div className="p-4 space-y-6">
+                        <div className="p-4 space-y-2">
                             {/* Traffic Diagram */}
-                            <TrafficDiagram type={editDraft.type || editingRule.type} isAnimating={true} />
+                            <div className="-my-1">
+                                <TrafficDiagram type={editDraft.type || editingRule.type} isAnimating={true} />
+                            </div>
 
                             {/* Label */}
-                            <div className="space-y-2">
-                                <Label className="text-xs">Label</Label>
+                            <div className="space-y-1">
+                                <Label className="text-[10px] text-muted-foreground">Label</Label>
                                 <Input
                                     placeholder="Rule label"
                                     className="h-10"
@@ -1072,8 +1074,8 @@ const PortForwarding: React.FC<PortForwardingProps> = ({ hosts, keys, customGrou
                             </div>
 
                             {/* Local Port */}
-                            <div className="space-y-2">
-                                <Label className="text-xs">Local port number *</Label>
+                            <div className="space-y-1">
+                                <Label className="text-[10px] text-muted-foreground">Local port number *</Label>
                                 <Input
                                     type="number"
                                     placeholder="e.g. 8080"
@@ -1084,8 +1086,8 @@ const PortForwarding: React.FC<PortForwardingProps> = ({ hosts, keys, customGrou
                             </div>
 
                             {/* Bind Address */}
-                            <div className="space-y-2">
-                                <Label className="text-xs">Bind address</Label>
+                            <div className="space-y-1">
+                                <Label className="text-[10px] text-muted-foreground">Bind address</Label>
                                 <Input
                                     placeholder="127.0.0.1"
                                     className="h-10"
@@ -1095,8 +1097,8 @@ const PortForwarding: React.FC<PortForwardingProps> = ({ hosts, keys, customGrou
                             </div>
 
                             {/* Intermediate Host - for all types */}
-                            <div className="space-y-2">
-                                <Label className="text-xs">Intermediate host *</Label>
+                            <div className="space-y-1">
+                                <Label className="text-[10px] text-muted-foreground">Intermediate host *</Label>
                                 <Button
                                     variant="secondary"
                                     className="w-full h-10 justify-between"
@@ -1124,8 +1126,8 @@ const PortForwarding: React.FC<PortForwardingProps> = ({ hosts, keys, customGrou
                             {/* Destination - for local/remote only */}
                             {(editDraft.type === 'local' || editDraft.type === 'remote') && (
                                 <>
-                                    <div className="space-y-2">
-                                        <Label className="text-xs">Destination address *</Label>
+                                    <div className="space-y-1">
+                                        <Label className="text-[10px] text-muted-foreground">Destination address *</Label>
                                         <Input
                                             placeholder="e.g. localhost or 192.168.1.100"
                                             className="h-10"
@@ -1134,8 +1136,8 @@ const PortForwarding: React.FC<PortForwardingProps> = ({ hosts, keys, customGrou
                                         />
                                     </div>
 
-                                    <div className="space-y-2">
-                                        <Label className="text-xs">Destination port number *</Label>
+                                    <div className="space-y-1">
+                                        <Label className="text-[10px] text-muted-foreground">Destination port number *</Label>
                                         <Input
                                             type="number"
                                             placeholder="e.g. 3306"
@@ -1427,7 +1429,7 @@ const PortForwarding: React.FC<PortForwardingProps> = ({ hosts, keys, customGrou
                                             setPreferFormMode(false);
                                             try {
                                                 localStorage.removeItem('pf-prefer-form-mode');
-                                            } catch {}
+                                            } catch { }
                                         }}
                                     >
                                         Reset preference
@@ -1442,7 +1444,7 @@ const PortForwarding: React.FC<PortForwardingProps> = ({ hosts, keys, customGrou
 
                     {/* Content */}
                     <ScrollArea className="flex-1">
-                        <div className="p-4 space-y-6">
+                        <div className="p-4 space-y-2">
                             {/* Type Selector */}
                             <div className="flex gap-1 p-1 bg-secondary/80 rounded-lg border border-border/60">
                                 {(['local', 'remote', 'dynamic'] as PortForwardingType[]).map((type) => (
@@ -1462,11 +1464,13 @@ const PortForwarding: React.FC<PortForwardingProps> = ({ hosts, keys, customGrou
                             </div>
 
                             {/* Traffic Diagram */}
-                            <TrafficDiagram type={newFormDraft.type || 'local'} isAnimating={true} />
+                            <div className="-my-1">
+                                <TrafficDiagram type={newFormDraft.type || 'local'} isAnimating={true} />
+                            </div>
 
                             {/* Label */}
-                            <div className="space-y-2">
-                                <Label className="text-xs">Label</Label>
+                            <div className="space-y-1">
+                                <Label className="text-[10px] text-muted-foreground">Label</Label>
                                 <Input
                                     placeholder="Rule label"
                                     className="h-10"
@@ -1476,8 +1480,8 @@ const PortForwarding: React.FC<PortForwardingProps> = ({ hosts, keys, customGrou
                             </div>
 
                             {/* Local Port */}
-                            <div className="space-y-2">
-                                <Label className="text-xs">Local port number *</Label>
+                            <div className="space-y-1">
+                                <Label className="text-[10px] text-muted-foreground">Local port number *</Label>
                                 <Input
                                     type="number"
                                     placeholder="e.g. 8080"
@@ -1488,8 +1492,8 @@ const PortForwarding: React.FC<PortForwardingProps> = ({ hosts, keys, customGrou
                             </div>
 
                             {/* Bind Address */}
-                            <div className="space-y-2">
-                                <Label className="text-xs">Bind address</Label>
+                            <div className="space-y-1">
+                                <Label className="text-[10px] text-muted-foreground">Bind address</Label>
                                 <Input
                                     placeholder="127.0.0.1"
                                     className="h-10"
@@ -1499,8 +1503,8 @@ const PortForwarding: React.FC<PortForwardingProps> = ({ hosts, keys, customGrou
                             </div>
 
                             {/* Intermediate Host */}
-                            <div className="space-y-2">
-                                <Label className="text-xs">Intermediate host *</Label>
+                            <div className="space-y-1">
+                                <Label className="text-[10px] text-muted-foreground">Intermediate host *</Label>
                                 <Button
                                     variant="secondary"
                                     className="w-full h-10 justify-between"
@@ -1525,8 +1529,8 @@ const PortForwarding: React.FC<PortForwardingProps> = ({ hosts, keys, customGrou
                             {/* Destination - for local/remote only */}
                             {(newFormDraft.type === 'local' || newFormDraft.type === 'remote') && (
                                 <>
-                                    <div className="space-y-2">
-                                        <Label className="text-xs">Destination address *</Label>
+                                    <div className="space-y-1">
+                                        <Label className="text-[10px] text-muted-foreground">Destination address *</Label>
                                         <Input
                                             placeholder="e.g. localhost or 192.168.1.100"
                                             className="h-10"
@@ -1535,8 +1539,8 @@ const PortForwarding: React.FC<PortForwardingProps> = ({ hosts, keys, customGrou
                                         />
                                     </div>
 
-                                    <div className="space-y-2">
-                                        <Label className="text-xs">Destination port number *</Label>
+                                    <div className="space-y-1">
+                                        <Label className="text-[10px] text-muted-foreground">Destination port number *</Label>
                                         <Input
                                             type="number"
                                             placeholder="e.g. 3306"

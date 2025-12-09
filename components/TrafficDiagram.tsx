@@ -18,6 +18,8 @@ const ServerIcon: React.FC<{ className?: string }> = ({ className }) => (
 interface TrafficDiagramProps {
     type: PortForwardingType;
     isAnimating?: boolean;
+    /** Which role to highlight: 'app' | 'ssh-server' | 'target' | undefined (all visible) */
+    highlightRole?: 'app' | 'ssh-server' | 'target';
 }
 
 // App Logo component - using logo.svg design
@@ -73,24 +75,31 @@ const AnimatedLine: React.FC<{
     );
 };
 
-export const TrafficDiagram: React.FC<TrafficDiagramProps> = ({ type, isAnimating = true }) => {
+export const TrafficDiagram: React.FC<TrafficDiagramProps> = ({ type, isAnimating = true, highlightRole }) => {
+    // Helper to determine opacity based on highlight role
+    const getOpacity = (role: 'app' | 'ssh-server' | 'target' | 'firewall') => {
+        if (!highlightRole) return 'opacity-100';
+        if (role === 'firewall') return 'opacity-30'; // Firewall always dimmed when highlighting
+        return role === highlightRole ? 'opacity-100' : 'opacity-30';
+    };
+
     return (
         <div className="relative w-full h-48 flex items-center justify-center overflow-hidden rounded-xl bg-secondary/60 border border-border/50">
             {/* ========== LOCAL FORWARDING ========== */}
             {type === 'local' && (
                 <div className="relative w-full h-full">
                     {/* App Logo - left (same line as firewall) */}
-                    <div className="absolute left-6 top-5 z-10">
+                    <div className={`absolute left-6 top-5 z-10 transition-opacity duration-300 ${getOpacity('app')}`}>
                         <AppLogo className="h-12 w-12" />
                     </div>
 
                     {/* Firewall - center top (same line as app) */}
-                    <div className="absolute left-1/2 -translate-x-1/2 top-4 z-10">
+                    <div className={`absolute left-1/2 -translate-x-1/2 top-4 z-10 transition-opacity duration-300 ${getOpacity('firewall')}`}>
                         <FirewallIcon className="h-14 w-14" />
                     </div>
 
                     {/* Target servers - right (in red border box) */}
-                    <div className="absolute right-4 top-2 z-10">
+                    <div className={`absolute right-4 top-2 z-10 transition-opacity duration-300 ${getOpacity('target')}`}>
                         <div className="p-2 border-2 border-destructive/60 rounded-lg space-y-2">
                             <ServerIcon className="h-8 w-8" />
                             <ServerIcon className="h-8 w-8" />
@@ -98,7 +107,7 @@ export const TrafficDiagram: React.FC<TrafficDiagramProps> = ({ type, isAnimatin
                     </div>
 
                     {/* SSH Server - bottom center */}
-                    <div className="absolute left-1/2 -translate-x-1/2 bottom-4 z-10">
+                    <div className={`absolute left-1/2 -translate-x-1/2 bottom-4 z-10 transition-opacity duration-300 ${getOpacity('ssh-server')}`}>
                         <ServerIcon className="h-10 w-10" />
                     </div>
 
@@ -119,22 +128,22 @@ export const TrafficDiagram: React.FC<TrafficDiagramProps> = ({ type, isAnimatin
             {type === 'remote' && (
                 <div className="relative w-full h-full">
                     {/* Left Server - same line as firewall */}
-                    <div className="absolute left-6 top-5 z-10">
+                    <div className={`absolute left-6 top-5 z-10 transition-opacity duration-300 ${getOpacity('target')}`}>
                         <ServerIcon className="h-10 w-10" />
                     </div>
 
                     {/* Firewall - center top */}
-                    <div className="absolute left-1/2 -translate-x-1/2 top-4 z-10">
+                    <div className={`absolute left-1/2 -translate-x-1/2 top-4 z-10 transition-opacity duration-300 ${getOpacity('firewall')}`}>
                         <FirewallIcon className="h-14 w-14" />
                     </div>
 
                     {/* Right Server - same line as firewall */}
-                    <div className="absolute right-6 top-5 z-10">
+                    <div className={`absolute right-6 top-5 z-10 transition-opacity duration-300 ${getOpacity('ssh-server')}`}>
                         <ServerIcon className="h-10 w-10" />
                     </div>
 
                     {/* App Logo - bottom center */}
-                    <div className="absolute left-1/2 -translate-x-1/2 bottom-4 z-10">
+                    <div className={`absolute left-1/2 -translate-x-1/2 bottom-4 z-10 transition-opacity duration-300 ${getOpacity('app')}`}>
                         <AppLogo className="h-12 w-12" />
                     </div>
 
@@ -154,17 +163,17 @@ export const TrafficDiagram: React.FC<TrafficDiagramProps> = ({ type, isAnimatin
             {type === 'dynamic' && (
                 <div className="relative w-full h-full">
                     {/* App Logo - left (same line as firewall) */}
-                    <div className="absolute left-6 top-5 z-10">
+                    <div className={`absolute left-6 top-5 z-10 transition-opacity duration-300 ${getOpacity('app')}`}>
                         <AppLogo className="h-12 w-12" />
                     </div>
 
                     {/* Firewall - center top (same line as app) */}
-                    <div className="absolute left-1/2 -translate-x-1/2 top-4 z-10">
+                    <div className={`absolute left-1/2 -translate-x-1/2 top-4 z-10 transition-opacity duration-300 ${getOpacity('firewall')}`}>
                         <FirewallIcon className="h-14 w-14" />
                     </div>
 
                     {/* Cloud targets - right (in red border box) */}
-                    <div className="absolute right-4 top-2 z-10">
+                    <div className={`absolute right-4 top-2 z-10 transition-opacity duration-300 ${getOpacity('target')}`}>
                         <div className="p-2 border-2 border-destructive/60 rounded-lg space-y-1">
                             <CloudIcon className="h-7 w-7" />
                             <CloudIcon className="h-7 w-7" />
@@ -173,12 +182,12 @@ export const TrafficDiagram: React.FC<TrafficDiagramProps> = ({ type, isAnimatin
                     </div>
 
                     {/* SSH Server - bottom center */}
-                    <div className="absolute left-1/2 -translate-x-1/2 bottom-4 z-10">
+                    <div className={`absolute left-1/2 -translate-x-1/2 bottom-4 z-10 transition-opacity duration-300 ${getOpacity('ssh-server')}`}>
                         <ServerIcon className="h-10 w-10" />
                     </div>
 
                     {/* Cloud target - bottom right */}
-                    <div className="absolute right-8 bottom-6 z-10">
+                    <div className={`absolute right-8 bottom-6 z-10 transition-opacity duration-300 ${getOpacity('target')}`}>
                         <CloudIcon className="h-8 w-8" />
                     </div>
 
