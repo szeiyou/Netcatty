@@ -9,7 +9,7 @@ import { Label } from './ui/label';
 import { cn } from '../lib/utils';
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
 import { ScrollArea } from './ui/scroll-area';
-import SFTPPanel from './SFTPPanel';
+import SFTPModal from './SFTPModal';
 
 interface TerminalProps {
   host: Host;
@@ -679,6 +679,8 @@ const TerminalComponent: React.FC<TerminalProps> = ({
     : status === 'connecting'
       ? "bg-amber-400"
       : "bg-rose-500";
+  const isConnecting = status === 'connecting';
+  const hasError = Boolean(error);
 
   return (
     <div className="relative h-full w-full flex overflow-hidden bg-gradient-to-br from-[#050910] via-[#06101a] to-[#0b1220]">
@@ -712,7 +714,7 @@ const TerminalComponent: React.FC<TerminalProps> = ({
         )}
         style={{ backgroundColor: terminalTheme.colors.background }}
       >
-        <div ref={containerRef} className="absolute inset-0" style={inWorkspace ? { top: '32px' } : undefined} />
+        <div ref={containerRef} className="absolute inset-0" style={inWorkspace ? { top: '32px', display: 'flex', justifyContent: 'center' } : { display: 'flex', justifyContent: 'center' }} />
         {error && (
           <div className="absolute bottom-3 left-3 text-xs text-destructive bg-background/80 border border-destructive/40 rounded px-3 py-2 shadow-lg">
             {error}
@@ -749,7 +751,13 @@ const TerminalComponent: React.FC<TerminalProps> = ({
                 <div className="flex items-center gap-3">
                   <div className={cn(
                     "h-8 w-8 rounded-full flex items-center justify-center flex-shrink-0",
-                    needsAuth ? "bg-primary text-primary-foreground" : status === 'connected' ? "bg-emerald-500/20 text-emerald-500" : "bg-primary/15 text-primary"
+                    needsAuth
+                      ? "bg-primary text-primary-foreground"
+                      : hasError
+                        ? "bg-destructive/20 text-destructive"
+                        : isConnecting
+                          ? "bg-primary/15 text-primary"
+                          : "bg-muted text-muted-foreground"
                   )}>
                     <User size={14} />
                   </div>
@@ -766,7 +774,7 @@ const TerminalComponent: React.FC<TerminalProps> = ({
                   </div>
                   <div className={cn(
                     "h-8 w-8 rounded-full flex items-center justify-center flex-shrink-0",
-                    status === 'connected' ? "bg-emerald-500/20 text-emerald-500" : "bg-muted text-muted-foreground"
+                    hasError ? "bg-destructive/20 text-destructive" : "bg-muted text-muted-foreground"
                   )}>
                     {'>_'}
                   </div>
@@ -974,28 +982,23 @@ const TerminalComponent: React.FC<TerminalProps> = ({
           </div>
         )}
 
-        <div
-          className={cn(
-            "absolute inset-y-0 right-0 w-[360px] z-30 border-l border-border/60 bg-background/95 shadow-2xl transform transition-transform duration-200 ease-out",
-            showSFTP && status === 'connected' ? "translate-x-0 opacity-100" : "translate-x-full opacity-0 pointer-events-none"
-          )}
-        >
-          <SFTPPanel
-            host={host}
-            credentials={{
-              username: host.username,
-              hostname: host.hostname,
-              port: host.port,
-              password: host.authMethod !== 'key' ? host.password : undefined,
-              privateKey: host.authMethod === 'key'
-                ? keys.find(k => k.id === host.identityFileId)?.privateKey
-                : undefined,
-            }}
-            isVisible={showSFTP && status === 'connected'}
-            onClose={() => setShowSFTP(false)}
-          />
-        </div>
       </div>
+
+      {/* SFTP Modal - rendered outside terminal container to avoid affecting terminal width */}
+      <SFTPModal
+        host={host}
+        credentials={{
+          username: host.username,
+          hostname: host.hostname,
+          port: host.port,
+          password: host.authMethod !== 'key' ? host.password : undefined,
+          privateKey: host.authMethod === 'key'
+            ? keys.find(k => k.id === host.identityFileId)?.privateKey
+            : undefined,
+        }}
+        open={showSFTP && status === 'connected'}
+        onClose={() => setShowSFTP(false)}
+      />
     </div>
   );
 };
