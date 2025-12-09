@@ -440,91 +440,91 @@ const SnippetsManager: React.FC<SnippetsManagerProps> = ({ snippets, packages, h
             <DialogDescription className="sr-only">Create or edit a reusable command snippet.</DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-2">
-              <div className="grid gap-2">
-                  <Label>Label</Label>
-                  <Input 
-                      placeholder="e.g. Update System, Check Disk Usage" 
-                      value={editingSnippet.label}
-                      onChange={e => setEditingSnippet({...editingSnippet, label: e.target.value})}
-                  />
-              </div>
-              
-              <div className="grid gap-2">
-                  <Label>Command / Script</Label>
-                  <Textarea 
-                      placeholder="#!/bin/bash..."
-                      className="h-48 font-mono text-xs"
-                      value={editingSnippet.command}
-                      onChange={e => setEditingSnippet({...editingSnippet, command: e.target.value})}
-                  />
-                  <p className="text-[10px] text-muted-foreground">Multi-line commands are supported.</p>
-              </div>
+            <div className="grid gap-2">
+              <Label>Label</Label>
+              <Input
+                placeholder="e.g. Update System, Check Disk Usage"
+                value={editingSnippet.label}
+                onChange={e => setEditingSnippet({ ...editingSnippet, label: e.target.value })}
+              />
+            </div>
 
-              <div className="grid gap-2">
-                <Label>Package</Label>
-                <Input
-                  placeholder="e.g. infra/ops"
-                  value={editingSnippet.package || selectedPackage || ''}
-                  onChange={(e) => setEditingSnippet({ ...editingSnippet, package: e.target.value })}
-                />
-                <p className="text-[10px] text-muted-foreground">Use “/” to create sub-packages.</p>
-              </div>
+            <div className="grid gap-2">
+              <Label>Command / Script</Label>
+              <Textarea
+                placeholder="#!/bin/bash..."
+                className="h-48 font-mono text-xs"
+                value={editingSnippet.command}
+                onChange={e => setEditingSnippet({ ...editingSnippet, command: e.target.value })}
+              />
+              <p className="text-[10px] text-muted-foreground">Multi-line commands are supported.</p>
+            </div>
 
-              <div className="grid gap-2">
-                <div className="flex items-center justify-between">
-                  <Label>Targets</Label>
-                  {targetHosts.length > 0 && (
-                    <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={openTargetPicker}>
-                      Edit
-                    </Button>
-                  )}
-                </div>
-                {targetHosts.length === 0 ? (
-                  <div className="space-y-2">
-                    <div className="grid grid-cols-2 gap-2">
-                      {[1, 2].map((idx) => (
-                        <div
-                          key={idx}
-                          className="flex items-center gap-3 rounded-lg border border-dashed border-border/70 bg-background/40 px-3 py-2 text-muted-foreground"
-                        >
-                          <div className="h-9 w-9 rounded-md bg-muted flex items-center justify-center">
-                            <Server size={16} />
-                          </div>
-                          <div className="text-xs leading-4">
-                            <div className="font-semibold">IP or Hostname</div>
-                            <div className="text-[11px] text-muted-foreground">SSH</div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                    <Button size="sm" className="w-full h-9" variant="secondary" onClick={openTargetPicker}>
-                      Add targets
-                    </Button>
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    <div className="space-y-2 max-h-40 overflow-y-auto pr-1">
-                      {targetHosts.map((h) => (
-                        <Card key={h.id} className="flex items-center gap-3 px-3 py-2 bg-background/60 border border-border/70">
-                          <div className="h-9 w-9 rounded-md bg-primary/15 text-primary flex items-center justify-center">
-                            <Server size={16} />
-                          </div>
-                          <div className="min-w-0">
-                            <div className="text-sm font-semibold truncate">{h.label}</div>
-                            <div className="text-[11px] text-muted-foreground truncate">
-                              {h.username || 'ssh'}@{h.hostname}:{h.port || 22}
-                            </div>
-                          </div>
-                        </Card>
-                      ))}
-                    </div>
-                  </div>
+            <div className="grid gap-2">
+              <Label>Package</Label>
+              <Input
+                placeholder="e.g. infra/ops"
+                value={editingSnippet.package || selectedPackage || ''}
+                onChange={(e) => setEditingSnippet({ ...editingSnippet, package: e.target.value })}
+              />
+              <p className="text-[10px] text-muted-foreground">Use “/” to create sub-packages.</p>
+            </div>
+
+            <div className="grid gap-2">
+              <div className="flex items-center justify-between">
+                <Label>Targets</Label>
+                {targetHosts.length > 0 && (
+                  <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={openTargetPicker}>
+                    Edit
+                  </Button>
                 )}
               </div>
+              {targetHosts.length === 0 ? (
+                <div className="space-y-2">
+                  <div className="grid grid-cols-2 gap-2">
+                    {[1, 2].map((idx) => (
+                      <div
+                        key={idx}
+                        className="flex items-center gap-3 rounded-lg border border-dashed border-border/70 bg-background/40 px-3 py-2 text-muted-foreground"
+                      >
+                        <div className="h-9 w-9 rounded-lg bg-primary/15 text-primary flex items-center justify-center">
+                          <Server size={16} />
+                        </div>
+                        <div className="text-xs leading-4">
+                          <div className="font-semibold">IP or Hostname</div>
+                          <div className="text-[11px] text-muted-foreground">SSH</div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <Button size="sm" className="w-full h-9" variant="secondary" onClick={openTargetPicker}>
+                    Add targets
+                  </Button>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <div className="space-y-2 max-h-40 overflow-y-auto pr-1">
+                    {targetHosts.map((h) => (
+                      <Card key={h.id} className="flex items-center gap-3 px-3 py-2 bg-background/60 border border-border/70">
+                        <div className="h-9 w-9 rounded-lg bg-primary/15 text-primary flex items-center justify-center">
+                          <Server size={16} />
+                        </div>
+                        <div className="min-w-0">
+                          <div className="text-sm font-semibold truncate">{h.label}</div>
+                          <div className="text-[11px] text-muted-foreground truncate">
+                            {h.username || 'ssh'}@{h.hostname}:{h.port || 22}
+                          </div>
+                        </div>
+                      </Card>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
           <DialogFooter>
-              <Button variant="ghost" onClick={() => setIsDialogOpen(false)}>Cancel</Button>
-              <Button onClick={handleSubmit}>Save Snippet</Button>
+            <Button variant="ghost" onClick={() => setIsDialogOpen(false)}>Cancel</Button>
+            <Button onClick={handleSubmit}>Save Snippet</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -553,7 +553,7 @@ const SnippetsManager: React.FC<SnippetsManagerProps> = ({ snippets, packages, h
                     );
                   }}
                 >
-                  <div className="h-9 w-9 rounded-md bg-primary/15 text-primary flex items-center justify-center">
+                  <div className="h-9 w-9 rounded-lg bg-primary/15 text-primary flex items-center justify-center">
                     <Server size={16} />
                   </div>
                   <div className="min-w-0 flex-1">

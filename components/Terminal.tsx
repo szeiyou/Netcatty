@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState, memo } from 'react';
 import { Ghostty, Terminal as GhosttyTerminal, FitAddon } from 'ghostty-web';
 import { Host, SSHKey, Snippet, TerminalSession, TerminalTheme } from '../types';
 import { Zap, FolderInput, Loader2, AlertCircle, ShieldCheck, Clock, Play, X } from 'lucide-react';
+import { DistroAvatar } from './DistroAvatar';
 import { Button } from './ui/button';
 import { cn } from '../lib/utils';
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
@@ -213,13 +214,16 @@ const TerminalComponent: React.FC<TerminalProps> = ({
       setProgressLogs((prev) => [...prev, 'Connection timed out.']);
     }, CONNECTION_TIMEOUT);
 
-    setProgressValue(15);
+    setProgressValue(5);
     const prog = setInterval(() => {
       setProgressValue((prev) => {
-        if (prev >= 92) return 35;
-        return prev + Math.random() * 8 + 4;
+        if (prev >= 95) return prev;
+        // Smooth asymptotic approach - slows down as it gets higher
+        const remaining = 95 - prev;
+        const increment = Math.max(0.5, remaining * 0.08);
+        return Math.min(95, prev + increment);
       });
-    }, 450);
+    }, 100);
 
     return () => {
       clearInterval(stepTimer);
@@ -555,7 +559,7 @@ const TerminalComponent: React.FC<TerminalProps> = ({
       : "bg-rose-500";
 
   return (
-    <div className="relative h-full w-full flex overflow-hidden bg-gradient-to-br from-[#050910] via-[#06101a] to-[#0b1220] border-l border-border/70">
+    <div className="relative h-full w-full flex overflow-hidden bg-gradient-to-br from-[#050910] via-[#06101a] to-[#0b1220]">
       {!inWorkspace && (
         <div className="absolute top-4 right-6 z-10 flex gap-2">
           {renderControls('default')}
@@ -598,9 +602,7 @@ const TerminalComponent: React.FC<TerminalProps> = ({
             <div className="w-[560px] max-w-[90vw] bg-background/95 border border-border/60 rounded-2xl shadow-xl p-6 space-y-4">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
-                  <div className="h-10 w-10 rounded-full bg-primary/20 text-primary flex items-center justify-center text-sm font-semibold">
-                    {host.label.slice(0, 1).toUpperCase()}
-                  </div>
+                  <DistroAvatar host={host} fallback={host.label.slice(0, 2).toUpperCase()} className="h-10 w-10" />
                   <div>
                     <div className="text-sm font-semibold">{host.label}</div>
                     <div className="text-[11px] text-muted-foreground font-mono">
@@ -619,29 +621,30 @@ const TerminalComponent: React.FC<TerminalProps> = ({
               </div>
 
               <div className="flex items-center gap-3">
-                <div className="h-8 w-8 rounded-full bg-primary/15 text-primary flex items-center justify-center shadow-inner">
+                <div className="h-8 w-8 rounded-lg bg-primary/15 text-primary flex items-center justify-center shadow-inner">
                   {status === 'connecting' ? (
                     <Loader2 className="h-4 w-4 animate-spin" />
                   ) : (
                     <AlertCircle className="h-4 w-4" />
                   )}
                 </div>
-                <div className="flex-1 h-1.5 rounded-full bg-border/60 overflow-hidden relative">
+                <div className="flex-1 h-2 rounded-full bg-border/60 overflow-hidden relative">
                   <div
-                    className={cn(
-                      "absolute inset-y-0 left-0 bg-gradient-to-r from-primary via-primary/60 to-primary/80 transition-all duration-400 ease-out"
-                    )}
-                    style={{ width: status === 'connecting' ? `${progressValue}%` : '100%' }}
-                  />
-                  <div
-                    className="absolute inset-y-0 left-0 w-full opacity-20 bg-[radial-gradient(circle,_rgba(255,255,255,0.6)_0%,_rgba(255,255,255,0)_60%)] animate-[shimmer_1.6s_linear_infinite]"
+                    className="absolute inset-y-0 left-0 bg-gradient-to-r from-primary via-primary/80 to-primary rounded-full"
                     style={{
-                      backgroundSize: '120px 120px',
-                      maskImage: 'linear-gradient(90deg, transparent 0%, black 15%, black 85%, transparent 100%)'
+                      width: status === 'connecting' ? `${progressValue}%` : '100%',
+                      transition: 'width 150ms cubic-bezier(0.4, 0, 0.2, 1)'
                     }}
                   />
+                  <div
+                    className="absolute inset-0 overflow-hidden rounded-full"
+                  >
+                    <div
+                      className="h-full w-[200%] bg-gradient-to-r from-transparent via-white/30 to-transparent animate-[progress-shimmer_2s_ease-in-out_infinite]"
+                    />
+                  </div>
                 </div>
-                <div className="h-8 w-8 rounded-full border border-border/70 flex items-center justify-center">
+                <div className="h-8 w-8 rounded-lg border border-border/70 flex items-center justify-center">
                   <ShieldCheck className="h-4 w-4 text-muted-foreground" />
                 </div>
               </div>
