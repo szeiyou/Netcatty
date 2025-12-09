@@ -161,13 +161,13 @@ const TopTabsInner: React.FC<TopTabsProps> = ({
     if (!activeTabId || activeTabId === 'vault' || activeTabId === 'sftp') return;
     const container = tabsContainerRef.current;
     if (!container) return;
-    
+
     // Find the active tab element
     const activeTabElement = container.querySelector(`[data-tab-id="${activeTabId}"]`) as HTMLElement | null;
     if (activeTabElement) {
       const containerRect = container.getBoundingClientRect();
       const tabRect = activeTabElement.getBoundingClientRect();
-      
+
       // Check if tab is outside visible area
       if (tabRect.left < containerRect.left) {
         container.scrollLeft -= (containerRect.left - tabRect.left + 8);
@@ -454,12 +454,12 @@ const TopTabsInner: React.FC<TopTabsProps> = ({
         <div className="relative min-w-0 flex-1">
           {/* Left fade mask */}
           {canScrollLeft && (
-            <div 
+            <div
               className="absolute left-0 top-0 bottom-0 w-8 pointer-events-none z-10"
               style={{ background: 'linear-gradient(to right, hsl(var(--secondary) / 0.9), transparent)' }}
             />
           )}
-          
+
           {/* Scrollable container */}
           <div
             ref={tabsContainerRef}
@@ -468,10 +468,10 @@ const TopTabsInner: React.FC<TopTabsProps> = ({
           >
             {renderOrderedTabs()}
           </div>
-          
+
           {/* Right fade mask */}
           {canScrollRight && (
-            <div 
+            <div
               className="absolute right-0 top-0 bottom-0 w-8 pointer-events-none z-10"
               style={{ background: 'linear-gradient(to left, hsl(var(--secondary) / 0.9), transparent)' }}
             />
