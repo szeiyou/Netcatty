@@ -273,6 +273,31 @@ const VaultViewInner: React.FC<VaultViewProps> = ({
     return Array.from(tagSet).sort();
   }, [hosts]);
 
+  // Handle tag edit - rename tag across all hosts
+  const handleEditTag = useCallback((oldTag: string, newTag: string) => {
+    if (oldTag === newTag) return;
+    const updatedHosts = hosts.map(host => {
+      if (host.tags?.includes(oldTag)) {
+        const newTags = host.tags.map(t => t === oldTag ? newTag : t);
+        // Remove duplicates in case newTag already exists
+        return { ...host, tags: Array.from(new Set(newTags)) };
+      }
+      return host;
+    });
+    onUpdateHosts(updatedHosts);
+  }, [hosts, onUpdateHosts]);
+
+  // Handle tag delete - remove tag from all hosts
+  const handleDeleteTag = useCallback((tag: string) => {
+    const updatedHosts = hosts.map(host => {
+      if (host.tags?.includes(tag)) {
+        return { ...host, tags: host.tags.filter(t => t !== tag) };
+      }
+      return host;
+    });
+    onUpdateHosts(updatedHosts);
+  }, [hosts, onUpdateHosts]);
+
   const displayedGroups = useMemo(() => {
     if (!selectedGroupPath) {
       return (Object.values(buildGroupTree) as GroupNode[]).sort((a, b) => a.name.localeCompare(b.name));
@@ -479,6 +504,8 @@ const VaultViewInner: React.FC<VaultViewProps> = ({
                   allTags={allTags}
                   selectedTags={selectedTags}
                   onChange={setSelectedTags}
+                  onEditTag={handleEditTag}
+                  onDeleteTag={handleDeleteTag}
                   className="h-10 w-10"
                 />
                 <SortDropdown
