@@ -1223,7 +1223,6 @@ const PortForwarding: React.FC<PortForwardingProps> = ({ hosts, keys, customGrou
                         onNewHost();
                     } : undefined}
                     title="Select Host"
-                    subtitle="Personal vault"
                 />
             )}
 

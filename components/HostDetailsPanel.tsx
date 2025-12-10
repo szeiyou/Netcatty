@@ -284,9 +284,8 @@ const HostDetailsPanel: React.FC<HostDetailsPanelProps> = ({
           <Button variant="ghost" className="w-full h-10 gap-2">
             <Plus size={16} /> Add protocol
           </Button>
-        </div>
       </AsidePanelContent>
-      </AsidePanel >
+      </AsidePanel>
     );
   }
 
@@ -378,9 +377,8 @@ if (activeSubPanel === "proxy") {
             <Trash2 size={14} className="mr-2" /> Remove Proxy
           </Button>
         )}
-      </div>
     </AsidePanelContent>
-      </AsidePanel >
+      </AsidePanel>
     );
 }
 
@@ -477,9 +475,8 @@ if (activeSubPanel === "chain") {
             Clear
           </Button>
         )}
-      </div>
     </AsidePanelContent>
-      </AsidePanel >
+      </AsidePanel>
     );
 }
 
@@ -564,9 +561,8 @@ if (activeSubPanel === "env-vars") {
             className="h-10"
           />
         </Card>
-      </div>
     </AsidePanelContent>
-      </AsidePanel >
+      </AsidePanel>
     );
 }
 

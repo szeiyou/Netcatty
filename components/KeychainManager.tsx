@@ -24,8 +24,6 @@ import {
     ExternalLink,
     Info,
     Pencil,
-    ArrowLeft,
-    ArrowRight,
 } from 'lucide-react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -45,6 +43,7 @@ import {
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from './ui/collapsible';
 import SelectHostPanel from './SelectHostPanel';
 import { toast } from './ui/toast';
+import { AsidePanel, AsidePanelContent } from './ui/aside-panel';
 
 // Filter tab types
 type FilterTab = 'key' | 'certificate' | 'biometric' | 'fido2';
@@ -1168,55 +1167,35 @@ echo $3 >> "$FILE"`);
 
             {/* Slide-out Panel */}
             {panel.type !== 'closed' && (
-                <div className="absolute right-0 top-0 bottom-0 w-[380px] border-l border-border/60 bg-background z-30 flex flex-col">
-                    {/* Panel Header */}
-                    <div className="px-4 py-3 flex items-center justify-between border-b border-border/60 app-no-drag shrink-0">
-                        <div className="flex items-center gap-2">
-                            {panelStack.length > 1 && (
-                                <button
-                                    onClick={popPanel}
-                                    className="p-1 hover:bg-muted rounded-md transition-colors cursor-pointer"
-                                >
-                                    <ArrowLeft size={18} />
-                                </button>
-                            )}
-                            <div>
-                                <p className="text-sm font-semibold">
-                                    {panel.type === 'generate' && panel.keyType === 'biometric' && 'Generate Biometric Key'}
-                                    {panel.type === 'generate' && panel.keyType === 'standard' && 'Generate Key'}
-                                    {panel.type === 'generate' && panel.keyType === 'fido2' && 'Register Security Key'}
-                                    {panel.type === 'import' && 'New Key'}
-                                    {panel.type === 'view' && (panel.key.source === 'biometric' ? 'Biometric Key' : panel.key.source === 'fido2' ? 'Security Key' : 'Key Details')}
-                                    {panel.type === 'edit' && 'Edit Key'}
-                                    {panel.type === 'identity' && (panel.identity ? 'Edit Identity' : 'New Identity')}
-                                    {panel.type === 'export' && 'Key Export'}
-                                </p>
-                                <p className="text-xs text-muted-foreground">Personal vault</p>
+                <AsidePanel
+                    open={true}
+                    onClose={closePanel}
+                    title={
+                        panel.type === 'generate' && panel.keyType === 'biometric' ? 'Generate Biometric Key' :
+                        panel.type === 'generate' && panel.keyType === 'standard' ? 'Generate Key' :
+                        panel.type === 'generate' && panel.keyType === 'fido2' ? 'Register Security Key' :
+                        panel.type === 'import' ? 'New Key' :
+                        panel.type === 'view' ? (panel.key.source === 'biometric' ? 'Biometric Key' : panel.key.source === 'fido2' ? 'Security Key' : 'Key Details') :
+                        panel.type === 'edit' ? 'Edit Key' :
+                        panel.type === 'identity' ? (panel.identity ? 'Edit Identity' : 'New Identity') :
+                        panel.type === 'export' ? 'Key Export' : ''
+                    }
+                    showBackButton={panelStack.length > 1}
+                    onBack={popPanel}
+                    actions={
+                        (panel.type === 'view' || panel.type === 'identity') ? (
+                            <Button variant="ghost" size="icon" className="h-8 w-8">
+                                <MoreHorizontal size={16} />
+                            </Button>
+                        ) : undefined
+                    }
+                >
+                    <AsidePanelContent>
+                        {/* Error Display */}
+                        {error && (
+                            <div className="p-3 bg-destructive/10 border border-destructive/30 rounded-lg text-sm text-destructive">
+                                {error}
                             </div>
-                        </div>
-                        <div className="flex items-center gap-1">
-                            {(panel.type === 'view' || panel.type === 'identity') && (
-                                <Button variant="ghost" size="icon" className="h-8 w-8">
-                                    <MoreHorizontal size={16} />
-                                </Button>
-                            )}
-                            <button
-                                onClick={closePanel}
-                                className="p-1.5 hover:bg-muted rounded-md transition-colors cursor-pointer"
-                            >
-                                <ArrowRight size={18} />
-                            </button>
-                        </div>
-                    </div>
-
-                    {/* Panel Content - Scrollable */}
-                    <ScrollArea className="flex-1">
-                        <div className="p-4 space-y-4">
-                            {/* Error Display */}
-                            {error && (
-                                <div className="p-3 bg-destructive/10 border border-destructive/30 rounded-lg text-sm text-destructive">
-                                    {error}
-                                </div>
                             )}
 
                             {/* Generate Biometric Key */}
@@ -1925,8 +1904,7 @@ echo $3 >> "$FILE"`);
                                     </Button>
                                 </>
                             )}
-                        </div>
-                    </ScrollArea>
+                    </AsidePanelContent>
 
                     {/* Host Selector Overlay for Export */}
                     {showHostSelector && panel.type === 'export' && (
@@ -1944,7 +1922,7 @@ echo $3 >> "$FILE"`);
                             onNewHost={onNewHost}
                         />
                     )}
-                </div>
+                </AsidePanel>
             )}
         </div>
     );

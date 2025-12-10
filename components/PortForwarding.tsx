@@ -118,7 +118,7 @@ const PortForwarding: React.FC<PortForwardingProps> = ({ initialRules }) => {
             <p className="text-sm font-semibold">
               {TYPE_TAG[wizardType]}
             </p>
-            <p className="text-xs text-muted-foreground">Personal vault</p>
+
           </div>
           <ArrowRightLeft className="text-muted-foreground" size={16} />
         </div>

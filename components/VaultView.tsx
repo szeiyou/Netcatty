@@ -344,7 +344,7 @@ const VaultViewInner: React.FC<VaultViewProps> = ({
           </header>
         )}
 
-        {currentSection !== 'port' && currentSection !== 'keys' && currentSection !== 'knownhosts' && (
+        {currentSection !== 'port' && currentSection !== 'keys' && currentSection !== 'knownhosts' && currentSection !== 'snippets' && (
           <div className="flex-1 overflow-auto px-4 py-4 space-y-6">
             {currentSection === 'hosts' && (
               <>
@@ -488,21 +488,21 @@ const VaultViewInner: React.FC<VaultViewProps> = ({
                 </section>
               </>
             )}
-
-            {currentSection === 'snippets' && (
-              <SnippetsManager
-                snippets={snippets}
-                packages={snippetPackages}
-                hosts={hosts}
-                customGroups={customGroups}
-                shellHistory={shellHistory}
-                onPackagesChange={onUpdateSnippetPackages}
-                onSave={s => onUpdateSnippets(snippets.find(ex => ex.id === s.id) ? snippets.map(ex => ex.id === s.id ? s : ex) : [...snippets, s])}
-                onDelete={id => onUpdateSnippets(snippets.filter(s => s.id !== id))}
-                onRunSnippet={onRunSnippet}
-              />
-            )}
           </div>
+        )}
+
+        {currentSection === 'snippets' && (
+          <SnippetsManager
+            snippets={snippets}
+            packages={snippetPackages}
+            hosts={hosts}
+            customGroups={customGroups}
+            shellHistory={shellHistory}
+            onPackagesChange={onUpdateSnippetPackages}
+            onSave={s => onUpdateSnippets(snippets.find(ex => ex.id === s.id) ? snippets.map(ex => ex.id === s.id ? s : ex) : [...snippets, s])}
+            onDelete={id => onUpdateSnippets(snippets.filter(s => s.id !== id))}
+            onRunSnippet={onRunSnippet}
+          />
         )}
         {currentSection === 'keys' && (
           <KeychainManager

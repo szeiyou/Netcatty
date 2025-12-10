@@ -261,7 +261,6 @@ const SnippetsManager: React.FC<SnippetsManagerProps> = ({
           onContinue={handleTargetPickerBack}
           onNewHost={undefined}
           title="Add targets"
-          subtitle="Personal vault"
         />
       );
     }
@@ -272,7 +271,6 @@ const SnippetsManager: React.FC<SnippetsManagerProps> = ({
           open={true}
           onClose={handleClosePanel}
           title={editingSnippet.id ? 'Edit Snippet' : 'New Snippet'}
-          subtitle="Personal vault"
           actions={
             <Button
               variant="ghost"

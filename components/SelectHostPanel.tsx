@@ -42,7 +42,7 @@ const SelectHostPanel: React.FC<SelectHostPanelProps> = ({
     onContinue,
     onNewHost,
     title = 'Select Host',
-    subtitle = 'Personal vault',
+    subtitle,
     className,
 }) => {
     const [searchQuery, setSearchQuery] = useState('');
@@ -190,7 +190,7 @@ const SelectHostPanel: React.FC<SelectHostPanelProps> = ({
                     </button>
                     <div className="min-w-0">
                         <h3 className="text-sm font-semibold">{title}</h3>
-                        <p className="text-xs text-muted-foreground">{subtitle}</p>
+                        {subtitle && <p className="text-xs text-muted-foreground">{subtitle}</p>}
                     </div>
                 </div>
                 <button
@@ -311,16 +311,6 @@ const SelectHostPanel: React.FC<SelectHostPanelProps> = ({
                                             )}
                                             onClick={() => onSelect(host)}
                                         >
-                                            {multiSelect && (
-                                                <div className={cn(
-                                                    "h-5 w-5 rounded-full border-2 flex items-center justify-center shrink-0",
-                                                    isSelected
-                                                        ? "bg-primary border-primary"
-                                                        : "border-muted-foreground/50"
-                                                )}>
-                                                    {isSelected && <Check size={12} className="text-primary-foreground" />}
-                                                </div>
-                                            )}
                                             <DistroAvatar host={host} fallback={host.os[0].toUpperCase()} className="h-10 w-10" />
                                             <div className="flex-1 min-w-0">
                                                 <div className="font-medium">{host.label}</div>
