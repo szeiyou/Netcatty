@@ -604,11 +604,8 @@ const SnippetsManager: React.FC<SnippetsManagerProps> = ({
                         onClick={() => setSelectedPackage(pkg.path)}
                       >
                         <div className="flex items-center gap-3 h-full">
-                          <div className={cn(
-                            "rounded-lg bg-primary/15 text-primary flex items-center justify-center flex-shrink-0",
-                            viewMode === 'grid' ? "h-10 w-10" : "h-8 w-8"
-                          )}>
-                            <Grid size={viewMode === 'grid' ? 16 : 14} />
+                          <div className="h-11 w-11 rounded-xl bg-primary/15 text-primary flex items-center justify-center flex-shrink-0">
+                            <Grid size={18} />
                           </div>
                           <div className="min-w-0 flex-1">
                             <div className="text-sm font-semibold truncate">{pkg.name}</div>
@@ -653,11 +650,8 @@ const SnippetsManager: React.FC<SnippetsManagerProps> = ({
                         onClick={() => handleEdit(snippet)}
                       >
                         <div className="flex items-center gap-3 h-full">
-                          <div className={cn(
-                            "rounded-lg bg-primary/15 text-primary flex items-center justify-center flex-shrink-0",
-                            viewMode === 'grid' ? "h-10 w-10" : "h-8 w-8"
-                          )}>
-                            <FileCode size={viewMode === 'grid' ? 16 : 14} />
+                          <div className="h-11 w-11 rounded-xl bg-primary/15 text-primary flex items-center justify-center flex-shrink-0">
+                            <FileCode size={18} />
                           </div>
                           <div className="min-w-0 flex-1">
                             <div className="text-sm font-semibold truncate">{snippet.label}</div>

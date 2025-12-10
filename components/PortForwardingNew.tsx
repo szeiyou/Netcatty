@@ -515,7 +515,7 @@ const PortForwarding: React.FC<PortForwardingProps> = ({ hosts, keys, customGrou
                     >
                         <CardContent className={cn("p-4 flex items-center gap-3", viewMode === 'list' ? "py-3" : "")}>
                             <div className={cn(
-                                "h-10 w-10 rounded-lg flex items-center justify-center text-sm font-bold transition-colors",
+                                "h-11 w-11 rounded-xl flex items-center justify-center text-sm font-bold transition-colors",
                                 rule.status === 'active' ? (
                                     rule.type === 'local' ? "bg-blue-500 text-white" :
                                         rule.type === 'remote' ? "bg-orange-500 text-white" :

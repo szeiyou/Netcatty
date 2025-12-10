@@ -148,8 +148,8 @@ const HostItem = React.memo<HostItemProps>(({ knownHost, converted, viewMode, on
                         <Trash2 size={12} />
                     </button>
                 </div>
-                <div className="h-11 w-11 rounded-lg bg-primary/10 text-primary flex items-center justify-center flex-shrink-0">
-                    <Server size={20} />
+                <div className="h-11 w-11 rounded-xl bg-primary/10 text-primary flex items-center justify-center flex-shrink-0">
+                    <Server size={18} />
                 </div>
                 <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
@@ -185,8 +185,8 @@ const HostItem = React.memo<HostItemProps>(({ knownHost, converted, viewMode, on
                 converted && "opacity-60"
             )}
         >
-            <div className="h-8 w-8 rounded-lg bg-primary/10 text-primary flex items-center justify-center flex-shrink-0">
-                <Server size={14} />
+            <div className="h-11 w-11 rounded-xl bg-primary/10 text-primary flex items-center justify-center flex-shrink-0">
+                <Server size={18} />
             </div>
             <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">

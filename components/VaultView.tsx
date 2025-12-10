@@ -602,11 +602,8 @@ const VaultViewInner: React.FC<VaultViewProps> = ({
                             }}
                           >
                             <div className="flex items-center gap-3 h-full">
-                              <div className={cn(
-                                "rounded-lg bg-primary/15 text-primary flex items-center justify-center",
-                                viewMode === 'grid' ? "h-10 w-10" : "h-8 w-8"
-                              )}>
-                                <Grid size={viewMode === 'grid' ? 18 : 14} />
+                              <div className="h-11 w-11 rounded-xl bg-primary/15 text-primary flex items-center justify-center">
+                                <Grid size={18} />
                               </div>
                               <div className="flex-1 min-w-0">
                                 <div className="text-sm font-semibold truncate">{node.name}</div>
@@ -662,17 +659,13 @@ const VaultViewInner: React.FC<VaultViewProps> = ({
                               onClick={() => handleHostConnect(safeHost)}
                             >
                               <div className="flex items-center gap-3 h-full">
-                                <DistroAvatar host={safeHost} fallback={distroBadge.text} size={viewMode === 'list' ? 'sm' : 'md'} />
+                                <DistroAvatar host={safeHost} fallback={distroBadge.text} />
                                 <div className="min-w-0 flex flex-col justify-center gap-0.5 flex-1">
                                   <div className="text-sm font-semibold truncate leading-5">{safeHost.label}</div>
                                   <div className="text-[11px] text-muted-foreground font-mono truncate leading-4">{safeHost.username}@{safeHost.hostname}</div>
-                                  {viewMode === 'grid' && safeHost.distro && <div className="text-[10px] text-muted-foreground truncate leading-4">{distroBadge.label}</div>}
                                 </div>
                                 {viewMode === 'list' && (
                                   <>
-                                    {safeHost.distro && (
-                                      <div className="text-[11px] text-muted-foreground shrink-0">{distroBadge.label}</div>
-                                    )}
                                     <Button
                                       variant="ghost"
                                       size="icon"

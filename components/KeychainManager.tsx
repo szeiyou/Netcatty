@@ -1053,8 +1053,7 @@ echo $3 >> "$FILE"`);
                                         >
                                             <div className="flex items-center gap-3 h-full">
                                                 <div className={cn(
-                                                    "rounded-md flex items-center justify-center",
-                                                    viewMode === 'grid' ? "h-9 w-9" : "h-8 w-8",
+                                                    "h-11 w-11 rounded-xl flex items-center justify-center",
                                                     key.source === 'biometric'
                                                         ? "bg-blue-500/15 text-blue-500"
                                                         : key.source === 'fido2'
@@ -1145,11 +1144,8 @@ echo $3 >> "$FILE"`);
                                     }}
                                 >
                                     <div className="flex items-center gap-3 h-full">
-                                        <div className={cn(
-                                            "rounded-md bg-green-500/15 text-green-500 flex items-center justify-center",
-                                            viewMode === 'grid' ? "h-9 w-9" : "h-8 w-8"
-                                        )}>
-                                            <User size={viewMode === 'grid' ? 16 : 14} />
+                                        <div className="h-11 w-11 rounded-xl bg-green-500/15 text-green-500 flex items-center justify-center">
+                                            <User size={18} />
                                         </div>
                                         <div className="min-w-0 flex-1">
                                             <div className="text-sm font-semibold truncate">{identity.label || 'Add a label...'}</div>
