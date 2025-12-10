@@ -1915,12 +1915,14 @@ echo $3 >> "$FILE"`);
                         <SelectHostPanel
                             hosts={hosts}
                             customGroups={customGroups}
-                            selectedHostId={exportHost?.id}
+                            selectedHostIds={exportHost?.id ? [exportHost.id] : []}
+                            multiSelect={false}
                             onSelect={(host) => {
                                 setExportHost(host);
                                 setShowHostSelector(false);
                             }}
                             onBack={() => setShowHostSelector(false)}
+                            onContinue={() => setShowHostSelector(false)}
                             onNewHost={onNewHost}
                         />
                     )}

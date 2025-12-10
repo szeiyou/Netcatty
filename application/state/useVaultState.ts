@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Host, SSHKey, Snippet, KeySource, KeyCategory, KnownHost } from '../../domain/models';
+import { Host, SSHKey, Snippet, KeySource, KeyCategory, KnownHost, ShellHistoryEntry } from '../../domain/models';
 import { normalizeDistroId, sanitizeHost } from '../../domain/host';
 import { INITIAL_HOSTS, INITIAL_SNIPPETS } from '../../infrastructure/config/defaultData';
 import {
@@ -9,6 +9,7 @@ import {
   STORAGE_KEY_SNIPPET_PACKAGES,
   STORAGE_KEY_SNIPPETS,
   STORAGE_KEY_KNOWN_HOSTS,
+  STORAGE_KEY_SHELL_HISTORY,
 } from '../../infrastructure/config/storageKeys';
 import { localStorageAdapter } from '../../infrastructure/persistence/localStorageAdapter';
 
@@ -46,6 +47,7 @@ export const useVaultState = () => {
   const [customGroups, setCustomGroups] = useState<string[]>([]);
   const [snippetPackages, setSnippetPackages] = useState<string[]>([]);
   const [knownHosts, setKnownHosts] = useState<KnownHost[]>([]);
+  const [shellHistory, setShellHistory] = useState<ShellHistoryEntry[]>([]);
 
   const updateHosts = useCallback((data: Host[]) => {
     const cleaned = data.map(sanitizeHost);
@@ -76,6 +78,25 @@ export const useVaultState = () => {
   const updateKnownHosts = useCallback((data: KnownHost[]) => {
     setKnownHosts(data);
     localStorageAdapter.write(STORAGE_KEY_KNOWN_HOSTS, data);
+  }, []);
+
+  const addShellHistoryEntry = useCallback((entry: Omit<ShellHistoryEntry, 'id' | 'timestamp'>) => {
+    const newEntry: ShellHistoryEntry = {
+      ...entry,
+      id: crypto.randomUUID(),
+      timestamp: Date.now(),
+    };
+    setShellHistory(prev => {
+      // Keep only the last 1000 entries
+      const updated = [newEntry, ...prev].slice(0, 1000);
+      localStorageAdapter.write(STORAGE_KEY_SHELL_HISTORY, updated);
+      return updated;
+    });
+  }, []);
+
+  const clearShellHistory = useCallback(() => {
+    setShellHistory([]);
+    localStorageAdapter.write(STORAGE_KEY_SHELL_HISTORY, []);
   }, []);
 
   // Convert a known host to a managed host
@@ -145,6 +166,10 @@ export const useVaultState = () => {
     // Load known hosts
     const savedKnownHosts = localStorageAdapter.read<KnownHost[]>(STORAGE_KEY_KNOWN_HOSTS);
     if (savedKnownHosts) setKnownHosts(savedKnownHosts);
+    
+    // Load shell history
+    const savedShellHistory = localStorageAdapter.read<ShellHistoryEntry[]>(STORAGE_KEY_SHELL_HISTORY);
+    if (savedShellHistory) setShellHistory(savedShellHistory);
   }, [updateHosts, updateSnippets]);
 
   const updateHostDistro = useCallback((hostId: string, distro: string) => {
@@ -184,12 +209,15 @@ export const useVaultState = () => {
     customGroups,
     snippetPackages,
     knownHosts,
+    shellHistory,
     updateHosts,
     updateKeys,
     updateSnippets,
     updateSnippetPackages,
     updateCustomGroups,
     updateKnownHosts,
+    addShellHistoryEntry,
+    clearShellHistory,
     updateHostDistro,
     convertKnownHostToHost,
     exportData,

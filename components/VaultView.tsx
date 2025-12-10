@@ -19,7 +19,7 @@ import {
   Trash2,
   TerminalSquare,
 } from 'lucide-react';
-import { Host, SSHKey, Snippet, GroupNode, TerminalSession, KnownHost } from '../types';
+import { Host, SSHKey, Snippet, GroupNode, TerminalSession, KnownHost, ShellHistoryEntry } from '../types';
 import { DistroAvatar } from './DistroAvatar';
 import SnippetsManager from './SnippetsManager';
 import KeychainManager from './KeychainManager';
@@ -45,6 +45,7 @@ interface VaultViewProps {
   snippetPackages: string[];
   customGroups: string[];
   knownHosts: KnownHost[];
+  shellHistory: ShellHistoryEntry[];
   sessions: TerminalSession[];
   onOpenSettings: () => void;
   onOpenQuickSwitcher: () => void;
@@ -70,6 +71,7 @@ const VaultViewInner: React.FC<VaultViewProps> = ({
   snippetPackages,
   customGroups,
   knownHosts,
+  shellHistory,
   sessions,
   onOpenSettings,
   onOpenQuickSwitcher,
@@ -481,6 +483,8 @@ const VaultViewInner: React.FC<VaultViewProps> = ({
                 snippets={snippets}
                 packages={snippetPackages}
                 hosts={hosts}
+                customGroups={customGroups}
+                shellHistory={shellHistory}
                 onPackagesChange={onUpdateSnippetPackages}
                 onSave={s => onUpdateSnippets(snippets.find(ex => ex.id === s.id) ? snippets.map(ex => ex.id === s.id ? s : ex) : [...snippets, s])}
                 onDelete={id => onUpdateSnippets(snippets.filter(s => s.id !== id))}
@@ -534,6 +538,7 @@ const vaultViewAreEqual = (prev: VaultViewProps, next: VaultViewProps): boolean 
     prev.snippetPackages === next.snippetPackages &&
     prev.customGroups === next.customGroups &&
     prev.knownHosts === next.knownHosts &&
+    prev.shellHistory === next.shellHistory &&
     prev.sessions === next.sessions
   );
 

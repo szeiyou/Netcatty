@@ -60,12 +60,14 @@ function App() {
     customGroups,
     snippetPackages,
     knownHosts,
+    shellHistory,
     updateHosts,
     updateKeys,
     updateSnippets,
     updateSnippetPackages,
     updateCustomGroups,
     updateKnownHosts,
+    addShellHistoryEntry,
     updateHostDistro,
     convertKnownHostToHost,
     exportData,
@@ -187,6 +189,7 @@ function App() {
             snippetPackages={snippetPackages}
             customGroups={customGroups}
             knownHosts={knownHosts}
+            shellHistory={shellHistory}
             sessions={sessions}
             onOpenSettings={handleOpenSettings}
             onOpenQuickSwitcher={handleOpenQuickSwitcher}
@@ -222,6 +225,9 @@ function App() {
           onUpdateHostDistro={updateHostDistro}
           onUpdateHost={(host) => updateHosts(hosts.map(h => h.id === host.id ? host : h))}
           onAddKnownHost={(kh) => updateKnownHosts([...knownHosts, kh])}
+          onCommandExecuted={(command, hostId, hostLabel, sessionId) => {
+            addShellHistoryEntry({ command, hostId, hostLabel, sessionId });
+          }}
           onCreateWorkspaceFromSessions={createWorkspaceFromSessions}
           onAddSessionToWorkspace={addSessionToWorkspace}
           onUpdateSplitSizes={updateSplitSizes}

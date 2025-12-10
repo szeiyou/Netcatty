@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState, memo } from 'react';
 import { init as initGhostty, Terminal as GhosttyTerminal, FitAddon } from 'ghostty-web';
-import { Host, SSHKey, Snippet, TerminalSession, TerminalTheme, KnownHost, ProxyConfig, HostChainConfig } from '../types';
+import { Host, SSHKey, Snippet, TerminalSession, TerminalTheme, KnownHost, ProxyConfig, HostChainConfig, ShellHistoryEntry } from '../types';
 import { Zap, FolderInput, Loader2, AlertCircle, ShieldCheck, Clock, Play, X, Lock, Key, User, Eye, EyeOff, ChevronDown, Maximize2 } from 'lucide-react';
 import { DistroAvatar } from './DistroAvatar';
 import { Button } from './ui/button';
@@ -33,6 +33,7 @@ interface TerminalProps {
   onUpdateHost?: (host: Host) => void;
   onAddKnownHost?: (knownHost: KnownHost) => void; // Callback to add host to known hosts
   onExpandToFocus?: () => void; // Callback to switch workspace to focus mode
+  onCommandExecuted?: (command: string, hostId: string, hostLabel: string, sessionId: string) => void; // Callback when a command is executed
 }
 
 let ghosttyInitialized = false;
@@ -67,6 +68,7 @@ const TerminalComponent: React.FC<TerminalProps> = ({
   onUpdateHost,
   onAddKnownHost,
   onExpandToFocus,
+  onCommandExecuted,
 }) => {
   const CONNECTION_TIMEOUT = 12000;
   const containerRef = useRef<HTMLDivElement>(null);
@@ -77,6 +79,7 @@ const TerminalComponent: React.FC<TerminalProps> = ({
   const sessionRef = useRef<string | null>(null);
   const hasConnectedRef = useRef(false);
   const hasRunStartupCommandRef = useRef(false); // Track if startup command has been executed
+  const commandBufferRef = useRef<string>(''); // Buffer for tracking typed commands
 
   const [isScriptsOpen, setIsScriptsOpen] = useState(false);
   const [status, setStatus] = useState<TerminalSession['status']>('connecting');
@@ -212,6 +215,34 @@ const TerminalComponent: React.FC<TerminalProps> = ({
           const id = sessionRef.current;
           if (id && window.nebula?.writeToSession) {
             window.nebula.writeToSession(id, data);
+            
+            // Track command input for shell history
+            if (status === 'connected' && onCommandExecuted) {
+              // Handle control characters
+              if (data === '\r' || data === '\n') {
+                // Enter pressed - command submitted
+                const cmd = commandBufferRef.current.trim();
+                if (cmd) {
+                  onCommandExecuted(cmd, host.id, host.label, sessionId);
+                }
+                commandBufferRef.current = '';
+              } else if (data === '\x7f' || data === '\b') {
+                // Backspace - remove last character
+                commandBufferRef.current = commandBufferRef.current.slice(0, -1);
+              } else if (data === '\x03') {
+                // Ctrl+C - clear buffer
+                commandBufferRef.current = '';
+              } else if (data === '\x15') {
+                // Ctrl+U - clear line
+                commandBufferRef.current = '';
+              } else if (data.length === 1 && data.charCodeAt(0) >= 32) {
+                // Regular printable character
+                commandBufferRef.current += data;
+              } else if (data.length > 1 && !data.startsWith('\x1b')) {
+                // Pasted text (multiple chars, not escape sequence)
+                commandBufferRef.current += data;
+              }
+            }
           }
         });
 
@@ -602,6 +633,10 @@ const TerminalComponent: React.FC<TerminalProps> = ({
               sessionRef.current,
               `${commandToRun}\r`
             );
+            // Track startup command execution in shell history
+            if (onCommandExecuted) {
+              onCommandExecuted(commandToRun, host.id, host.label, sessionId);
+            }
           }
         }, 600);
       }

@@ -26,7 +26,7 @@ import {
     CalendarClock,
     Check,
 } from 'lucide-react';
-import { PortForwardingRule, PortForwardingType, Host, GroupNode, SSHKey } from '../domain/models';
+import { PortForwardingRule, PortForwardingType, Host, SSHKey } from '../domain/models';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
@@ -38,6 +38,7 @@ import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger, C
 import { cn } from '../lib/utils';
 import { TrafficDiagram } from './TrafficDiagram';
 import { DistroAvatar } from './DistroAvatar';
+import SelectHostPanel from './SelectHostPanel';
 import {
     usePortForwardingState,
     ViewMode,
@@ -179,9 +180,7 @@ const PortForwarding: React.FC<PortForwardingProps> = ({ hosts, keys, customGrou
         hostId: undefined,
     });
     const [isEditing, setIsEditing] = useState(false);
-    const [hostSearchQuery, setHostSearchQuery] = useState('');
     const [showHostSelector, setShowHostSelector] = useState(false);
-    const [hostSelectorPath, setHostSelectorPath] = useState<string | null>(null);
 
     // Edit panel state (separate from wizard)
     const [showEditPanel, setShowEditPanel] = useState(false);
@@ -212,83 +211,6 @@ const PortForwarding: React.FC<PortForwardingProps> = ({ hosts, keys, customGrou
     // New forwarding menu
     const [showNewMenu, setShowNewMenu] = useState(false);
 
-    // Build group tree for host selection
-    const buildGroupTree = useMemo<Record<string, GroupNode>>(() => {
-        const root: Record<string, GroupNode> = {};
-        const insertPath = (path: string, host?: Host) => {
-            const parts = path.split('/').filter(Boolean);
-            let currentLevel = root;
-            let currentPath = '';
-            parts.forEach((part, index) => {
-                currentPath = currentPath ? `${currentPath}/${part}` : part;
-                if (!currentLevel[part]) {
-                    currentLevel[part] = { name: part, path: currentPath, children: {}, hosts: [] };
-                }
-                if (host && index === parts.length - 1) currentLevel[part].hosts.push(host);
-                currentLevel = currentLevel[part].children;
-            });
-        };
-        customGroups.forEach(path => insertPath(path));
-        hosts.forEach(host => insertPath(host.group || 'General', host));
-        return root;
-    }, [hosts, customGroups]);
-
-    // Flat list of groups with host counts - filtered by current path
-    const groupsWithCounts = useMemo(() => {
-        const result: { path: string; name: string; count: number }[] = [];
-        const traverse = (nodes: Record<string, GroupNode>, parentPath: string = '') => {
-            Object.values(nodes).forEach(node => {
-                // Only show direct children of current path
-                if (hostSelectorPath === null) {
-                    // At root, show only top-level groups
-                    if (!node.path.includes('/')) {
-                        result.push({ path: node.path, name: node.name, count: node.hosts.length });
-                    }
-                } else {
-                    // Show direct children of the selected path
-                    const isDirectChild = node.path.startsWith(hostSelectorPath + '/') &&
-                        node.path.substring(hostSelectorPath.length + 1).indexOf('/') === -1;
-                    if (isDirectChild) {
-                        result.push({ path: node.path, name: node.name, count: node.hosts.length });
-                    }
-                }
-                traverse(node.children, node.path);
-            });
-        };
-        traverse(buildGroupTree);
-        return result;
-    }, [buildGroupTree, hostSelectorPath]);
-
-    // Filter hosts by search and current path
-    const filteredHosts = useMemo(() => {
-        let result = hosts;
-
-        // Filter by current path
-        if (hostSelectorPath !== null) {
-            result = result.filter(h => h.group === hostSelectorPath);
-        } else {
-            // At root level, show hosts without group
-            result = result.filter(h => !h.group || h.group === '');
-        }
-
-        // Filter by search query
-        if (hostSearchQuery.trim()) {
-            const q = hostSearchQuery.toLowerCase();
-            result = result.filter(h =>
-                h.label.toLowerCase().includes(q) ||
-                h.hostname.toLowerCase().includes(q) ||
-                h.username.toLowerCase().includes(q)
-            );
-        }
-
-        return result;
-    }, [hosts, hostSearchQuery, hostSelectorPath]);
-
-    // Ungrouped hosts
-    const ungroupedHosts = useMemo(() => {
-        return filteredHosts.filter(h => !h.group || h.group === '');
-    }, [filteredHosts]);
-
     // Reset wizard
     const resetWizard = () => {
         setWizardStep('type');
@@ -303,7 +225,6 @@ const PortForwarding: React.FC<PortForwardingProps> = ({ hosts, keys, customGrou
             hostId: undefined,
         });
         setIsEditing(false);
-        setHostSearchQuery('');
     };
 
     // Reset new form
@@ -1317,163 +1238,40 @@ const PortForwarding: React.FC<PortForwardingProps> = ({ hosts, keys, customGrou
                 </div>
             )}
 
-            {/* Host Selector Overlay - Rendered via Portal to avoid parent CSS issues */}
+            {/* Host Selector Overlay - Rendered via Portal */}
             {showHostSelector && createPortal(
-                <div className="fixed right-0 top-0 bottom-0 w-[360px] bg-background z-[9999] flex flex-col border-l border-border/70 app-no-drag">
-                    {/* Header */}
-                    <div className="px-4 py-3 flex items-center gap-3 border-b border-border/60 bg-secondary/60">
-                        <button
-                            type="button"
-                            className="h-8 w-8 shrink-0 inline-flex items-center justify-center rounded-md hover:bg-accent hover:text-accent-foreground cursor-pointer"
-                            onClick={() => {
-                                if (hostSelectorPath !== null) {
-                                    // Navigate up one level
-                                    const parts = hostSelectorPath.split('/').filter(Boolean);
-                                    parts.pop();
-                                    setHostSelectorPath(parts.length > 0 ? parts.join('/') : null);
-                                } else {
-                                    // Close the selector and return to wizard/form
-                                    setShowHostSelector(false);
-                                    setHostSearchQuery('');
-                                }
-                            }}
-                        >
-                            <ArrowLeft size={18} />
-                        </button>
-                        <div>
-                            <h3 className="text-sm font-semibold">Select Host</h3>
-                            <p className="text-xs text-muted-foreground">{hostSelectorPath || 'Personal vault'}</p>
-                        </div>
-                    </div>
-
-                    {/* Toolbar */}
-                    <div className="px-4 py-3 flex items-center gap-2 border-b border-border/60">
-                        <Button
-                            variant="secondary"
-                            size="sm"
-                            className="h-8 gap-1.5"
-                            onClick={() => {
-                                if (onNewHost) {
-                                    setShowHostSelector(false);
-                                    onNewHost();
-                                }
-                            }}
-                        >
-                            <Plus size={14} />
-                            NEW HOST
-                        </Button>
-                        <div className="relative flex-1 max-w-xs">
-                            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-                            <Input
-                                placeholder="Search"
-                                className="h-8 pl-8"
-                                value={hostSearchQuery}
-                                onChange={e => setHostSearchQuery(e.target.value)}
-                            />
-                        </div>
-                        <div className="ml-auto flex items-center gap-1">
-                            <Button variant="ghost" size="icon" className="h-8 w-8">
-                                <LayoutGrid size={14} />
-                                <ChevronDown size={10} />
-                            </Button>
-                            <Button variant="ghost" size="icon" className="h-8 w-8">
-                                <MoreVertical size={14} />
-                                <ChevronDown size={10} />
-                            </Button>
-                        </div>
-                    </div>
-
-                    {/* Content */}
-                    <ScrollArea className="flex-1">
-                        <div className="p-4 space-y-4">
-                            {/* Groups Section */}
-                            {groupsWithCounts.length > 0 && (
-                                <div>
-                                    <h4 className="text-sm font-semibold mb-3">Groups</h4>
-                                    <div className="space-y-1">
-                                        {groupsWithCounts.map(group => (
-                                            <div
-                                                key={group.path}
-                                                className="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-secondary cursor-pointer"
-                                                onClick={() => setHostSelectorPath(group.path)}
-                                            >
-                                                <div className="h-10 w-10 rounded-lg bg-primary/15 text-primary flex items-center justify-center">
-                                                    <LayoutGrid size={18} />
-                                                </div>
-                                                <div className="flex-1 min-w-0">
-                                                    <div className="font-medium">{group.name}</div>
-                                                    <div className="text-xs text-muted-foreground">{group.count} Host{group.count !== 1 ? 's' : ''}</div>
-                                                </div>
-                                            </div>
-                                        ))}
-                                    </div>
-                                </div>
-                            )}
-
-                            {/* Hosts Section */}
-                            <div>
-                                <h4 className="text-sm font-semibold mb-3">Hosts</h4>
-                                <div className="space-y-1">
-                                    {filteredHosts.map(host => {
-                                        const isSelectedInWizard = draftRule.hostId === host.id;
-                                        const isSelectedInEdit = editDraft.hostId === host.id;
-                                        const isSelectedInNewForm = newFormDraft.hostId === host.id;
-                                        const isSelected = showEditPanel ? isSelectedInEdit : (showNewForm ? isSelectedInNewForm : isSelectedInWizard);
-
-                                        return (
-                                            <div
-                                                key={host.id}
-                                                className={cn(
-                                                    "flex items-center gap-3 px-3 py-2.5 rounded-lg cursor-pointer transition-colors",
-                                                    isSelected
-                                                        ? "bg-primary/15 border border-primary/30"
-                                                        : "hover:bg-secondary"
-                                                )}
-                                                onClick={() => {
-                                                    if (showEditPanel) {
-                                                        setEditDraft(prev => ({ ...prev, hostId: host.id }));
-                                                    } else if (showNewForm) {
-                                                        setNewFormDraft(prev => ({ ...prev, hostId: host.id }));
-                                                    } else {
-                                                        setDraftRule(prev => ({ ...prev, hostId: host.id }));
-                                                    }
-                                                    setShowHostSelector(false);
-                                                    setHostSearchQuery('');
-                                                    setHostSelectorPath(null);
-                                                }}
-                                            >
-                                                <DistroAvatar host={host} fallback={host.os[0].toUpperCase()} className="h-10 w-10" />
-                                                <div className="flex-1 min-w-0">
-                                                    <div className="font-medium">{host.label}</div>
-                                                    <div className="text-xs text-muted-foreground truncate">
-                                                        {host.protocol || 'ssh'}, {host.username}
-                                                    </div>
-                                                </div>
-                                                {isSelected && (
-                                                    <Check size={16} className="text-primary" />
-                                                )}
-                                            </div>
-                                        );
-                                    })}
-                                </div>
-                            </div>
-                        </div>
-                    </ScrollArea>
-
-                    {/* Footer */}
-                    <div className="p-4 border-t border-border/60">
-                        <Button
-                            className="w-full h-10"
-                            disabled={showEditPanel ? !editDraft.hostId : (showNewForm ? !newFormDraft.hostId : !draftRule.hostId)}
-                            onClick={() => {
-                                setShowHostSelector(false);
-                                setHostSearchQuery('');
-                                setHostSelectorPath(null);
-                            }}
-                        >
-                            Continue
-                        </Button>
-                    </div>
+                <div className="fixed right-0 top-0 bottom-0 w-[360px] z-[9999]">
+                    <SelectHostPanel
+                        hosts={hosts}
+                        customGroups={customGroups}
+                        selectedHostIds={
+                            showEditPanel 
+                                ? (editDraft.hostId ? [editDraft.hostId] : [])
+                                : showNewForm 
+                                    ? (newFormDraft.hostId ? [newFormDraft.hostId] : [])
+                                    : (draftRule.hostId ? [draftRule.hostId] : [])
+                        }
+                        multiSelect={false}
+                        onSelect={(host) => {
+                            if (showEditPanel) {
+                                setEditDraft(prev => ({ ...prev, hostId: host.id }));
+                            } else if (showNewForm) {
+                                setNewFormDraft(prev => ({ ...prev, hostId: host.id }));
+                            } else {
+                                setDraftRule(prev => ({ ...prev, hostId: host.id }));
+                            }
+                            setShowHostSelector(false);
+                        }}
+                        onBack={() => setShowHostSelector(false)}
+                        onContinue={() => setShowHostSelector(false)}
+                        onNewHost={onNewHost ? () => {
+                            setShowHostSelector(false);
+                            onNewHost();
+                        } : undefined}
+                        title="Select Host"
+                        subtitle="Personal vault"
+                        className="relative inset-auto w-full h-full border-l border-border/70"
+                    />
                 </div>,
                 document.body
             )}

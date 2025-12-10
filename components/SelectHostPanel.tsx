@@ -7,6 +7,7 @@ import {
     LayoutGrid,
     MoreVertical,
     ChevronDown,
+    Check,
 } from 'lucide-react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -17,23 +18,29 @@ import { DistroAvatar } from './DistroAvatar';
 interface SelectHostPanelProps {
     hosts: Host[];
     customGroups?: string[];
-    selectedHostId?: string;
+    selectedHostIds?: string[];
+    multiSelect?: boolean;
     onSelect: (host: Host) => void;
     onBack: () => void;
+    onContinue?: () => void;
     onNewHost?: () => void;
     title?: string;
     subtitle?: string;
+    className?: string;
 }
 
 const SelectHostPanel: React.FC<SelectHostPanelProps> = ({
     hosts,
     customGroups = [],
-    selectedHostId,
+    selectedHostIds = [],
+    multiSelect = false,
     onSelect,
     onBack,
+    onContinue,
     onNewHost,
     title = 'Select Host',
     subtitle = 'Personal vault',
+    className,
 }) => {
     const [searchQuery, setSearchQuery] = useState('');
     const [currentPath, setCurrentPath] = useState<string | null>(null);
@@ -121,12 +128,12 @@ const SelectHostPanel: React.FC<SelectHostPanelProps> = ({
     };
 
     return (
-        <div className="absolute inset-0 bg-secondary/95 backdrop-blur z-40 flex flex-col">
+        <div className={cn("absolute inset-0 bg-secondary/95 backdrop-blur z-40 flex flex-col app-no-drag", className)}>
             {/* Header */}
             <div className="px-4 py-3 border-b border-border/60 flex items-center gap-3">
                 <button
                     onClick={handleBack}
-                    className="p-1 hover:bg-secondary rounded-md transition-colors"
+                    className="p-1 hover:bg-secondary rounded-md transition-colors cursor-pointer"
                 >
                     <ArrowLeft size={18} />
                 </button>
@@ -208,7 +215,7 @@ const SelectHostPanel: React.FC<SelectHostPanelProps> = ({
                             <h4 className="text-sm font-semibold mb-3">Hosts</h4>
                             <div className="space-y-1">
                                 {filteredHosts.map(host => {
-                                    const isSelected = selectedHostId === host.id;
+                                    const isSelected = selectedHostIds.includes(host.id);
 
                                     return (
                                         <div
@@ -228,6 +235,9 @@ const SelectHostPanel: React.FC<SelectHostPanelProps> = ({
                                                     {host.protocol || 'ssh'}, {host.username}
                                                 </div>
                                             </div>
+                                            {isSelected && !multiSelect && (
+                                                <Check size={16} className="text-primary" />
+                                            )}
                                         </div>
                                     );
                                 })}
@@ -248,15 +258,19 @@ const SelectHostPanel: React.FC<SelectHostPanelProps> = ({
             <div className="px-4 py-3 border-t border-border/60">
                 <Button
                     className="w-full"
-                    disabled={!selectedHostId}
+                    disabled={selectedHostIds.length === 0}
                     onClick={() => {
-                        const host = hosts.find(h => h.id === selectedHostId);
-                        if (host) {
-                            onSelect(host);
+                        if (onContinue) {
+                            onContinue();
+                        } else {
+                            const host = hosts.find(h => selectedHostIds.includes(h.id));
+                            if (host) {
+                                onSelect(host);
+                            }
                         }
                     }}
                 >
-                    Continue
+                    {multiSelect ? `Continue (${selectedHostIds.length} selected)` : 'Continue'}
                 </Button>
             </div>
         </div>

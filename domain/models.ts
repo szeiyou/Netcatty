@@ -279,3 +279,13 @@ export interface KnownHost {
   lastSeen?: number;
   convertedToHostId?: string; // If converted to managed host
 }
+
+// Shell History - records real commands executed in terminal sessions
+export interface ShellHistoryEntry {
+  id: string;
+  command: string;
+  hostId: string; // ID of the host where command was executed
+  hostLabel: string; // Label for display
+  sessionId: string;
+  timestamp: number;
+}

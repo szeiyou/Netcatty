@@ -1,48 +1,77 @@
-import React, { useMemo, useState } from 'react';
-import { Host, Snippet } from '../types';
-import { FileCode, Plus, Trash2, Edit2, Copy, Clock, List as ListIcon, FolderPlus, Grid, Server, Play } from 'lucide-react';
+import React, { useMemo, useState, useCallback, useRef, useEffect } from 'react';
+import { Host, Snippet, ShellHistoryEntry } from '../types';
+import { FileCode, Plus, Trash2, Edit2, Copy, Clock, List as ListIcon, FolderPlus, Grid, Play, ArrowLeft, Check, X, ChevronDown, Loader2 } from 'lucide-react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Textarea } from './ui/textarea';
 import { Card } from './ui/card';
-import { Dialog, DialogHeader, DialogTitle, DialogFooter, DialogContent, DialogDescription } from './ui/dialog';
 import { Label } from './ui/label';
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger, ContextMenuSeparator } from './ui/context-menu';
 import { cn } from '../lib/utils';
+import { ScrollArea } from './ui/scroll-area';
+import { DistroAvatar } from './DistroAvatar';
+import SelectHostPanel from './SelectHostPanel';
 
 interface SnippetsManagerProps {
   snippets: Snippet[];
   packages: string[];
   hosts: Host[];
+  customGroups?: string[];
+  shellHistory: ShellHistoryEntry[];
   onSave: (snippet: Snippet) => void;
   onDelete: (id: string) => void;
   onPackagesChange: (packages: string[]) => void;
   onRunSnippet?: (snippet: Snippet, targetHosts: Host[]) => void;
 }
 
-const SnippetsManager: React.FC<SnippetsManagerProps> = ({ snippets, packages, hosts, onSave, onDelete, onPackagesChange, onRunSnippet }) => {
-  const [isDialogOpen, setIsDialogOpen] = useState(false);
+type RightPanelMode = 'none' | 'edit-snippet' | 'history' | 'select-targets';
+
+const HISTORY_PAGE_SIZE = 30;
+
+const SnippetsManager: React.FC<SnippetsManagerProps> = ({ 
+  snippets, 
+  packages, 
+  hosts, 
+  customGroups = [],
+  shellHistory,
+  onSave, 
+  onDelete, 
+  onPackagesChange, 
+  onRunSnippet 
+}) => {
+  // Panel state
+  const [rightPanelMode, setRightPanelMode] = useState<RightPanelMode>('none');
   const [editingSnippet, setEditingSnippet] = useState<Partial<Snippet>>({
     label: '',
     command: '',
     package: '',
     targets: [],
   });
-  const [isTargetPickerOpen, setIsTargetPickerOpen] = useState(false);
   const [targetSelection, setTargetSelection] = useState<string[]>([]);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [selectedPackage, setSelectedPackage] = useState<string | null>(null);
-  const [isHistoryOpen, setIsHistoryOpen] = useState(true);
   const [newPackageName, setNewPackageName] = useState('');
   const [isPackageDialogOpen, setIsPackageDialogOpen] = useState(false);
-  const [historyLabelDraft, setHistoryLabelDraft] = useState<Record<string, string>>({});
-  const [tempTargets, setTempTargets] = useState<string[]>([]);
+
+  // Shell history lazy loading state
+  const [historyVisibleCount, setHistoryVisibleCount] = useState(HISTORY_PAGE_SIZE);
+  const historyScrollRef = useRef<HTMLDivElement>(null);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
 
   const handleEdit = (snippet?: Snippet) => {
-    if (snippet) setEditingSnippet(snippet);
-    else setEditingSnippet({ label: '', command: '', package: selectedPackage || '', targets: [] });
-    setIsDialogOpen(true);
-    setTargetSelection(snippet?.targets || []);
+    if (snippet) {
+      setEditingSnippet(snippet);
+      setTargetSelection(snippet.targets || []);
+    } else {
+      setEditingSnippet({ 
+        label: '', 
+        command: '', 
+        package: selectedPackage || '', 
+        targets: [] 
+      });
+      setTargetSelection([]);
+    }
+    setRightPanelMode('edit-snippet');
   };
 
   const handleSubmit = () => {
@@ -55,7 +84,7 @@ const SnippetsManager: React.FC<SnippetsManagerProps> = ({ snippets, packages, h
         package: editingSnippet.package || '',
         targets: targetSelection,
       });
-      setIsDialogOpen(false);
+      setRightPanelMode('none');
     }
   };
 
@@ -65,27 +94,30 @@ const SnippetsManager: React.FC<SnippetsManagerProps> = ({ snippets, packages, h
     setTimeout(() => setCopiedId(null), 1500);
   };
 
+  const handleClosePanel = () => {
+    setRightPanelMode('none');
+    setEditingSnippet({ label: '', command: '', package: '', targets: [] });
+    setTargetSelection([]);
+  };
+
   const targetHosts = useMemo(() => {
     return targetSelection
       .map((id) => hosts.find((h) => h.id === id))
       .filter((h): h is Host => Boolean(h));
   }, [targetSelection, hosts]);
 
-  const historyItems = useMemo(() => {
-    return [
-      'ls',
-      'cd /var/log',
-      'tail -f syslog',
-      'docker ps -a',
-      'htop',
-      'docker images',
-      'journalctl -xe',
-    ];
-  }, []);
-
   const openTargetPicker = () => {
-    setTempTargets(targetSelection);
-    setIsTargetPickerOpen(true);
+    setRightPanelMode('select-targets');
+  };
+
+  const handleTargetSelect = (host: Host) => {
+    setTargetSelection((prev) =>
+      prev.includes(host.id) ? prev.filter((id) => id !== host.id) : [...prev, host.id]
+    );
+  };
+
+  const handleTargetPickerBack = () => {
+    setRightPanelMode('edit-snippet');
   };
 
   const displayedPackages = useMemo(() => {
@@ -170,11 +202,242 @@ const SnippetsManager: React.FC<SnippetsManagerProps> = ({ snippets, packages, h
     onSave({ ...sn, package: pkg || '' });
   };
 
-  const toggleTarget = (snippet: Snippet, hostId: string) => {
-    const current = snippet.targets || [];
-    const exists = current.includes(hostId);
-    const next = exists ? current.filter((id) => id !== hostId) : [...current, hostId];
-    onSave({ ...snippet, targets: next });
+  // Shell history lazy loading
+  const visibleHistory = useMemo(() => {
+    return shellHistory.slice(0, historyVisibleCount);
+  }, [shellHistory, historyVisibleCount]);
+
+  const hasMoreHistory = historyVisibleCount < shellHistory.length;
+
+  const loadMoreHistory = useCallback(() => {
+    if (isLoadingMore || !hasMoreHistory) return;
+    setIsLoadingMore(true);
+    // Simulate loading delay for smooth UX
+    setTimeout(() => {
+      setHistoryVisibleCount((prev) => Math.min(prev + HISTORY_PAGE_SIZE, shellHistory.length));
+      setIsLoadingMore(false);
+    }, 200);
+  }, [isLoadingMore, hasMoreHistory, shellHistory.length]);
+
+  // Scroll handler for lazy loading
+  const handleHistoryScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
+    const target = e.target as HTMLDivElement;
+    const scrollBottom = target.scrollHeight - target.scrollTop - target.clientHeight;
+    if (scrollBottom < 100 && hasMoreHistory && !isLoadingMore) {
+      loadMoreHistory();
+    }
+  }, [hasMoreHistory, isLoadingMore, loadMoreHistory]);
+
+  // Reset visible count when history panel opens
+  useEffect(() => {
+    if (rightPanelMode === 'history') {
+      setHistoryVisibleCount(HISTORY_PAGE_SIZE);
+    }
+  }, [rightPanelMode]);
+
+  const saveHistoryAsSnippet = (entry: ShellHistoryEntry, label: string) => {
+    if (!label.trim()) return;
+    onSave({
+      id: crypto.randomUUID(),
+      label: label.trim(),
+      command: entry.command,
+      package: selectedPackage || '',
+      targets: [],
+    });
+  };
+
+  // Render right panel based on mode
+  const renderRightPanel = () => {
+    if (rightPanelMode === 'select-targets') {
+      return (
+        <div className="fixed right-0 top-0 bottom-0 w-[380px] z-50">
+          <SelectHostPanel
+            hosts={hosts}
+            customGroups={customGroups}
+            selectedHostIds={targetSelection}
+            multiSelect={true}
+            onSelect={handleTargetSelect}
+            onBack={handleTargetPickerBack}
+            onContinue={handleTargetPickerBack}
+            onNewHost={undefined}
+            title="Select Targets"
+            subtitle={`${targetSelection.length} selected`}
+            className="relative inset-auto w-full h-full"
+          />
+        </div>
+      );
+    }
+
+    if (rightPanelMode === 'edit-snippet') {
+      return (
+        <div className="fixed right-0 top-0 bottom-0 w-[380px] border-l border-border/60 bg-secondary/90 backdrop-blur z-50 flex flex-col">
+          {/* Header */}
+          <div className="px-4 py-3 flex items-center justify-between border-b border-border/60 app-no-drag">
+            <div>
+              <p className="text-sm font-semibold">{editingSnippet.id ? 'Edit Snippet' : 'New Snippet'}</p>
+              <p className="text-xs text-muted-foreground">Personal vault</p>
+            </div>
+            <div className="flex items-center gap-1">
+              <Button 
+                variant="ghost" 
+                size="icon" 
+                className="h-8 w-8" 
+                onClick={handleSubmit} 
+                disabled={!editingSnippet.label || !editingSnippet.command}
+                aria-label="Save"
+              >
+                <Check size={16} />
+              </Button>
+              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={handleClosePanel} aria-label="Close">
+                <X size={16} />
+              </Button>
+            </div>
+          </div>
+
+          {/* Content */}
+          <ScrollArea className="flex-1">
+            <div className="p-4 space-y-4">
+              {/* Action Description */}
+              <Card className="p-3 space-y-2 bg-card border-border/80">
+                <p className="text-xs font-semibold text-muted-foreground">Action description</p>
+                <Input
+                  placeholder="Example: check network load"
+                  value={editingSnippet.label || ''}
+                  onChange={(e) => setEditingSnippet({ ...editingSnippet, label: e.target.value })}
+                  className="h-10"
+                />
+              </Card>
+
+              {/* Package */}
+              <Card className="p-3 space-y-2 bg-card border-border/80">
+                <p className="text-xs font-semibold text-muted-foreground">Add a Package</p>
+                <Input
+                  placeholder="e.g. infra/ops"
+                  value={editingSnippet.package || selectedPackage || ''}
+                  onChange={(e) => setEditingSnippet({ ...editingSnippet, package: e.target.value })}
+                  className="h-10"
+                />
+              </Card>
+
+              {/* Script */}
+              <Card className="p-3 space-y-2 bg-card border-border/80">
+                <p className="text-xs font-semibold text-muted-foreground">Script *</p>
+                <Textarea
+                  placeholder="ls -l"
+                  className="min-h-[120px] font-mono text-xs"
+                  value={editingSnippet.command || ''}
+                  onChange={(e) => setEditingSnippet({ ...editingSnippet, command: e.target.value })}
+                />
+              </Card>
+
+              {/* Targets */}
+              <Card className="p-3 space-y-3 bg-card border-border/80">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-semibold text-muted-foreground">Targets</p>
+                  <Button variant="ghost" size="sm" className="h-6 px-2 text-xs text-primary" onClick={openTargetPicker}>
+                    Edit
+                  </Button>
+                </div>
+                
+                {targetHosts.length === 0 ? (
+                  <Button 
+                    variant="secondary" 
+                    className="w-full h-10" 
+                    onClick={openTargetPicker}
+                  >
+                    Add targets
+                  </Button>
+                ) : (
+                  <div className="space-y-2">
+                    {targetHosts.map((h) => (
+                      <div key={h.id} className="flex items-center gap-3 px-3 py-2 bg-background/60 border border-border/70 rounded-lg">
+                        <DistroAvatar host={h} fallback={h.os[0].toUpperCase()} className="h-10 w-10" />
+                        <div className="min-w-0 flex-1">
+                          <div className="text-sm font-semibold truncate">{h.hostname}</div>
+                          <div className="text-[11px] text-muted-foreground truncate">
+                            {h.protocol || 'ssh'}, {h.username}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </Card>
+            </div>
+          </ScrollArea>
+
+          {/* Footer */}
+          <div className="px-4 py-3 border-t border-border/60">
+            <Button 
+              className="w-full" 
+              onClick={handleSubmit}
+              disabled={!editingSnippet.label || !editingSnippet.command}
+            >
+              {editingSnippet.targets?.length ? 'Run' : 'Save'}
+            </Button>
+          </div>
+        </div>
+      );
+    }
+
+    if (rightPanelMode === 'history') {
+      return (
+        <div className="fixed right-0 top-0 bottom-0 w-[380px] border-l border-border/60 bg-secondary/90 backdrop-blur z-50 flex flex-col">
+          {/* Header */}
+          <div className="px-4 py-3 flex items-center justify-between border-b border-border/60 app-no-drag">
+            <div className="flex items-center gap-3">
+              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={handleClosePanel}>
+                <ArrowLeft size={16} />
+              </Button>
+              <div>
+                <p className="text-sm font-semibold">Shell History</p>
+                <p className="text-xs text-muted-foreground">{shellHistory.length} commands</p>
+              </div>
+            </div>
+          </div>
+
+          {/* History List */}
+          <div 
+            className="flex-1 overflow-y-auto p-3 space-y-2"
+            onScroll={handleHistoryScroll}
+            ref={historyScrollRef}
+          >
+            {visibleHistory.length === 0 ? (
+              <div className="text-center py-12 text-muted-foreground">
+                <Clock size={32} className="mx-auto mb-3 opacity-50" />
+                <p className="text-sm">No shell history yet</p>
+                <p className="text-xs mt-1">Commands you execute will appear here</p>
+              </div>
+            ) : (
+              <>
+                {visibleHistory.map((entry) => (
+                  <HistoryItem 
+                    key={entry.id} 
+                    entry={entry} 
+                    onSaveAsSnippet={saveHistoryAsSnippet}
+                    onCopy={() => handleCopy(entry.id, entry.command)}
+                    isCopied={copiedId === entry.id}
+                  />
+                ))}
+                {hasMoreHistory && (
+                  <div className="py-4 text-center">
+                    {isLoadingMore ? (
+                      <Loader2 size={20} className="animate-spin mx-auto text-muted-foreground" />
+                    ) : (
+                      <Button variant="ghost" size="sm" onClick={loadMoreHistory}>
+                        Load more
+                      </Button>
+                    )}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    return null;
   };
 
   return (
@@ -195,7 +458,12 @@ const SnippetsManager: React.FC<SnippetsManagerProps> = ({ snippets, packages, h
           >
             <FolderPlus size={14} className="mr-1" /> New Package
           </Button>
-          <Button variant="ghost" size="sm" className="h-9 gap-2" onClick={() => setIsHistoryOpen((v) => !v)}>
+          <Button 
+            variant={rightPanelMode === 'history' ? 'secondary' : 'ghost'} 
+            size="sm" 
+            className="h-9 gap-2" 
+            onClick={() => setRightPanelMode(rightPanelMode === 'history' ? 'none' : 'history')}
+          >
             <Clock size={14} /> Shell History
           </Button>
           <div className="flex items-center gap-2 ml-auto text-sm text-muted-foreground">
@@ -283,6 +551,7 @@ const SnippetsManager: React.FC<SnippetsManagerProps> = ({ snippets, packages, h
                           e.dataTransfer.effectAllowed = 'move';
                           e.dataTransfer.setData('snippet-id', snippet.id);
                         }}
+                        onClick={() => handleEdit(snippet)}
                       >
                         <div className="flex items-center gap-3 h-full">
                           <div className="h-10 w-10 rounded-lg bg-primary/15 text-primary flex items-center justify-center flex-shrink-0">
@@ -330,104 +599,15 @@ const SnippetsManager: React.FC<SnippetsManagerProps> = ({ snippets, packages, h
         </div>
       </div>
 
-      {isHistoryOpen && (
-        <div className="w-72 bg-secondary/70 border border-border/60 rounded-xl p-3 flex-shrink-0 hidden lg:flex flex-col gap-3">
-          <div className="flex items-center justify-between text-sm font-semibold text-muted-foreground">
-            <span>Shell History</span>
-            <ListIcon size={14} className="text-muted-foreground" />
-          </div>
-          <div className="flex-1 overflow-y-auto space-y-2 text-[12px] text-foreground">
-            {historyItems.map((item, idx) => {
-              const labelDraft = historyLabelDraft[item];
-              return (
-                <div key={`${item}-${idx}`} className="group rounded-md bg-background/60 border border-border/50 px-2 py-2 font-mono">
-                  <div className="flex items-center gap-2">
-                    <div className="flex-1 text-[13px] leading-5">
-                      {labelDraft !== undefined ? (
-                        <>
-                          <Input
-                            placeholder="Set a label"
-                            value={labelDraft}
-                            onChange={(e) => setHistoryLabelDraft({ ...historyLabelDraft, [item]: e.target.value })}
-                            className="h-8 mb-1"
-                          />
-                          <div className="text-[11px] text-muted-foreground truncate">{item}</div>
-                        </>
-                      ) : (
-                        <div className="truncate">{item}</div>
-                      )}
-                    </div>
-                    {labelDraft === undefined && (
-                      <Button
-                        size="sm"
-                        variant="default"
-                        className="h-6 px-3 opacity-0 group-hover:opacity-100 transition-opacity"
-                        onClick={() => setHistoryLabelDraft({ ...historyLabelDraft, [item]: '' })}
-                      >
-                        Save
-                      </Button>
-                    )}
-                  </div>
-                  {labelDraft !== undefined && (
-                    <div className="mt-2 flex justify-end gap-2">
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="h-6 px-2"
-                        onClick={() => {
-                          const next = { ...historyLabelDraft };
-                          delete next[item];
-                          setHistoryLabelDraft(next);
-                        }}
-                      >
-                        Cancel
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        className="h-6 px-2.5"
-                        onClick={() => {
-                          if (!labelDraft.trim()) return;
-                          onSave({
-                            id: crypto.randomUUID(),
-                            label: labelDraft.trim(),
-                            command: item,
-                            package: selectedPackage || '',
-                            targets: [],
-                          });
-                          const next = { ...historyLabelDraft };
-                          delete next[item];
-                          setHistoryLabelDraft(next);
-                        }}
-                      >
-                        Done
-                      </Button>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      <Dialog
-        open={isPackageDialogOpen}
-        onOpenChange={(open) => {
-          setIsPackageDialogOpen(open);
-          if (!open) setNewPackageName('');
-        }}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>New Package</DialogTitle>
-            <DialogDescription className="sr-only">Create a package to group your snippets.</DialogDescription>
-          </DialogHeader>
-          <div className="grid gap-3 py-2">
-            <div className="text-xs text-muted-foreground">
-              Parent: {selectedPackage ? selectedPackage : 'Root'}
+      {/* New Package Inline Form */}
+      {isPackageDialogOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <Card className="w-full max-w-sm p-4 space-y-4">
+            <div>
+              <p className="text-sm font-semibold">New Package</p>
+              <p className="text-xs text-muted-foreground">Parent: {selectedPackage || 'Root'}</p>
             </div>
-            <div className="grid gap-2">
+            <div className="space-y-2">
               <Label>Name</Label>
               <Input
                 autoFocus
@@ -436,178 +616,110 @@ const SnippetsManager: React.FC<SnippetsManagerProps> = ({ snippets, packages, h
                 onChange={(e) => setNewPackageName(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && createPackage()}
               />
-              <p className="text-[11px] text-muted-foreground">Use “/” to create nested packages.</p>
+              <p className="text-[11px] text-muted-foreground">Use "/" to create nested packages.</p>
             </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="ghost" onClick={() => setIsPackageDialogOpen(false)}>
+                Cancel
+              </Button>
+              <Button onClick={createPackage}>Create</Button>
+            </div>
+          </Card>
+        </div>
+      )}
+
+      {/* Right Panel */}
+      {renderRightPanel()}
+    </div>
+  );
+};
+
+// History Item Component
+interface HistoryItemProps {
+  entry: ShellHistoryEntry;
+  onSaveAsSnippet: (entry: ShellHistoryEntry, label: string) => void;
+  onCopy: () => void;
+  isCopied: boolean;
+}
+
+const HistoryItem: React.FC<HistoryItemProps> = ({ entry, onSaveAsSnippet, onCopy, isCopied }) => {
+  const [isEditing, setIsEditing] = useState(false);
+  const [label, setLabel] = useState('');
+
+  const handleSave = () => {
+    if (label.trim()) {
+      onSaveAsSnippet(entry, label);
+      setIsEditing(false);
+      setLabel('');
+    }
+  };
+
+  const formatTime = (timestamp: number) => {
+    const date = new Date(timestamp);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+    const diffDays = Math.floor(diffMs / 86400000);
+
+    if (diffMins < 1) return 'just now';
+    if (diffMins < 60) return `${diffMins}m ago`;
+    if (diffHours < 24) return `${diffHours}h ago`;
+    if (diffDays < 7) return `${diffDays}d ago`;
+    return date.toLocaleDateString();
+  };
+
+  return (
+    <div className="group rounded-lg bg-background/60 border border-border/50 p-3">
+      <div className="flex items-start gap-2">
+        <div className="flex-1 min-w-0">
+          <div className="font-mono text-sm truncate">{entry.command}</div>
+          <div className="flex items-center gap-2 mt-1 text-[11px] text-muted-foreground">
+            <span>{entry.hostLabel}</span>
+            <span>•</span>
+            <span>{formatTime(entry.timestamp)}</span>
           </div>
-          <DialogFooter>
-            <Button variant="ghost" onClick={() => setIsPackageDialogOpen(false)}>
-              Cancel
-            </Button>
-            <Button onClick={createPackage}>Create</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{editingSnippet.id ? 'Edit Snippet' : 'New Snippet'}</DialogTitle>
-            <DialogDescription className="sr-only">Create or edit a reusable command snippet.</DialogDescription>
-          </DialogHeader>
-          <div className="grid gap-4 py-2">
-            <div className="grid gap-2">
-              <Label>Label</Label>
-              <Input
-                placeholder="e.g. Update System, Check Disk Usage"
-                value={editingSnippet.label}
-                onChange={e => setEditingSnippet({ ...editingSnippet, label: e.target.value })}
-              />
-            </div>
-
-            <div className="grid gap-2">
-              <Label>Command / Script</Label>
-              <Textarea
-                placeholder="#!/bin/bash..."
-                className="h-48 font-mono text-xs"
-                value={editingSnippet.command}
-                onChange={e => setEditingSnippet({ ...editingSnippet, command: e.target.value })}
-              />
-              <p className="text-[10px] text-muted-foreground">Multi-line commands are supported.</p>
-            </div>
-
-            <div className="grid gap-2">
-              <Label>Package</Label>
-              <Input
-                placeholder="e.g. infra/ops"
-                value={editingSnippet.package || selectedPackage || ''}
-                onChange={(e) => setEditingSnippet({ ...editingSnippet, package: e.target.value })}
-              />
-              <p className="text-[10px] text-muted-foreground">Use “/” to create sub-packages.</p>
-            </div>
-
-            <div className="grid gap-2">
-              <div className="flex items-center justify-between">
-                <Label>Targets</Label>
-                {targetHosts.length > 0 && (
-                  <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={openTargetPicker}>
-                    Edit
-                  </Button>
-                )}
-              </div>
-              {targetHosts.length === 0 ? (
-                <div className="space-y-2">
-                  <div className="grid grid-cols-2 gap-2">
-                    {[1, 2].map((idx) => (
-                      <div
-                        key={idx}
-                        className="flex items-center gap-3 rounded-lg border border-dashed border-border/70 bg-background/40 px-3 py-2 text-muted-foreground"
-                      >
-                        <div className="h-9 w-9 rounded-lg bg-primary/15 text-primary flex items-center justify-center">
-                          <Server size={16} />
-                        </div>
-                        <div className="text-xs leading-4">
-                          <div className="font-semibold">IP or Hostname</div>
-                          <div className="text-[11px] text-muted-foreground">SSH</div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                  <Button size="sm" className="w-full h-9" variant="secondary" onClick={openTargetPicker}>
-                    Add targets
-                  </Button>
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  <div className="space-y-2 max-h-40 overflow-y-auto pr-1">
-                    {targetHosts.map((h) => (
-                      <Card key={h.id} className="flex items-center gap-3 px-3 py-2 bg-background/60 border border-border/70">
-                        <div className="h-9 w-9 rounded-lg bg-primary/15 text-primary flex items-center justify-center">
-                          <Server size={16} />
-                        </div>
-                        <div className="min-w-0">
-                          <div className="text-sm font-semibold truncate">{h.label}</div>
-                          <div className="text-[11px] text-muted-foreground truncate">
-                            {h.username || 'ssh'}@{h.hostname}:{h.port || 22}
-                          </div>
-                        </div>
-                      </Card>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="ghost" onClick={() => setIsDialogOpen(false)}>Cancel</Button>
-            <Button onClick={handleSubmit}>Save Snippet</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={isTargetPickerOpen} onOpenChange={setIsTargetPickerOpen}>
-        <DialogContent className="max-w-xl">
-          <DialogHeader>
-            <DialogTitle>Add targets</DialogTitle>
-            <DialogDescription className="text-sm">
-              Select hosts to run this snippet against. You can add multiple targets.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="max-h-[360px] overflow-y-auto space-y-2">
-            {hosts.map((h) => {
-              const active = tempTargets.includes(h.id);
-              return (
-                <Card
-                  key={h.id}
-                  className={cn(
-                    "flex items-center gap-3 px-3 py-2 cursor-pointer border",
-                    active ? "border-primary bg-primary/10" : "border-border/70 bg-background/70"
-                  )}
-                  onClick={() => {
-                    setTempTargets((prev) =>
-                      prev.includes(h.id) ? prev.filter((id) => id !== h.id) : [...prev, h.id]
-                    );
-                  }}
-                >
-                  <div className="h-9 w-9 rounded-lg bg-primary/15 text-primary flex items-center justify-center">
-                    <Server size={16} />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="text-sm font-semibold truncate">{h.label}</div>
-                    <div className="text-[11px] text-muted-foreground truncate">
-                      {h.username || 'ssh'}@{h.hostname}:{h.port || 22}
-                    </div>
-                  </div>
-                  <div
-                    className={cn(
-                      "h-4 w-4 rounded-full border",
-                      active ? "bg-primary border-primary" : "border-border"
-                    )}
-                  />
-                </Card>
-              );
-            })}
-          </div>
-          <DialogFooter className="flex justify-between sm:justify-between">
+        </div>
+        {!isEditing && (
+          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
             <Button
               variant="ghost"
-              onClick={() => {
-                setTempTargets(targetSelection);
-                setIsTargetPickerOpen(false);
-              }}
+              size="sm"
+              className="h-7 px-2"
+              onClick={onCopy}
             >
-              Cancel
+              {isCopied ? <Check size={14} /> : <Copy size={14} />}
             </Button>
             <Button
-              onClick={() => {
-                setTargetSelection(tempTargets);
-                setIsTargetPickerOpen(false);
-              }}
+              variant="default"
+              size="sm"
+              className="h-7 px-3"
+              onClick={() => setIsEditing(true)}
             >
-              Apply
+              Save
             </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          </div>
+        )}
+      </div>
+      {isEditing && (
+        <div className="mt-3 space-y-2">
+          <Input
+            placeholder="Set a label for this snippet"
+            value={label}
+            onChange={(e) => setLabel(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && handleSave()}
+            autoFocus
+          />
+          <div className="flex justify-end gap-2">
+            <Button variant="ghost" size="sm" onClick={() => { setIsEditing(false); setLabel(''); }}>
+              Cancel
+            </Button>
+            <Button size="sm" onClick={handleSave} disabled={!label.trim()}>
+              Save as Snippet
+            </Button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

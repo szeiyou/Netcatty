@@ -41,6 +41,7 @@ interface TerminalLayerProps {
   onUpdateHostDistro: (hostId: string, distro: string) => void;
   onUpdateHost: (host: Host) => void;
   onAddKnownHost?: (knownHost: KnownHost) => void;
+  onCommandExecuted?: (command: string, hostId: string, hostLabel: string, sessionId: string) => void;
   onCreateWorkspaceFromSessions: (baseSessionId: string, joiningSessionId: string, hint: Exclude<SplitHint, null>) => void;
   onAddSessionToWorkspace: (workspaceId: string, sessionId: string, hint: Exclude<SplitHint, null>) => void;
   onUpdateSplitSizes: (workspaceId: string, splitId: string, sizes: number[]) => void;
@@ -63,6 +64,7 @@ const TerminalLayerInner: React.FC<TerminalLayerProps> = ({
   onUpdateHostDistro,
   onUpdateHost,
   onAddKnownHost,
+  onCommandExecuted,
   onCreateWorkspaceFromSessions,
   onAddSessionToWorkspace,
   onUpdateSplitSizes,
@@ -100,6 +102,10 @@ const TerminalLayerInner: React.FC<TerminalLayerProps> = ({
   const handleAddKnownHost = useCallback((knownHost: KnownHost) => {
     onAddKnownHost?.(knownHost);
   }, [onAddKnownHost]);
+
+  const handleCommandExecuted = useCallback((command: string, hostId: string, hostLabel: string, sessionId: string) => {
+    onCommandExecuted?.(command, hostId, hostLabel, sessionId);
+  }, [onCommandExecuted]);
 
   const [workspaceArea, setWorkspaceArea] = useState<{ width: number; height: number }>({ width: 0, height: 0 });
   const workspaceOuterRef = useRef<HTMLDivElement>(null);
@@ -546,6 +552,7 @@ const TerminalLayerInner: React.FC<TerminalLayerProps> = ({
                 onOsDetected={handleOsDetected}
                 onUpdateHost={handleUpdateHost}
                 onAddKnownHost={handleAddKnownHost}
+                onCommandExecuted={handleCommandExecuted}
                 onExpandToFocus={inActiveWorkspace && !isFocusMode && activeWorkspace ? () => onToggleWorkspaceViewMode?.(activeWorkspace.id) : undefined}
               />
             </div>
