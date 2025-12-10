@@ -1,5 +1,5 @@
 import React, { useMemo, useState, useCallback, useRef, useEffect } from 'react';
-import { Host, Snippet, ShellHistoryEntry } from '../types';
+import { Host, Snippet, ShellHistoryEntry, SSHKey } from '../types';
 import { FileCode, Plus, Trash2, Edit2, Copy, Clock, List as ListIcon, FolderPlus, Grid, Play, ArrowLeft, X, Check, ChevronDown, Loader2 } from 'lucide-react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -23,6 +23,10 @@ interface SnippetsManagerProps {
   onDelete: (id: string) => void;
   onPackagesChange: (packages: string[]) => void;
   onRunSnippet?: (snippet: Snippet, targetHosts: Host[]) => void;
+  // Props for inline host creation
+  availableKeys?: SSHKey[];
+  onSaveHost?: (host: Host) => void;
+  onCreateGroup?: (groupPath: string) => void;
 }
 
 type RightPanelMode = 'none' | 'edit-snippet' | 'history' | 'select-targets';
@@ -38,7 +42,10 @@ const SnippetsManager: React.FC<SnippetsManagerProps> = ({
   onSave,
   onDelete,
   onPackagesChange,
-  onRunSnippet
+  onRunSnippet,
+  availableKeys = [],
+  onSaveHost,
+  onCreateGroup,
 }) => {
   // Panel state
   const [rightPanelMode, setRightPanelMode] = useState<RightPanelMode>('none');
@@ -259,7 +266,9 @@ const SnippetsManager: React.FC<SnippetsManagerProps> = ({
           onSelect={handleTargetSelect}
           onBack={handleTargetPickerBack}
           onContinue={handleTargetPickerBack}
-          onNewHost={undefined}
+          availableKeys={availableKeys}
+          onSaveHost={onSaveHost}
+          onCreateGroup={onCreateGroup}
           title="Add targets"
         />
       );

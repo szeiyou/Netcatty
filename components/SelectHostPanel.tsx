@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { Host } from '../types';
+import { Host, SSHKey } from '../types';
 import {
     ArrowLeft,
     X,
@@ -17,6 +17,7 @@ import { cn } from '../lib/utils';
 import { DistroAvatar } from './DistroAvatar';
 import { SortDropdown, SortMode } from './ui/sort-dropdown';
 import { TagFilterDropdown } from './ui/tag-filter-dropdown';
+import HostDetailsPanel from './HostDetailsPanel';
 
 interface SelectHostPanelProps {
     hosts: Host[];
@@ -27,6 +28,10 @@ interface SelectHostPanelProps {
     onBack: () => void;
     onContinue?: () => void;
     onNewHost?: () => void;
+    // Props for inline host creation
+    availableKeys?: SSHKey[];
+    onSaveHost?: (host: Host) => void;
+    onCreateGroup?: (groupPath: string) => void;
     title?: string;
     subtitle?: string;
     className?: string;
@@ -41,6 +46,9 @@ const SelectHostPanel: React.FC<SelectHostPanelProps> = ({
     onBack,
     onContinue,
     onNewHost,
+    availableKeys = [],
+    onSaveHost,
+    onCreateGroup,
     title = 'Select Host',
     subtitle,
     className,
@@ -49,6 +57,7 @@ const SelectHostPanel: React.FC<SelectHostPanelProps> = ({
     const [currentPath, setCurrentPath] = useState<string | null>(null);
     const [sortMode, setSortMode] = useState<SortMode>('az');
     const [selectedTags, setSelectedTags] = useState<string[]>([]);
+    const [showNewHostPanel, setShowNewHostPanel] = useState(false);
 
     // Get all unique tags from hosts
     const allTags = useMemo(() => {
@@ -203,14 +212,17 @@ const SelectHostPanel: React.FC<SelectHostPanelProps> = ({
 
             {/* Toolbar */}
             <div className="px-4 py-3 flex items-center gap-2 border-b border-border/60 shrink-0">
-                {onNewHost && (
+                {(onNewHost || onSaveHost) && (
                     <Button
                         variant="secondary"
                         size="sm"
                         className="h-8 gap-1.5"
                         onClick={() => {
-                            onBack();
-                            onNewHost();
+                            if (onSaveHost) {
+                                setShowNewHostPanel(true);
+                            } else if (onNewHost) {
+                                onNewHost();
+                            }
                         }}
                     >
                         <Plus size={14} />
@@ -318,7 +330,7 @@ const SelectHostPanel: React.FC<SelectHostPanelProps> = ({
                                                     {host.protocol || 'ssh'}, {host.username}
                                                 </div>
                                             </div>
-                                            {isSelected && !multiSelect && (
+                                            {isSelected && (
                                                 <Check size={16} className="text-primary" />
                                             )}
                                         </div>
@@ -356,6 +368,22 @@ const SelectHostPanel: React.FC<SelectHostPanelProps> = ({
                     {multiSelect ? `Continue (${selectedHostIds.length} selected)` : 'Continue'}
                 </Button>
             </div>
+
+            {/* New Host Panel Overlay */}
+            {showNewHostPanel && onSaveHost && (
+                <HostDetailsPanel
+                    initialData={null}
+                    availableKeys={availableKeys}
+                    groups={customGroups}
+                    allHosts={hosts}
+                    onSave={(host) => {
+                        onSaveHost(host);
+                        setShowNewHostPanel(false);
+                    }}
+                    onCancel={() => setShowNewHostPanel(false)}
+                    onCreateGroup={onCreateGroup}
+                />
+            )}
         </div>
     );
 };

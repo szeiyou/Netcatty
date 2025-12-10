@@ -69,6 +69,8 @@ interface KeychainManagerProps {
     onSaveIdentity?: (identity: Identity) => void;
     onDeleteIdentity?: (id: string) => void;
     onNewHost?: () => void;
+    onSaveHost?: (host: Host) => void;
+    onCreateGroup?: (groupPath: string) => void;
 }
 
 // Helper to generate mock key pair (in real app, use crypto APIs)
@@ -276,6 +278,8 @@ const KeychainManager: React.FC<KeychainManagerProps> = ({
     onSaveIdentity,
     onDeleteIdentity,
     onNewHost,
+    onSaveHost,
+    onCreateGroup,
 }) => {
     const [activeFilter, setActiveFilter] = useState<FilterTab>('key');
     const [search, setSearch] = useState('');
@@ -1919,7 +1923,9 @@ echo $3 >> "$FILE"`);
                             }}
                             onBack={() => setShowHostSelector(false)}
                             onContinue={() => setShowHostSelector(false)}
-                            onNewHost={onNewHost}
+                            availableKeys={keys}
+                            onSaveHost={onSaveHost}
+                            onCreateGroup={onCreateGroup}
                         />
                     )}
                 </AsidePanel>

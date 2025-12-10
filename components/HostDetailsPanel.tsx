@@ -874,11 +874,12 @@ const HostDetailsPanel: React.FC<HostDetailsPanelProps> = ({
           />
           <p className="text-xs text-muted-foreground">This command will be executed automatically after SSH connection is established.</p>
         </Card>
-
-        <Button className="w-full h-12" onClick={handleSubmit} disabled={!form.hostname || !form.label}>
-          Connect
-        </Button>
       </AsidePanelContent>
+      <AsidePanelFooter>
+        <Button className="w-full h-10" onClick={handleSubmit} disabled={!form.hostname || !form.label}>
+          Save
+        </Button>
+      </AsidePanelFooter>
     </AsidePanel>
   );
 };

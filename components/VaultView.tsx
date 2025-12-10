@@ -502,6 +502,9 @@ const VaultViewInner: React.FC<VaultViewProps> = ({
             onSave={s => onUpdateSnippets(snippets.find(ex => ex.id === s.id) ? snippets.map(ex => ex.id === s.id ? s : ex) : [...snippets, s])}
             onDelete={id => onUpdateSnippets(snippets.filter(s => s.id !== id))}
             onRunSnippet={onRunSnippet}
+            availableKeys={keys}
+            onSaveHost={(host) => onUpdateHosts([...hosts, host])}
+            onCreateGroup={(groupPath) => onUpdateCustomGroups(Array.from(new Set([...customGroups, groupPath])))}
           />
         )}
         {currentSection === 'keys' && (
@@ -512,10 +515,19 @@ const VaultViewInner: React.FC<VaultViewProps> = ({
             onSave={k => onUpdateKeys([...keys, k])}
             onUpdate={k => onUpdateKeys(keys.map(existing => existing.id === k.id ? k : existing))}
             onDelete={id => onUpdateKeys(keys.filter(k => k.id !== id))}
-            onNewHost={handleNewHost}
+            onSaveHost={(host) => onUpdateHosts([...hosts, host])}
+            onCreateGroup={(groupPath) => onUpdateCustomGroups(Array.from(new Set([...customGroups, groupPath])))}
           />
         )}
-        {currentSection === 'port' && <PortForwarding hosts={hosts} keys={keys} customGroups={customGroups} onNewHost={handleNewHost} />}
+        {currentSection === 'port' && (
+          <PortForwarding
+            hosts={hosts}
+            keys={keys}
+            customGroups={customGroups}
+            onSaveHost={(host) => onUpdateHosts([...hosts, host])}
+            onCreateGroup={(groupPath) => onUpdateCustomGroups(Array.from(new Set([...customGroups, groupPath])))}
+          />
+        )}
         {/* Always render KnownHostsManager but hide with CSS to prevent unmounting */}
         <div style={{ display: currentSection === 'knownhosts' ? 'contents' : 'none' }}>
           {knownHostsManagerElement}

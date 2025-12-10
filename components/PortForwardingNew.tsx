@@ -58,6 +58,8 @@ interface PortForwardingProps {
     keys: SSHKey[];
     customGroups: string[];
     onNewHost?: () => void;
+    onSaveHost?: (host: Host) => void;
+    onCreateGroup?: (groupPath: string) => void;
 }
 
 const TYPE_LABELS: Record<PortForwardingType, string> = {
@@ -85,7 +87,7 @@ const SORT_LABELS: Record<SortMode, { label: string; icon: React.ReactNode }> = 
     oldest: { label: 'Oldest to newest', icon: <CalendarClock size={14} /> },
 };
 
-const PortForwarding: React.FC<PortForwardingProps> = ({ hosts, keys, customGroups, onNewHost }) => {
+const PortForwarding: React.FC<PortForwardingProps> = ({ hosts, keys, customGroups, onNewHost, onSaveHost, onCreateGroup }) => {
     const {
         rules,
         selectedRuleId,
@@ -1218,10 +1220,9 @@ const PortForwarding: React.FC<PortForwardingProps> = ({ hosts, keys, customGrou
                     }}
                     onBack={() => setShowHostSelector(false)}
                     onContinue={() => setShowHostSelector(false)}
-                    onNewHost={onNewHost ? () => {
-                        setShowHostSelector(false);
-                        onNewHost();
-                    } : undefined}
+                    availableKeys={keys}
+                    onSaveHost={onSaveHost}
+                    onCreateGroup={onCreateGroup}
                     title="Select Host"
                 />
             )}
