@@ -597,13 +597,13 @@ const TerminalComponent: React.FC<TerminalProps> = ({
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      
+
       // Check if this is an authentication failure
       const isAuthError = message.toLowerCase().includes('authentication') ||
-                         message.toLowerCase().includes('auth') ||
-                         message.toLowerCase().includes('password') ||
-                         message.toLowerCase().includes('permission denied');
-      
+        message.toLowerCase().includes('auth') ||
+        message.toLowerCase().includes('password') ||
+        message.toLowerCase().includes('permission denied');
+
       if (isAuthError) {
         // Show auth dialog for password retry
         setError(null); // Clear error so we show auth dialog instead
@@ -618,7 +618,7 @@ const TerminalComponent: React.FC<TerminalProps> = ({
         term.writeln(`\r\n[Failed to start SSH: ${message}]`);
         updateStatus('disconnected');
       }
-      
+
       setChainProgress(null); // Clear chain progress on error
       // Clean up chain progress listener on error
       if (unsubscribeChainProgress) {
