@@ -110,8 +110,8 @@ const ProtocolSelectDialog: React.FC<ProtocolSelectDialogProps> = ({
     }, [protocolOptions]);
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-            <div className="w-[560px] max-w-[90vw] bg-background border border-border/60 rounded-2xl shadow-2xl animate-in fade-in-0 zoom-in-95 duration-200">
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+            <div className="w-[560px] max-w-[90vw] bg-background border border-border rounded-2xl shadow-2xl animate-in fade-in-0 zoom-in-95 duration-200">
                 {/* Header */}
                 <div className="px-6 py-5 border-b border-border/50">
                     <div className="flex items-center gap-3">
