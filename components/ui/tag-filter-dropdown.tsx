@@ -146,7 +146,7 @@ export const TagFilterDropdown: React.FC<TagFilterDropdownProps> = ({
                                 />
                             </div>
                         </div>
-                        
+
                         {hasFilters && (
                             <Button
                                 variant="ghost"
@@ -156,9 +156,9 @@ export const TagFilterDropdown: React.FC<TagFilterDropdownProps> = ({
                                 Clear selection
                             </Button>
                         )}
-                        
+
                         <div className="h-px bg-border my-1" />
-                        
+
                         <ScrollArea className="max-h-[240px]">
                             <div className="space-y-0.5">
                                 {filteredTags.length === 0 ? (
@@ -169,7 +169,7 @@ export const TagFilterDropdown: React.FC<TagFilterDropdownProps> = ({
                                     filteredTags.map(tag => {
                                         const isSelected = selectedTags.includes(tag);
                                         const isEditing = editingTag === tag;
-                                        
+
                                         if (isEditing) {
                                             return (
                                                 <div key={tag} className="flex items-center gap-1 px-2 py-1">
@@ -193,7 +193,7 @@ export const TagFilterDropdown: React.FC<TagFilterDropdownProps> = ({
                                                 </div>
                                             );
                                         }
-                                        
+
                                         return (
                                             <div
                                                 key={tag}
@@ -211,7 +211,7 @@ export const TagFilterDropdown: React.FC<TagFilterDropdownProps> = ({
                                                 />
                                                 <span className="truncate flex-1 text-sm">{tag}</span>
                                                 {isSelected && <Check size={12} className="shrink-0 text-primary" />}
-                                                
+
                                                 {/* Edit & Delete buttons - show on hover when handlers provided */}
                                                 {(canEdit || canDelete) && (
                                                     <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
