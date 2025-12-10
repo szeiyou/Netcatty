@@ -856,14 +856,8 @@ const TerminalComponent: React.FC<TerminalProps> = ({
     }
   };
 
-  const renderControls = (variant: 'default' | 'compact', opts?: { showClose?: boolean }) => {
-    const isCompact = variant === 'compact';
-    const buttonBase = isCompact
-      ? "h-7 px-2 text-[11px] bg-white/5 hover:bg-white/10 text-white shadow-none border-none"
-      : "h-8 px-3 text-xs backdrop-blur-md border border-white/10 shadow-lg";
-    const scriptsButtonBase = isCompact
-      ? "h-7 px-2 text-[11px] bg-white/5 hover:bg-white/10 text-white shadow-none border-none"
-      : "h-8 px-3 text-xs bg-muted/20 hover:bg-muted/80 backdrop-blur-md border border-white/10 text-white shadow-lg";
+  const renderControls = (opts?: { showClose?: boolean }) => {
+    const buttonBase = "h-7 px-2 text-[11px] bg-white/5 hover:bg-white/10 text-white shadow-none border-none";
 
     return (
       <>
@@ -883,12 +877,12 @@ const TerminalComponent: React.FC<TerminalProps> = ({
             <Button
               variant="secondary"
               size="sm"
-              className={scriptsButtonBase}
+              className={buttonBase}
             >
               <Zap size={12} className="mr-2" /> Scripts
             </Button>
           </PopoverTrigger>
-          <PopoverContent className="w-64 p-0" align={isCompact ? "start" : "end"}>
+          <PopoverContent className="w-64 p-0" align="start">
             <div className="px-3 py-2 text-[10px] uppercase text-muted-foreground font-semibold bg-muted/30 border-b">
               Library
             </div>
@@ -945,46 +939,36 @@ const TerminalComponent: React.FC<TerminalProps> = ({
 
   return (
     <div className="relative h-full w-full flex overflow-hidden bg-gradient-to-br from-[#050910] via-[#06101a] to-[#0b1220]">
-      {!inWorkspace && (
-        <div className="absolute top-4 right-6 z-10 flex gap-2">
-          {renderControls('default')}
-        </div>
-      )}
-
-      {inWorkspace && (
-        <div className="absolute left-0 right-0 top-0 z-20 pointer-events-none">
-          <div className="flex items-center gap-1 px-2 py-1 bg-black/55 text-white backdrop-blur-md pointer-events-auto min-w-0">
-            <div className="flex-1 min-w-0 flex items-center gap-1 text-[11px] font-semibold">
-              <span className="truncate max-w-[80px]">{host.label}</span>
-              <span className={cn("inline-block h-2 w-2 rounded-full flex-shrink-0", statusDotTone)} />
-            </div>
-            <div className="flex items-center gap-0.5 flex-shrink-0">
-              {/* Expand to focus mode button - only show in split view mode */}
-              {!isFocusMode && onExpandToFocus && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-6 w-6 p-0 text-white/70 hover:text-white hover:bg-white/10"
-                  onClick={onExpandToFocus}
-                  title="Focus Mode"
-                >
-                  <Maximize2 size={12} />
-                </Button>
-              )}
-              {renderControls('compact', { showClose: true })}
-            </div>
+      {/* Unified statusbar for both single host and workspace modes */}
+      <div className="absolute left-0 right-0 top-0 z-20 pointer-events-none">
+        <div className="flex items-center gap-1 px-2 py-1 bg-black/55 text-white backdrop-blur-md pointer-events-auto min-w-0">
+          <div className="flex-1 min-w-0 flex items-center gap-1 text-[11px] font-semibold">
+            <span className={cn("truncate", inWorkspace ? "max-w-[80px]" : "max-w-[200px]")}>{host.label}</span>
+            <span className={cn("inline-block h-2 w-2 rounded-full flex-shrink-0", statusDotTone)} />
+          </div>
+          <div className="flex items-center gap-0.5 flex-shrink-0">
+            {/* Expand to focus mode button - only show in workspace split view mode */}
+            {inWorkspace && !isFocusMode && onExpandToFocus && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 w-6 p-0 text-white/70 hover:text-white hover:bg-white/10"
+                onClick={onExpandToFocus}
+                title="Focus Mode"
+              >
+                <Maximize2 size={12} />
+              </Button>
+            )}
+            {renderControls({ showClose: inWorkspace })}
           </div>
         </div>
-      )}
+      </div>
 
       <div
-        className={cn(
-          "h-full flex-1 min-w-0 transition-all duration-300 relative overflow-hidden",
-          inWorkspace ? "pt-8" : ""
-        )}
+        className="h-full flex-1 min-w-0 transition-all duration-300 relative overflow-hidden pt-8"
         style={{ backgroundColor: terminalTheme.colors.background }}
       >
-        <div ref={containerRef} className="absolute inset-x-0 bottom-0 top-3" style={inWorkspace ? { top: '40px', paddingLeft: '16px' } : { paddingLeft: '16px' }} />
+        <div ref={containerRef} className="absolute inset-x-0 bottom-0" style={{ top: '40px', paddingLeft: '16px' }} />
         {error && (
           <div className="absolute bottom-3 left-3 text-xs text-destructive bg-background/80 border border-destructive/40 rounded px-3 py-2 shadow-lg">
             {error}
