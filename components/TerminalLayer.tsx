@@ -1,7 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState, useCallback, memo } from 'react';
 import { cn } from '../lib/utils';
 import Terminal from './Terminal';
-import AssistantPanel from './AssistantPanel';
 import { Host, SSHKey, Snippet, TerminalSession, TerminalTheme, Workspace, WorkspaceNode } from '../types';
 import { useActiveTabId } from '../application/state/activeTabStore';
 
@@ -31,7 +30,6 @@ interface TerminalLayerProps {
   workspaces: Workspace[];
   draggingSessionId: string | null;
   terminalTheme: TerminalTheme;
-  showAssistant: boolean;
   onCloseSession: (sessionId: string, e?: React.MouseEvent) => void;
   onUpdateSessionStatus: (sessionId: string, status: TerminalSession['status']) => void;
   onUpdateHostDistro: (hostId: string, distro: string) => void;
@@ -50,7 +48,6 @@ const TerminalLayerInner: React.FC<TerminalLayerProps> = ({
   workspaces,
   draggingSessionId,
   terminalTheme,
-  showAssistant,
   onCloseSession,
   onUpdateSessionStatus,
   onUpdateHostDistro,
@@ -472,11 +469,6 @@ const TerminalLayerInner: React.FC<TerminalLayerProps> = ({
           );
         })}
       </div>
-      {showAssistant && (
-        <div className="absolute right-0 top-0 bottom-0 z-20 shadow-2xl animate-in slide-in-from-right-10">
-          <AssistantPanel />
-        </div>
-      )}
     </div>
   );
 };
@@ -491,7 +483,6 @@ const terminalLayerAreEqual = (prev: TerminalLayerProps, next: TerminalLayerProp
     prev.workspaces === next.workspaces &&
     prev.draggingSessionId === next.draggingSessionId &&
     prev.terminalTheme === next.terminalTheme &&
-    prev.showAssistant === next.showAssistant &&
     prev.onUpdateHost === next.onUpdateHost
   );
 };

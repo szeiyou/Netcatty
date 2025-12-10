@@ -959,7 +959,7 @@ const PortForwarding: React.FC<PortForwardingProps> = ({ hosts, keys, customGrou
                                 <ChevronDown size={14} className={cn("transition-transform", showNewMenu ? "rotate-180" : "")} />
                             </Button>
                         </PopoverTrigger>
-                        <PopoverContent className="w-52 p-1 z-[100]" align="start">
+                        <PopoverContent className="w-52 p-1 z-[9999]" align="start" sideOffset={8}>
                             <Button
                                 variant="ghost"
                                 className="w-full justify-start gap-3 h-10"

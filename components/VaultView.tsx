@@ -4,7 +4,6 @@ import {
   Activity,
   BookMarked,
   ChevronRight,
-  Command,
   FolderPlus,
   Edit2,
   FileCode,
@@ -47,8 +46,6 @@ interface VaultViewProps {
   customGroups: string[];
   knownHosts: KnownHost[];
   sessions: TerminalSession[];
-  showAssistant: boolean;
-  onToggleAssistant: () => void;
   onOpenSettings: () => void;
   onOpenQuickSwitcher: () => void;
   onNewHost: () => void;
@@ -73,8 +70,6 @@ const VaultViewInner: React.FC<VaultViewProps> = ({
   customGroups,
   knownHosts,
   sessions,
-  showAssistant,
-  onToggleAssistant,
   onOpenSettings,
   onOpenQuickSwitcher,
   onNewHost,
@@ -290,9 +285,6 @@ const VaultViewInner: React.FC<VaultViewProps> = ({
         </div>
 
         <div className="mt-auto px-3 pb-4 space-y-2">
-          <Button variant={showAssistant ? "secondary" : "ghost"} className="w-full justify-start gap-3" onClick={onToggleAssistant}>
-            <Command size={16} /> AI Assistant
-          </Button>
           <Button variant="ghost" className="w-full justify-start gap-3" onClick={onOpenSettings}>
             <Settings size={16} /> Settings
           </Button>
@@ -542,8 +534,7 @@ const vaultViewAreEqual = (prev: VaultViewProps, next: VaultViewProps): boolean 
     prev.snippetPackages === next.snippetPackages &&
     prev.customGroups === next.customGroups &&
     prev.knownHosts === next.knownHosts &&
-    prev.sessions === next.sessions &&
-    prev.showAssistant === next.showAssistant
+    prev.sessions === next.sessions
   );
 
   console.log('[VaultView memo] comparing, isEqual:', isEqual);
@@ -557,7 +548,6 @@ const vaultViewAreEqual = (prev: VaultViewProps, next: VaultViewProps): boolean 
       customGroups: prev.customGroups !== next.customGroups,
       knownHosts: prev.knownHosts !== next.knownHosts,
       sessions: prev.sessions !== next.sessions,
-      showAssistant: prev.showAssistant !== next.showAssistant,
     });
   }
 

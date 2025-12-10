@@ -40,7 +40,6 @@ function App() {
   const [isQuickSwitcherOpen, setIsQuickSwitcherOpen] = useState(false);
   const [quickSearch, setQuickSearch] = useState('');
   const [editingHost, setEditingHost] = useState<Host | null>(null);
-  const [showAssistant, setShowAssistant] = useState(false);
 
   const {
     theme,
@@ -147,10 +146,6 @@ function App() {
     setIsSettingsOpen(true);
   }, []);
 
-  const handleToggleAssistant = useCallback(() => {
-    setShowAssistant(prev => !prev);
-  }, []);
-
   const handleNewHost = useCallback(() => {
     setEditingHost(null);
     setIsFormOpen(true);
@@ -190,8 +185,6 @@ function App() {
             customGroups={customGroups}
             knownHosts={knownHosts}
             sessions={sessions}
-            showAssistant={showAssistant}
-            onToggleAssistant={handleToggleAssistant}
             onOpenSettings={handleOpenSettings}
             onOpenQuickSwitcher={handleOpenQuickSwitcher}
             onCreateLocalTerminal={createLocalTerminal}
@@ -219,7 +212,6 @@ function App() {
           workspaces={workspaces}
           draggingSessionId={draggingSessionId}
           terminalTheme={currentTerminalTheme}
-          showAssistant={showAssistant}
           onCloseSession={closeSession}
           onUpdateSessionStatus={updateSessionStatus}
           onUpdateHostDistro={updateHostDistro}
