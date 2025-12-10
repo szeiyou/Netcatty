@@ -481,8 +481,8 @@ const TerminalComponent: React.FC<TerminalProps> = ({
 
     // Prepare jump host chain configuration
     const jumpHosts = resolvedChainHosts.map(jumpHost => {
-      const jumpKey = jumpHost.identityFileId 
-        ? keys.find(k => k.id === jumpHost.identityFileId) 
+      const jumpKey = jumpHost.identityFileId
+        ? keys.find(k => k.id === jumpHost.identityFileId)
         : undefined;
       return {
         hostname: jumpHost.hostname,
@@ -497,7 +497,7 @@ const TerminalComponent: React.FC<TerminalProps> = ({
     // Initialize chain progress if we have jump hosts
     const totalHops = jumpHosts.length + 1; // jump hosts + target
     let unsubscribeChainProgress: (() => void) | undefined;
-    
+
     if (jumpHosts.length > 0) {
       setChainProgress({
         currentHop: 1,
@@ -505,7 +505,7 @@ const TerminalComponent: React.FC<TerminalProps> = ({
         currentHostLabel: jumpHosts[0]?.label || jumpHosts[0]?.hostname || host.hostname,
       });
       setProgressLogs(prev => [...prev, `Starting chain connection (${totalHops} hops)...`]);
-      
+
       // Subscribe to chain progress events from IPC
       if (window.nebula?.onChainProgress) {
         unsubscribeChainProgress = window.nebula.onChainProgress((hop, total, label, status) => {
@@ -685,14 +685,14 @@ const TerminalComponent: React.FC<TerminalProps> = ({
     setTimeout(() => setIsCancelling(false), 600);
     onCloseSession?.(sessionId);
   };
-  
+
   // Handle known host verification - Close (cancel)
   const handleHostKeyClose = () => {
     setNeedsHostKeyVerification(false);
     setPendingHostKeyInfo(null);
     handleCancelConnect();
   };
-  
+
   // Handle known host verification - Continue without adding
   const handleHostKeyContinue = () => {
     setNeedsHostKeyVerification(false);
@@ -703,7 +703,7 @@ const TerminalComponent: React.FC<TerminalProps> = ({
     }
     setPendingHostKeyInfo(null);
   };
-  
+
   // Handle known host verification - Add and continue
   const handleHostKeyAddAndContinue = () => {
     if (pendingHostKeyInfo && onAddKnownHost) {
