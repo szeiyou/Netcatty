@@ -333,7 +333,7 @@ const registerSSHBridge = (win) => {
           host: jump.hostname,
           port: jump.port || 22,
           username: jump.username || 'root',
-          readyTimeout: 30000,
+          readyTimeout: 60000,
           keepaliveInterval: 5000,
           algorithms: {
             cipher: ['aes128-gcm@openssh.com', 'aes256-gcm@openssh.com', 'aes128-ctr', 'aes256-ctr'],
@@ -365,13 +365,20 @@ const registerSSHBridge = (win) => {
         // Connect this hop
         await new Promise((resolve, reject) => {
           conn.on('ready', () => {
+            console.log(`[Chain] Hop ${i + 1}/${totalHops}: ${hopLabel} connected`);
             sendProgress(i + 1, totalHops + 1, hopLabel, 'connected');
             resolve();
           });
           conn.on('error', (err) => {
+            console.error(`[Chain] Hop ${i + 1}/${totalHops}: ${hopLabel} error:`, err.message);
             sendProgress(i + 1, totalHops + 1, hopLabel, 'error');
             reject(err);
           });
+          conn.on('timeout', () => {
+            console.error(`[Chain] Hop ${i + 1}/${totalHops}: ${hopLabel} timeout`);
+            reject(new Error(`Connection timeout to ${hopLabel}`));
+          });
+          console.log(`[Chain] Hop ${i + 1}/${totalHops}: Connecting to ${hopLabel}...`);
           conn.connect(connOpts);
         });
         
@@ -391,13 +398,16 @@ const registerSSHBridge = (win) => {
         }
         
         // Create forward stream to next hop
+        console.log(`[Chain] Hop ${i + 1}/${totalHops}: Forwarding from ${hopLabel} to ${nextHost}:${nextPort}...`);
         sendProgress(i + 1, totalHops + 1, hopLabel, 'forwarding');
         currentSocket = await new Promise((resolve, reject) => {
           conn.forwardOut('127.0.0.1', 0, nextHost, nextPort, (err, stream) => {
             if (err) {
+              console.error(`[Chain] Hop ${i + 1}/${totalHops}: forwardOut from ${hopLabel} to ${nextHost}:${nextPort} FAILED:`, err.message);
               reject(err);
               return;
             }
+            console.log(`[Chain] Hop ${i + 1}/${totalHops}: forwardOut from ${hopLabel} to ${nextHost}:${nextPort} SUCCESS`);
             resolve(stream);
           });
         });
@@ -450,7 +460,7 @@ const registerSSHBridge = (win) => {
         host: options.hostname,
         port: options.port || 22,
         username: options.username || "root",
-        readyTimeout: 30000,
+        readyTimeout: 60000,
         keepaliveInterval: 5000,
         algorithms: {
           cipher: ['aes128-gcm@openssh.com', 'aes256-gcm@openssh.com', 'aes128-ctr', 'aes256-ctr'],
@@ -513,6 +523,7 @@ const registerSSHBridge = (win) => {
 
       return new Promise((resolve, reject) => {
         conn.on("ready", () => {
+          console.log(`[Chain] Final target ${options.hostname} ready`);
           if (hasJumpHosts || hasProxy) {
             sendProgress(totalHops, totalHops, options.hostname, 'connected');
           }
@@ -583,11 +594,39 @@ const registerSSHBridge = (win) => {
         });
 
         conn.on("error", (err) => {
-          console.error("SSH connection error:", err.message);
+          console.error(`[Chain] Final target ${options.hostname} error:`, err.message);
           const contents = BrowserWindow.fromWebContents(event.sender)?.webContents;
+          
+          // Check if this is an authentication failure
+          const isAuthError = err.message?.toLowerCase().includes('authentication') ||
+                             err.message?.toLowerCase().includes('auth') ||
+                             err.message?.toLowerCase().includes('password') ||
+                             err.level === 'client-authentication';
+          
+          if (isAuthError) {
+            // Send auth failed event so frontend can prompt for re-entry
+            contents?.send("nebula:auth:failed", { 
+              sessionId, 
+              error: err.message,
+              hostname: options.hostname 
+            });
+          }
+          
           contents?.send("nebula:exit", { sessionId, exitCode: 1, error: err.message });
           sessions.delete(sessionId);
           // Cleanup chain connections
+          for (const c of chainConnections) {
+            try { c.end(); } catch {}
+          }
+          reject(err);
+        });
+
+        conn.on("timeout", () => {
+          console.error(`[Chain] Final target ${options.hostname} connection timeout`);
+          const err = new Error(`Connection timeout to ${options.hostname}`);
+          const contents = BrowserWindow.fromWebContents(event.sender)?.webContents;
+          contents?.send("nebula:exit", { sessionId, exitCode: 1, error: err.message });
+          sessions.delete(sessionId);
           for (const c of chainConnections) {
             try { c.end(); } catch {}
           }
@@ -604,10 +643,11 @@ const registerSSHBridge = (win) => {
           }
         });
 
+        console.log(`[Chain] Connecting to final target ${options.hostname}...`);
         conn.connect(connectOpts);
       });
     } catch (err) {
-      console.error("SSH chain connection error:", err.message);
+      console.error("[Chain] SSH chain connection error:", err.message);
       const contents = BrowserWindow.fromWebContents(event.sender)?.webContents;
       contents?.send("nebula:exit", { sessionId, exitCode: 1, error: err.message });
       throw err;

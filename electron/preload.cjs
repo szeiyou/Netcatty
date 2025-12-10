@@ -6,6 +6,7 @@ const transferProgressListeners = new Map();
 const transferCompleteListeners = new Map();
 const transferErrorListeners = new Map();
 const chainProgressListeners = new Map();
+const authFailedListeners = new Map();
 
 ipcRenderer.on("nebula:data", (_event, payload) => {
   const set = dataListeners.get(payload.sessionId);
@@ -45,6 +46,20 @@ ipcRenderer.on("nebula:chain:progress", (_event, payload) => {
       console.error("Chain progress callback failed", err);
     }
   });
+});
+
+// Authentication failed events
+ipcRenderer.on("nebula:auth:failed", (_event, payload) => {
+  const set = authFailedListeners.get(payload.sessionId);
+  if (set) {
+    set.forEach((cb) => {
+      try {
+        cb(payload);
+      } catch (err) {
+        console.error("Auth failed callback failed", err);
+      }
+    });
+  }
 });
 
 // Transfer progress events
@@ -189,6 +204,11 @@ const api = {
     if (!exitListeners.has(sessionId)) exitListeners.set(sessionId, new Set());
     exitListeners.get(sessionId).add(cb);
     return () => exitListeners.get(sessionId)?.delete(cb);
+  },
+  onAuthFailed: (sessionId, cb) => {
+    if (!authFailedListeners.has(sessionId)) authFailedListeners.set(sessionId, new Set());
+    authFailedListeners.get(sessionId).add(cb);
+    return () => authFailedListeners.get(sessionId)?.delete(cb);
   },
   openSftp: async (options) => {
     const result = await ipcRenderer.invoke("nebula:sftp:open", options);

@@ -90,6 +90,7 @@ const TerminalComponent: React.FC<TerminalProps> = ({
 
   // Auth dialog state for hosts without credentials
   const [needsAuth, setNeedsAuth] = useState(false);
+  const [authRetryMessage, setAuthRetryMessage] = useState<string | null>(null); // Error message for auth retry
   const [authUsername, setAuthUsername] = useState(host.username || 'root');
   const [authMethod, setAuthMethod] = useState<'password' | 'key'>('password');
   const [authPassword, setAuthPassword] = useState('');
@@ -253,7 +254,8 @@ const TerminalComponent: React.FC<TerminalProps> = ({
 
   // Connection timeline and timeout visuals
   useEffect(() => {
-    if (status !== 'connecting') return;
+    // Don't run timeout timer when showing auth dialog (user is entering credentials)
+    if (status !== 'connecting' || needsAuth) return;
     const scripted = [
       'Resolving host and keys...',
       'Negotiating ciphers...',
@@ -299,7 +301,7 @@ const TerminalComponent: React.FC<TerminalProps> = ({
       clearTimeout(timeout);
       clearInterval(prog);
     };
-  }, [status]);
+  }, [status, needsAuth]);
 
   const safeFit = () => {
     if (!fitAddonRef.current) return;
@@ -595,14 +597,33 @@ const TerminalComponent: React.FC<TerminalProps> = ({
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      setError(message);
+      
+      // Check if this is an authentication failure
+      const isAuthError = message.toLowerCase().includes('authentication') ||
+                         message.toLowerCase().includes('auth') ||
+                         message.toLowerCase().includes('password') ||
+                         message.toLowerCase().includes('permission denied');
+      
+      if (isAuthError) {
+        // Show auth dialog for password retry
+        setError(null); // Clear error so we show auth dialog instead
+        setNeedsAuth(true);
+        setAuthRetryMessage('Authentication failed. Please check your credentials and try again.');
+        setAuthPassword(''); // Clear password for re-entry
+        setProgressLogs(prev => [...prev, 'Authentication failed. Please try again.']);
+        // Stay in connecting state to show auth dialog
+        setStatus('connecting');
+      } else {
+        setError(message);
+        term.writeln(`\r\n[Failed to start SSH: ${message}]`);
+        updateStatus('disconnected');
+      }
+      
       setChainProgress(null); // Clear chain progress on error
       // Clean up chain progress listener on error
       if (unsubscribeChainProgress) {
         unsubscribeChainProgress();
       }
-      term.writeln(`\r\n[Failed to start SSH: ${message}]`);
-      updateStatus('disconnected');
     }
 
     // Trigger distro detection once connected (hidden exec, no terminal output)
@@ -675,6 +696,7 @@ const TerminalComponent: React.FC<TerminalProps> = ({
   const handleCancelConnect = () => {
     setIsCancelling(true);
     setNeedsAuth(false);
+    setAuthRetryMessage(null); // Clear auth retry message
     setNeedsHostKeyVerification(false);
     setPendingHostKeyInfo(null);
     setError('Connection cancelled');
@@ -730,6 +752,7 @@ const TerminalComponent: React.FC<TerminalProps> = ({
     if (!termRef.current) return;
     cleanupSession();
     setNeedsAuth(false);
+    setAuthRetryMessage(null); // Clear auth retry message
     pendingAuthRef.current = null;
     setStatus('connecting');
     setError(null);
@@ -773,6 +796,7 @@ const TerminalComponent: React.FC<TerminalProps> = ({
 
     // Hide auth dialog and start connection
     setNeedsAuth(false);
+    setAuthRetryMessage(null); // Clear any previous auth error message
     setStatus('connecting');
     setProgressLogs(['Authenticating with provided credentials...']);
 
@@ -1035,6 +1059,14 @@ const TerminalComponent: React.FC<TerminalProps> = ({
                     </button>
                   </div>
 
+                  {/* Auth retry error message */}
+                  {authRetryMessage && (
+                    <div className="p-3 rounded-lg bg-destructive/10 border border-destructive/20 text-destructive text-sm flex items-center gap-2">
+                      <AlertCircle size={16} />
+                      {authRetryMessage}
+                    </div>
+                  )}
+
                   <div className="space-y-3">
                     <div className="space-y-2">
                       <Label htmlFor="auth-username">Username</Label>
@@ -1056,7 +1088,8 @@ const TerminalComponent: React.FC<TerminalProps> = ({
                             value={authPassword}
                             onChange={(e) => setAuthPassword(e.target.value)}
                             placeholder="Enter password"
-                            className="pr-10"
+                            className={cn("pr-10", authRetryMessage && "border-destructive/50")}
+                            autoFocus={!!authRetryMessage}
                             onKeyDown={(e) => {
                               if (e.key === 'Enter' && authUsername.trim() && authPassword.trim()) {
                                 handleAuthSubmit();

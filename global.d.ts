@@ -119,6 +119,10 @@ interface NebulaBridge {
     sessionId: string,
     cb: (evt: { exitCode?: number; signal?: number }) => void
   ): () => void;
+  onAuthFailed?(
+    sessionId: string,
+    cb: (evt: { sessionId: string; error: string; hostname: string }) => void
+  ): () => void;
   
   // SFTP operations
   openSftp(options: NebulaSSHOptions): Promise<string>;
