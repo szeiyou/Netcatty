@@ -215,7 +215,7 @@ const TerminalComponent: React.FC<TerminalProps> = ({
           const id = sessionRef.current;
           if (id && window.nebula?.writeToSession) {
             window.nebula.writeToSession(id, data);
-            
+
             // Track command input for shell history
             if (status === 'connected' && onCommandExecuted) {
               // Handle control characters

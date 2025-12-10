@@ -28,16 +28,16 @@ type RightPanelMode = 'none' | 'edit-snippet' | 'history' | 'select-targets';
 
 const HISTORY_PAGE_SIZE = 30;
 
-const SnippetsManager: React.FC<SnippetsManagerProps> = ({ 
-  snippets, 
-  packages, 
-  hosts, 
+const SnippetsManager: React.FC<SnippetsManagerProps> = ({
+  snippets,
+  packages,
+  hosts,
   customGroups = [],
   shellHistory,
-  onSave, 
-  onDelete, 
-  onPackagesChange, 
-  onRunSnippet 
+  onSave,
+  onDelete,
+  onPackagesChange,
+  onRunSnippet
 }) => {
   // Panel state
   const [rightPanelMode, setRightPanelMode] = useState<RightPanelMode>('none');
@@ -63,11 +63,11 @@ const SnippetsManager: React.FC<SnippetsManagerProps> = ({
       setEditingSnippet(snippet);
       setTargetSelection(snippet.targets || []);
     } else {
-      setEditingSnippet({ 
-        label: '', 
-        command: '', 
-        package: selectedPackage || '', 
-        targets: [] 
+      setEditingSnippet({
+        label: '',
+        command: '',
+        package: selectedPackage || '',
+        targets: []
       });
       setTargetSelection([]);
     }
@@ -278,11 +278,11 @@ const SnippetsManager: React.FC<SnippetsManagerProps> = ({
               <p className="text-xs text-muted-foreground">Personal vault</p>
             </div>
             <div className="flex items-center gap-1">
-              <Button 
-                variant="ghost" 
-                size="icon" 
-                className="h-8 w-8" 
-                onClick={handleSubmit} 
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8"
+                onClick={handleSubmit}
                 disabled={!editingSnippet.label || !editingSnippet.command}
                 aria-label="Save"
               >
@@ -338,11 +338,11 @@ const SnippetsManager: React.FC<SnippetsManagerProps> = ({
                     Edit
                   </Button>
                 </div>
-                
+
                 {targetHosts.length === 0 ? (
-                  <Button 
-                    variant="secondary" 
-                    className="w-full h-10" 
+                  <Button
+                    variant="secondary"
+                    className="w-full h-10"
                     onClick={openTargetPicker}
                   >
                     Add targets
@@ -368,8 +368,8 @@ const SnippetsManager: React.FC<SnippetsManagerProps> = ({
 
           {/* Footer */}
           <div className="px-4 py-3 border-t border-border/60">
-            <Button 
-              className="w-full" 
+            <Button
+              className="w-full"
               onClick={handleSubmit}
               disabled={!editingSnippet.label || !editingSnippet.command}
             >
@@ -397,7 +397,7 @@ const SnippetsManager: React.FC<SnippetsManagerProps> = ({
           </div>
 
           {/* History List */}
-          <div 
+          <div
             className="flex-1 overflow-y-auto p-3 space-y-2"
             onScroll={handleHistoryScroll}
             ref={historyScrollRef}
@@ -411,9 +411,9 @@ const SnippetsManager: React.FC<SnippetsManagerProps> = ({
             ) : (
               <>
                 {visibleHistory.map((entry) => (
-                  <HistoryItem 
-                    key={entry.id} 
-                    entry={entry} 
+                  <HistoryItem
+                    key={entry.id}
+                    entry={entry}
                     onSaveAsSnippet={saveHistoryAsSnippet}
                     onCopy={() => handleCopy(entry.id, entry.command)}
                     isCopied={copiedId === entry.id}
@@ -458,10 +458,10 @@ const SnippetsManager: React.FC<SnippetsManagerProps> = ({
           >
             <FolderPlus size={14} className="mr-1" /> New Package
           </Button>
-          <Button 
-            variant={rightPanelMode === 'history' ? 'secondary' : 'ghost'} 
-            size="sm" 
-            className="h-9 gap-2" 
+          <Button
+            variant={rightPanelMode === 'history' ? 'secondary' : 'ghost'}
+            size="sm"
+            className="h-9 gap-2"
             onClick={() => setRightPanelMode(rightPanelMode === 'history' ? 'none' : 'history')}
           >
             <Clock size={14} /> Shell History

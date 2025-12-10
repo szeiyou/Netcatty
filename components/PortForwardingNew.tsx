@@ -1245,9 +1245,9 @@ const PortForwarding: React.FC<PortForwardingProps> = ({ hosts, keys, customGrou
                         hosts={hosts}
                         customGroups={customGroups}
                         selectedHostIds={
-                            showEditPanel 
+                            showEditPanel
                                 ? (editDraft.hostId ? [editDraft.hostId] : [])
-                                : showNewForm 
+                                : showNewForm
                                     ? (newFormDraft.hostId ? [newFormDraft.hostId] : [])
                                     : (draftRule.hostId ? [draftRule.hostId] : [])
                         }
