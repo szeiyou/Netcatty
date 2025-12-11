@@ -175,9 +175,8 @@ const QuickSwitcherInner: React.FC<QuickSwitcherProps> = ({
     return (
       <div
         key={host.id}
-        className={`flex items-center justify-between px-4 py-2.5 cursor-pointer transition-colors ${
-          isSelected ? "bg-primary/15" : "hover:bg-muted/50"
-        }`}
+        className={`flex items-center justify-between px-4 py-2.5 cursor-pointer transition-colors ${isSelected ? "bg-primary/15" : "hover:bg-muted/50"
+          }`}
         onClick={() => {
           onSelect(host);
         }}
@@ -315,9 +314,8 @@ const QuickSwitcherInner: React.FC<QuickSwitcherProps> = ({
                   return (
                     <div
                       key={tabId}
-                      className={`flex items-center gap-3 px-4 py-2.5 cursor-pointer transition-colors ${
-                        isSelected ? "bg-primary/15" : "hover:bg-muted/50"
-                      }`}
+                      className={`flex items-center gap-3 px-4 py-2.5 cursor-pointer transition-colors ${isSelected ? "bg-primary/15" : "hover:bg-muted/50"
+                        }`}
                       onClick={() => {
                         onSelectTab(tabId);
                         onClose();
@@ -340,9 +338,8 @@ const QuickSwitcherInner: React.FC<QuickSwitcherProps> = ({
                   return (
                     <div
                       key={workspace.id}
-                      className={`flex items-center gap-3 px-4 py-2.5 cursor-pointer transition-colors ${
-                        isSelected ? "bg-primary/15" : "hover:bg-muted/50"
-                      }`}
+                      className={`flex items-center gap-3 px-4 py-2.5 cursor-pointer transition-colors ${isSelected ? "bg-primary/15" : "hover:bg-muted/50"
+                        }`}
                       onClick={() => {
                         onSelectTab(workspace.id);
                         onClose();
@@ -367,9 +364,8 @@ const QuickSwitcherInner: React.FC<QuickSwitcherProps> = ({
                   return (
                     <div
                       key={session.id}
-                      className={`flex items-center gap-3 px-4 py-2.5 cursor-pointer transition-colors ${
-                        isSelected ? "bg-primary/15" : "hover:bg-muted/50"
-                      }`}
+                      className={`flex items-center gap-3 px-4 py-2.5 cursor-pointer transition-colors ${isSelected ? "bg-primary/15" : "hover:bg-muted/50"
+                        }`}
                       onClick={() => {
                         onSelectTab(session.id);
                         onClose();
@@ -398,11 +394,10 @@ const QuickSwitcherInner: React.FC<QuickSwitcherProps> = ({
                 {/* Local Terminal */}
                 {onCreateLocalTerminal && (
                   <div
-                    className={`flex items-center gap-3 px-4 py-2.5 cursor-pointer transition-colors ${
-                      getItemIndex("action", "local-terminal") === selectedIndex
+                    className={`flex items-center gap-3 px-4 py-2.5 cursor-pointer transition-colors ${getItemIndex("action", "local-terminal") === selectedIndex
                         ? "bg-primary/15"
                         : "hover:bg-muted/50"
-                    }`}
+                      }`}
                     onClick={() => {
                       onCreateLocalTerminal();
                       onClose();
