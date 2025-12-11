@@ -478,7 +478,8 @@ const SnippetsManager: React.FC<SnippetsManagerProps> = ({
   return (
     <div className="h-full flex gap-3 relative">
       <div className="flex-1 flex flex-col min-h-0">
-        <div className="flex items-center gap-2 px-4 pt-4 pb-2">
+        <header className="border-b border-border/50 bg-secondary/80 backdrop-blur">
+          <div className="h-14 px-4 py-2 flex items-center gap-2">
           {/* Search box */}
           <div className="relative w-64">
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
@@ -543,8 +544,9 @@ const SnippetsManager: React.FC<SnippetsManagerProps> = ({
               className="h-10 w-10"
             />
           </div>
-        </div>
-        <div className="flex items-center gap-2 text-sm font-semibold px-4">
+          </div>
+        </header>
+        <div className="flex items-center gap-2 text-sm font-semibold px-4 py-2">
           <button className="text-primary hover:underline" onClick={() => setSelectedPackage(null)}>All packages</button>
           {breadcrumb.map((b) => (
             <span key={b.path} className="flex items-center gap-2">

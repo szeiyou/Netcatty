@@ -115,9 +115,8 @@ export function Combobox({
             <PopoverTrigger asChild disabled={disabled}>
                 <div
                     className={cn(
-                        "flex h-10 w-full items-center rounded-md border border-input bg-background text-sm ring-offset-background",
+                        "flex h-10 w-full items-center rounded-md border border-input bg-background text-sm",
                         "hover:bg-secondary/50 transition-colors",
-                        "focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2",
                         "disabled:cursor-not-allowed disabled:opacity-50",
                         triggerClassName
                     )}
@@ -310,9 +309,8 @@ export function MultiCombobox({
             <PopoverTrigger asChild disabled={disabled}>
                 <div
                     className={cn(
-                        "flex min-h-10 w-full items-center gap-1 rounded-md border border-input bg-background px-2 py-1.5 text-sm ring-offset-background",
+                        "flex min-h-10 w-full items-center gap-1 rounded-md border border-input bg-background px-2 py-1.5 text-sm",
                         "hover:bg-secondary/50 transition-colors cursor-text",
-                        "focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2",
                         "disabled:cursor-not-allowed disabled:opacity-50",
                         triggerClassName
                     )}
