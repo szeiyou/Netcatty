@@ -51,8 +51,12 @@ function App() {
     terminalThemeId,
     setTerminalThemeId,
     currentTerminalTheme,
+    terminalFontFamilyId,
+    setTerminalFontFamilyId,
     terminalFontSize,
     setTerminalFontSize,
+    terminalSettings,
+    updateTerminalSetting,
   } = useSettingsState();
 
   const {
@@ -337,8 +341,12 @@ function App() {
         onSyncConfigChange={updateSyncConfig}
         terminalThemeId={terminalThemeId}
         onTerminalThemeChange={setTerminalThemeId}
+        terminalFontFamilyId={terminalFontFamilyId}
+        onTerminalFontFamilyChange={setTerminalFontFamilyId}
         terminalFontSize={terminalFontSize}
         onTerminalFontSizeChange={setTerminalFontSize}
+        terminalSettings={terminalSettings}
+        onTerminalSettingsChange={updateTerminalSetting}
       />
 
       {/* Protocol Select Dialog for QuickSwitcher */}

@@ -1,5 +1,5 @@
 ﻿import { useCallback,useEffect,useMemo,useState } from 'react';
-import { SyncConfig } from '../../domain/models';
+import { SyncConfig, TerminalSettings, DEFAULT_TERMINAL_SETTINGS } from '../../domain/models';
 import {
 STORAGE_KEY_COLOR,
 STORAGE_KEY_SYNC,
@@ -7,6 +7,7 @@ STORAGE_KEY_TERM_THEME,
 STORAGE_KEY_THEME,
 STORAGE_KEY_TERM_FONT_FAMILY,
 STORAGE_KEY_TERM_FONT_SIZE,
+STORAGE_KEY_TERM_SETTINGS,
 } from '../../infrastructure/config/storageKeys';
 import { TERMINAL_THEMES } from '../../infrastructure/config/terminalThemes';
 import { TERMINAL_FONTS, DEFAULT_FONT_SIZE } from '../../infrastructure/config/fonts';
@@ -14,7 +15,7 @@ import { localStorageAdapter } from '../../infrastructure/persistence/localStora
 
 const DEFAULT_COLOR = '221.2 83.2% 53.3%';
 const DEFAULT_THEME: 'light' | 'dark' = 'light';
-const DEFAULT_TERMINAL_THEME = 'termius-dark';
+const DEFAULT_TERMINAL_THEME = 'netcatty-dark';
 const DEFAULT_FONT_FAMILY = 'menlo';
 
 const applyThemeTokens = (theme: 'light' | 'dark', primaryColor: string) => {
@@ -41,6 +42,10 @@ export const useSettingsState = () => {
   const [terminalThemeId, setTerminalThemeId] = useState<string>(() => localStorageAdapter.readString(STORAGE_KEY_TERM_THEME) || DEFAULT_TERMINAL_THEME);
   const [terminalFontFamilyId, setTerminalFontFamilyId] = useState<string>(() => localStorageAdapter.readString(STORAGE_KEY_TERM_FONT_FAMILY) || DEFAULT_FONT_FAMILY);
   const [terminalFontSize, setTerminalFontSize] = useState<number>(() => localStorageAdapter.readNumber(STORAGE_KEY_TERM_FONT_SIZE) || DEFAULT_FONT_SIZE);
+  const [terminalSettings, setTerminalSettings] = useState<TerminalSettings>(() => {
+    const stored = localStorageAdapter.read<TerminalSettings>(STORAGE_KEY_TERM_SETTINGS);
+    return stored ? { ...DEFAULT_TERMINAL_SETTINGS, ...stored } : DEFAULT_TERMINAL_SETTINGS;
+  });
 
   useEffect(() => {
     applyThemeTokens(theme, primaryColor);
@@ -60,6 +65,10 @@ export const useSettingsState = () => {
     localStorageAdapter.writeNumber(STORAGE_KEY_TERM_FONT_SIZE, terminalFontSize);
   }, [terminalFontSize]);
 
+  useEffect(() => {
+    localStorageAdapter.write(STORAGE_KEY_TERM_SETTINGS, terminalSettings);
+  }, [terminalSettings]);
+
   const updateSyncConfig = useCallback((config: SyncConfig | null) => {
     setSyncConfig(config);
     localStorageAdapter.write(STORAGE_KEY_SYNC, config);
@@ -74,6 +83,13 @@ export const useSettingsState = () => {
     () => TERMINAL_FONTS.find(f => f.id === terminalFontFamilyId) || TERMINAL_FONTS[0],
     [terminalFontFamilyId]
   );
+
+  const updateTerminalSetting = useCallback(<K extends keyof TerminalSettings>(
+    key: K,
+    value: TerminalSettings[K]
+  ) => {
+    setTerminalSettings(prev => ({ ...prev, [key]: value }));
+  }, []);
 
   return {
     theme,
@@ -90,5 +106,8 @@ export const useSettingsState = () => {
     currentTerminalFont,
     terminalFontSize,
     setTerminalFontSize,
+    terminalSettings,
+    setTerminalSettings,
+    updateTerminalSetting,
   };
 };

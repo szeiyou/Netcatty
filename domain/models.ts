@@ -139,6 +139,60 @@ export interface SyncConfig {
   lastSync?: number;
 }
 
+// Terminal appearance settings
+export type CursorShape = 'block' | 'bar' | 'underline';
+export type RightClickBehavior = 'context-menu' | 'paste' | 'select-word';
+export type LinkModifier = 'none' | 'ctrl' | 'alt' | 'meta';
+
+export interface TerminalSettings {
+  // Rendering
+  scrollback: number; // Number of lines kept in buffer
+  drawBoldInBrightColors: boolean; // Draw bold text in bright colors
+
+  // Font
+  fontLigatures: boolean; // Enable font ligatures
+  fontWeight: number; // Normal font weight (100-900)
+  fontWeightBold: number; // Bold font weight (100-900)
+  linePadding: number; // Additional space between lines
+  fallbackFont: string; // Fallback font family
+
+  // Cursor
+  cursorShape: CursorShape;
+  cursorBlink: boolean;
+
+  // Accessibility
+  minimumContrastRatio: number; // Minimum contrast ratio (1-21)
+
+  // Keyboard
+  altAsMeta: boolean; // Use ⌥ as the Meta key
+  scrollOnInput: boolean; // Scroll terminal to bottom on input
+
+  // Mouse
+  rightClickBehavior: RightClickBehavior;
+  middleClickPaste: boolean; // Paste on middle-click
+  wordSeparators: string; // Characters for word selection
+  linkModifier: LinkModifier; // Modifier key to click links
+}
+
+export const DEFAULT_TERMINAL_SETTINGS: TerminalSettings = {
+  scrollback: 10000,
+  drawBoldInBrightColors: true,
+  fontLigatures: true,
+  fontWeight: 400,
+  fontWeightBold: 700,
+  linePadding: 0,
+  fallbackFont: '',
+  cursorShape: 'block',
+  cursorBlink: true,
+  minimumContrastRatio: 1,
+  altAsMeta: false,
+  scrollOnInput: true,
+  rightClickBehavior: 'context-menu',
+  middleClickPaste: true,
+  wordSeparators: ' ()[]{}\'"',
+  linkModifier: 'none',
+};
+
 export interface TerminalTheme {
   id: string;
   name: string;

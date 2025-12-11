@@ -4,7 +4,7 @@ import { SerializeAddon } from "@xterm/addon-serialize";
 import { WebglAddon } from "@xterm/addon-webgl";
 import "@xterm/xterm/css/xterm.css";
 import { Maximize2 } from "lucide-react";
-import React, { memo, useEffect, useRef, useState } from "react";
+import React, { memo, useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "../lib/utils";
 import {
   Host,
@@ -138,6 +138,15 @@ const TerminalComponent: React.FC<TerminalProps> = ({
   const [pendingHostKeyInfo, setPendingHostKeyInfo] =
     useState<HostKeyInfo | null>(null);
   const pendingConnectionRef = useRef<(() => void) | null>(null);
+
+  // Calculate effective theme: host-specific theme takes priority over global
+  const effectiveTheme = useMemo(() => {
+    if (host.theme) {
+      const hostTheme = TERMINAL_THEMES.find(t => t.id === host.theme);
+      if (hostTheme) return hostTheme;
+    }
+    return terminalTheme;
+  }, [host.theme, terminalTheme]);
 
   // Resolve host chain to actual host objects
   const resolvedChainHosts =
@@ -1356,12 +1365,12 @@ const TerminalComponent: React.FC<TerminalProps> = ({
 
       <div
         className="h-full flex-1 min-w-0 transition-all duration-300 relative overflow-hidden pt-8"
-        style={{ backgroundColor: terminalTheme.colors.background }}
+        style={{ backgroundColor: effectiveTheme.colors.background }}
       >
         <div
           ref={containerRef}
           className="absolute inset-x-0 bottom-0"
-          style={{ top: "35px" }}
+          style={{ top: "40px", paddingLeft: 6, backgroundColor: effectiveTheme.colors.background }}
         />
         {error && (
           <div className="absolute bottom-3 left-3 text-xs text-destructive bg-background/80 border border-destructive/40 rounded px-3 py-2 shadow-lg">
