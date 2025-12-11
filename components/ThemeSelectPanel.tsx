@@ -1,11 +1,11 @@
 import { Users } from 'lucide-react';
-import React,{ useMemo,useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { TERMINAL_THEMES } from '../infrastructure/config/terminalThemes';
 import { cn } from '../lib/utils';
 import { TerminalTheme } from '../types';
 import {
-AsidePanel,
-AsidePanelContent,
+    AsidePanel,
+    AsidePanelContent,
 } from './ui/aside-panel';
 import { ScrollArea } from './ui/scroll-area';
 

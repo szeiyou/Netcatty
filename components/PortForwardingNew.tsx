@@ -722,9 +722,9 @@ const PortForwarding: React.FC<PortForwardingProps> = ({
           onBack={
             getPrevStep()
               ? () => {
-                  const prev = getPrevStep();
-                  if (prev) setWizardStep(prev);
-                }
+                const prev = getPrevStep();
+                if (prev) setWizardStep(prev);
+              }
               : undefined
           }
         >

@@ -96,8 +96,8 @@ interface SftpPaneViewProps {
   ) => void;
   onEditPermissions?: (file: SftpFileEntry) => void;
   draggedFiles:
-    | { name: string; isDirectory: boolean; side: "left" | "right" }[]
-    | null;
+  | { name: string; isDirectory: boolean; side: "left" | "right" }[]
+  | null;
   onDragStart: (
     files: { name: string; isDirectory: boolean }[],
     side: "left" | "right",
@@ -450,12 +450,12 @@ const SftpPaneViewInner: React.FC<SftpPaneViewProps> = ({
     const selectedNames = Array.from(pane.selectedFiles);
     const files = selectedNames.includes(entry.name)
       ? sortedDisplayFiles
-          .filter((f) => selectedNames.includes(f.name))
-          .map((f) => ({
-            name: f.name,
-            isDirectory: f.type === "directory",
-            side,
-          }))
+        .filter((f) => selectedNames.includes(f.name))
+        .map((f) => ({
+          name: f.name,
+          isDirectory: f.type === "directory",
+          side,
+        }))
       : [{ name: entry.name, isDirectory: entry.type === "directory", side }];
     e.dataTransfer.effectAllowed = "copy";
     e.dataTransfer.setData("text/plain", files.map((f) => f.name).join("\n"));
@@ -1219,7 +1219,7 @@ const SftpViewInner: React.FC<SftpViewProps> = ({ hosts, keys }) => {
     [sftp.renameFile],
   );
   /* eslint-enable react-hooks/exhaustive-deps */
-  
+
   const handleEditPermissionsLeft = useCallback(
     (file: SftpFileEntry) => setPermissionsState({ file, side: "left" }),
     [],
@@ -1247,11 +1247,11 @@ const SftpViewInner: React.FC<SftpViewProps> = ({ hosts, keys }) => {
   const containerStyle: React.CSSProperties = isActive
     ? {}
     : {
-        visibility: "hidden",
-        pointerEvents: "none",
-        position: "absolute",
-        zIndex: -1,
-      };
+      visibility: "hidden",
+      pointerEvents: "none",
+      position: "absolute",
+      zIndex: -1,
+    };
 
   return (
     <div
@@ -1332,15 +1332,15 @@ const SftpViewInner: React.FC<SftpViewProps> = ({ hosts, keys }) => {
             {sftp.transfers.some(
               (t) => t.status === "completed" || t.status === "cancelled",
             ) && (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-6 px-2 text-xs"
-                onClick={sftp.clearCompletedTransfers}
-              >
-                Clear completed
-              </Button>
-            )}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 px-2 text-xs"
+                  onClick={sftp.clearCompletedTransfers}
+                >
+                  Clear completed
+                </Button>
+              )}
           </div>
           <div className="max-h-40 overflow-auto">
             {visibleTransfers.map((task) => (

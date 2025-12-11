@@ -406,12 +406,12 @@ const SFTPModal: React.FC<SFTPModalProps> = ({
       prev.map((t) =>
         t.id === taskId
           ? {
-              ...t,
-              status: "uploading" as const,
-              totalBytes: file.size,
-              startTime,
-              speed: 0,
-            }
+            ...t,
+            status: "uploading" as const,
+            totalBytes: file.size,
+            startTime,
+            speed: 0,
+          }
           : t,
       ),
     );
@@ -436,11 +436,11 @@ const SFTPModal: React.FC<SFTPModalProps> = ({
               prev.map((t) =>
                 t.id === taskId && t.status === "uploading"
                   ? {
-                      ...t,
-                      transferredBytes: transferred,
-                      progress,
-                      speed,
-                    }
+                    ...t,
+                    transferredBytes: transferred,
+                    progress,
+                    speed,
+                  }
                   : t,
               ),
             );
@@ -453,12 +453,12 @@ const SFTPModal: React.FC<SFTPModalProps> = ({
               prev.map((t) =>
                 t.id === taskId
                   ? {
-                      ...t,
-                      status: "completed" as const,
-                      progress: 100,
-                      transferredBytes: file.size,
-                      speed: finalSpeed,
-                    }
+                    ...t,
+                    status: "completed" as const,
+                    progress: 100,
+                    transferredBytes: file.size,
+                    speed: finalSpeed,
+                  }
                   : t,
               ),
             );
@@ -469,10 +469,10 @@ const SFTPModal: React.FC<SFTPModalProps> = ({
               prev.map((t) =>
                 t.id === taskId
                   ? {
-                      ...t,
-                      status: "failed" as const,
-                      error,
-                    }
+                    ...t,
+                    status: "failed" as const,
+                    error,
+                  }
                   : t,
               ),
             );
@@ -497,12 +497,12 @@ const SFTPModal: React.FC<SFTPModalProps> = ({
         prev.map((t) =>
           t.id === taskId
             ? {
-                ...t,
-                status: "completed" as const,
-                progress: 100,
-                transferredBytes: file.size,
-                speed: finalSpeed,
-              }
+              ...t,
+              status: "completed" as const,
+              progress: 100,
+              transferredBytes: file.size,
+              speed: finalSpeed,
+            }
             : t,
         ),
       );
@@ -512,10 +512,10 @@ const SFTPModal: React.FC<SFTPModalProps> = ({
         prev.map((t) =>
           t.id === taskId
             ? {
-                ...t,
-                status: "failed" as const,
-                error: e instanceof Error ? e.message : "Upload failed",
-              }
+              ...t,
+              status: "failed" as const,
+              error: e instanceof Error ? e.message : "Upload failed",
+            }
             : t,
         ),
       );
@@ -1261,30 +1261,30 @@ const SFTPModal: React.FC<SFTPModalProps> = ({
                       </div>
                       {(task.status === "uploading" ||
                         task.status === "pending") && (
-                        <div className="mt-1.5 flex items-center gap-2">
-                          <div className="flex-1 h-1.5 bg-secondary rounded-full overflow-hidden">
-                            <div
-                              className={cn(
-                                "h-full rounded-full transition-all duration-150",
-                                task.status === "pending"
-                                  ? "bg-muted-foreground/50 animate-pulse w-full"
-                                  : "bg-primary",
-                              )}
-                              style={{
-                                width:
-                                  task.status === "uploading"
-                                    ? `${task.progress}%`
-                                    : undefined,
-                              }}
-                            />
+                          <div className="mt-1.5 flex items-center gap-2">
+                            <div className="flex-1 h-1.5 bg-secondary rounded-full overflow-hidden">
+                              <div
+                                className={cn(
+                                  "h-full rounded-full transition-all duration-150",
+                                  task.status === "pending"
+                                    ? "bg-muted-foreground/50 animate-pulse w-full"
+                                    : "bg-primary",
+                                )}
+                                style={{
+                                  width:
+                                    task.status === "uploading"
+                                      ? `${task.progress}%`
+                                      : undefined,
+                                }}
+                              />
+                            </div>
+                            <span className="text-[10px] text-muted-foreground font-mono shrink-0 w-8 text-right">
+                              {task.status === "uploading"
+                                ? `${task.progress}%`
+                                : "..."}
+                            </span>
                           </div>
-                          <span className="text-[10px] text-muted-foreground font-mono shrink-0 w-8 text-right">
-                            {task.status === "uploading"
-                              ? `${task.progress}%`
-                              : "..."}
-                          </span>
-                        </div>
-                      )}
+                        )}
                       {task.status === "uploading" && task.totalBytes > 0 && (
                         <div className="text-[10px] text-muted-foreground mt-0.5 font-mono">
                           {formatBytes(task.transferredBytes)} /{" "}

@@ -5,11 +5,11 @@
 import { User } from 'lucide-react';
 import React from 'react';
 import { cn } from '../../lib/utils';
-import { Host,SSHKey } from '../../types';
+import { Host, SSHKey } from '../../types';
 import { DistroAvatar } from '../DistroAvatar';
 import { Button } from '../ui/button';
-import { TerminalAuthDialog,TerminalAuthDialogProps } from './TerminalAuthDialog';
-import { TerminalConnectionProgress,TerminalConnectionProgressProps } from './TerminalConnectionProgress';
+import { TerminalAuthDialog, TerminalAuthDialogProps } from './TerminalAuthDialog';
+import { TerminalConnectionProgress, TerminalConnectionProgressProps } from './TerminalConnectionProgress';
 
 export interface ChainProgress {
     currentHop: number;

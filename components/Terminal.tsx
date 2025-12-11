@@ -558,12 +558,12 @@ const TerminalComponent: React.FC<TerminalProps> = ({
     // Prepare proxy configuration if set
     const proxyConfig = host.proxyConfig
       ? {
-          type: host.proxyConfig.type,
-          host: host.proxyConfig.host,
-          port: host.proxyConfig.port,
-          username: host.proxyConfig.username,
-          password: host.proxyConfig.password,
-        }
+        type: host.proxyConfig.type,
+        host: host.proxyConfig.host,
+        port: host.proxyConfig.port,
+        username: host.proxyConfig.username,
+        password: host.proxyConfig.password,
+      }
       : undefined;
 
     // Prepare jump host chain configuration
