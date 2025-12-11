@@ -1,8 +1,7 @@
-﻿import {
-  FitAddon,
-  Terminal as GhosttyTerminal,
-  init as initGhostty,
-} from "ghostty-web";
+import { Terminal as XTerm } from "@xterm/xterm";
+import { FitAddon } from "@xterm/addon-fit";
+import { WebglAddon } from "@xterm/addon-webgl";
+import "@xterm/xterm/css/xterm.css";
 import { Maximize2 } from "lucide-react";
 import React, { memo, useEffect, useRef, useState } from "react";
 import { cn } from "../lib/utils";
@@ -54,23 +53,7 @@ interface TerminalProps {
   ) => void; // Callback when a command is executed
 }
 
-let ghosttyInitialized = false;
-let ghosttyInitPromise: Promise<void> | null = null;
-let ghosttyInitError: Error | null = null;
-
-const ensureGhostty = async () => {
-  if (ghosttyInitError) throw ghosttyInitError;
-  if (ghosttyInitialized) return;
-  if (!ghosttyInitPromise) {
-    ghosttyInitPromise = initGhostty().catch((err) => {
-      ghosttyInitError = err;
-      console.error("[Ghostty] WASM initialization failed:", err);
-      throw err;
-    });
-  }
-  await ghosttyInitPromise;
-  ghosttyInitialized = true;
-};
+// xterm.js doesn't need async initialization like ghostty-web
 
 const TerminalComponent: React.FC<TerminalProps> = ({
   host,
@@ -97,7 +80,7 @@ const TerminalComponent: React.FC<TerminalProps> = ({
 }) => {
   const CONNECTION_TIMEOUT = 12000;
   const containerRef = useRef<HTMLDivElement>(null);
-  const termRef = useRef<GhosttyTerminal | null>(null);
+  const termRef = useRef<XTerm | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
   const disposeDataRef = useRef<(() => void) | null>(null);
   const disposeExitRef = useRef<(() => void) | null>(null);
@@ -217,16 +200,14 @@ const TerminalComponent: React.FC<TerminalProps> = ({
 
     const boot = async () => {
       try {
-        await ensureGhostty();
         if (disposed || !containerRef.current) return;
 
-        const term = new GhosttyTerminal({
+        const term = new XTerm({
           cursorBlink: false, // Disable cursor blinking for better performance
           fontSize,
           fontFamily:
             '"JetBrains Mono", "Cascadia Code", "Fira Code", "SF Mono", "Menlo", "DejaVu Sans Mono", monospace',
           scrollback: 3000, // Reduced scrollback for faster rendering
-          smoothScrollDuration: 0, // Disable smooth scrolling to reduce render overhead
           theme: {
             ...terminalTheme.colors,
             selectionBackground: terminalTheme.colors.selection,
@@ -240,10 +221,22 @@ const TerminalComponent: React.FC<TerminalProps> = ({
 
         try {
           term.open(containerRef.current);
+          
+          // Load WebGL addon for GPU-accelerated rendering
+          try {
+            const webglAddon = new WebglAddon();
+            webglAddon.onContextLoss(() => {
+              webglAddon.dispose();
+            });
+            term.loadAddon(webglAddon);
+          } catch (webglErr) {
+            console.warn("[XTerm] WebGL addon failed, using canvas renderer:", webglErr);
+          }
+          
           fitAddon.fit();
           term.focus();
         } catch (openErr) {
-          console.error("[Ghostty] Failed to open terminal:", openErr);
+          console.error("[XTerm] Failed to open terminal:", openErr);
           throw openErr;
         }
 
@@ -540,7 +533,7 @@ const TerminalComponent: React.FC<TerminalProps> = ({
     };
   }, []);
 
-  const startSSH = async (term: GhosttyTerminal) => {
+  const startSSH = async (term: XTerm) => {
     try {
       term.clear?.();
     } catch (err) {
@@ -756,7 +749,7 @@ const TerminalComponent: React.FC<TerminalProps> = ({
     setTimeout(() => runDistroDetection(key), 600);
   };
 
-  const startTelnet = async (term: GhosttyTerminal) => {
+  const startTelnet = async (term: XTerm) => {
     try {
       term.clear?.();
     } catch (err) {
@@ -830,7 +823,7 @@ const TerminalComponent: React.FC<TerminalProps> = ({
     }
   };
 
-  const startMosh = async (term: GhosttyTerminal) => {
+  const startMosh = async (term: XTerm) => {
     try {
       term.clear?.();
     } catch (err) {
@@ -924,7 +917,7 @@ const TerminalComponent: React.FC<TerminalProps> = ({
     }
   };
 
-  const startLocal = async (term: GhosttyTerminal) => {
+  const startLocal = async (term: XTerm) => {
     try {
       term.clear?.();
     } catch (err) {
