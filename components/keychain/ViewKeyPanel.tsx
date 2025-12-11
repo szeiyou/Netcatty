@@ -2,11 +2,11 @@
  * View Key Panel - Display SSH key details
  */
 
+import { Copy,Info } from 'lucide-react';
 import React from 'react';
 import { SSHKey } from '../../types';
-import { Label } from '../ui/label';
 import { Button } from '../ui/button';
-import { Copy, Info } from 'lucide-react';
+import { Label } from '../ui/label';
 import { copyToClipboard } from './utils';
 
 interface ViewKeyPanelProps {

@@ -1,12 +1,12 @@
-import React, { useEffect, useMemo, useRef, useState, useCallback, memo } from 'react';
-import { cn } from '../lib/utils';
-import Terminal from './Terminal';
-import { Host, SSHKey, Snippet, TerminalSession, TerminalTheme, Workspace, WorkspaceNode, KnownHost } from '../types';
+import { Circle,LayoutGrid,Server } from 'lucide-react';
+import React,{ memo,useCallback,useEffect,useMemo,useRef,useState } from 'react';
 import { useActiveTabId } from '../application/state/activeTabStore';
 import { collectSessionIds } from '../domain/workspace';
+import { cn } from '../lib/utils';
+import { Host,KnownHost,SSHKey,Snippet,TerminalSession,TerminalTheme,Workspace,WorkspaceNode } from '../types';
 import { DistroAvatar } from './DistroAvatar';
+import Terminal from './Terminal';
 import { Button } from './ui/button';
-import { LayoutGrid, Server, Circle } from 'lucide-react';
 import { ScrollArea } from './ui/scroll-area';
 
 type WorkspaceRect = { x: number; y: number; w: number; h: number };

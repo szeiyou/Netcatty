@@ -1,13 +1,13 @@
-import React, { useState } from 'react';
-import { Lock, Key, User, Eye, EyeOff, ChevronDown } from 'lucide-react';
-import { Host, SSHKey } from '../types';
+import { ChevronDown,Eye,EyeOff,Key,Lock,User } from 'lucide-react';
+import React,{ useState } from 'react';
+import { cn } from '../lib/utils';
+import { Host,SSHKey } from '../types';
 import { DistroAvatar } from './DistroAvatar';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
-import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
+import { Popover,PopoverContent,PopoverTrigger } from './ui/popover';
 import { ScrollArea } from './ui/scroll-area';
-import { cn } from '../lib/utils';
 
 interface AuthDialogProps {
     host: Host;

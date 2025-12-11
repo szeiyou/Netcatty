@@ -2,19 +2,19 @@
  * Key Card component for displaying SSH keys in grid/list view
  */
 
+import { Copy,ExternalLink,Pencil,Trash2 } from 'lucide-react';
 import React from 'react';
-import { SSHKey } from '../../types';
 import { cn } from '../../lib/utils';
+import { SSHKey } from '../../types';
 import { Button } from '../ui/button';
-import { Pencil, Copy, ExternalLink, Trash2 } from 'lucide-react';
 import {
-    ContextMenu,
-    ContextMenuContent,
-    ContextMenuItem,
-    ContextMenuSeparator,
-    ContextMenuTrigger,
+ContextMenu,
+ContextMenuContent,
+ContextMenuItem,
+ContextMenuSeparator,
+ContextMenuTrigger,
 } from '../ui/context-menu';
-import { getKeyIcon, getKeyTypeDisplay } from './utils';
+import { getKeyIcon,getKeyTypeDisplay } from './utils';
 
 interface KeyCardProps {
     keyItem: SSHKey;

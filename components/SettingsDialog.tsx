@@ -1,16 +1,16 @@
-import React, { useState } from 'react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from './ui/dialog';
-import { Button } from './ui/button';
-import { Label } from './ui/label';
-import { Input } from './ui/input';
-import { Textarea } from './ui/textarea';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
-import { ScrollArea } from './ui/scroll-area';
-import { Sun, Moon, Cloud, Download, Upload, Palette, Github, Loader2, Check, TerminalSquare } from 'lucide-react';
+import { Check,Cloud,Download,Github,Loader2,Moon,Palette,Sun,TerminalSquare,Upload } from 'lucide-react';
+import React,{ useState } from 'react';
+import { TERMINAL_THEMES } from '../infrastructure/config/terminalThemes';
+import { loadFromGist,syncToGist } from '../infrastructure/services/syncService';
 import { cn } from '../lib/utils';
 import { SyncConfig } from '../types';
-import { syncToGist, loadFromGist } from '../infrastructure/services/syncService';
-import { TERMINAL_THEMES } from '../infrastructure/config/terminalThemes';
+import { Button } from './ui/button';
+import { Dialog,DialogContent,DialogDescription,DialogHeader,DialogTitle } from './ui/dialog';
+import { Input } from './ui/input';
+import { Label } from './ui/label';
+import { ScrollArea } from './ui/scroll-area';
+import { Tabs,TabsContent,TabsList,TabsTrigger } from './ui/tabs';
+import { Textarea } from './ui/textarea';
 
 interface SettingsDialogProps {
   isOpen: boolean;

@@ -2,12 +2,12 @@
  * Generate FIDO2 Key Panel - Hardware security key (YubiKey, etc.)
  */
 
+import { Shield } from 'lucide-react';
 import React from 'react';
 import { SSHKey } from '../../types';
-import { Label } from '../ui/label';
-import { Input } from '../ui/input';
 import { Button } from '../ui/button';
-import { Shield } from 'lucide-react';
+import { Input } from '../ui/input';
+import { Label } from '../ui/label';
 
 interface GenerateFido2PanelProps {
     draftKey: Partial<SSHKey>;

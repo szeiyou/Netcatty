@@ -2,14 +2,14 @@
  * Host Chain Sub-Panel
  * Panel for configuring SSH jump host chain
  */
+import { ArrowDown,Plus,X } from 'lucide-react';
 import React from 'react';
-import { Plus, ArrowDown, X } from 'lucide-react';
 import { Host } from '../../types';
+import { DistroAvatar } from '../DistroAvatar';
+import { AsidePanel } from '../ui/aside-panel';
 import { Button } from '../ui/button';
 import { Card } from '../ui/card';
 import { ScrollArea } from '../ui/scroll-area';
-import { AsidePanel } from '../ui/aside-panel';
-import { DistroAvatar } from '../DistroAvatar';
 
 export interface ChainPanelProps {
     formLabel: string;

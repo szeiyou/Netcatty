@@ -2,13 +2,13 @@
  * Import Key Panel - Import existing SSH key
  */
 
-import React, { useRef, useCallback } from 'react';
-import { SSHKey, KeyType } from '../../types';
-import { Label } from '../ui/label';
-import { Input } from '../ui/input';
-import { Button } from '../ui/button';
-import { Textarea } from '../ui/textarea';
 import { Upload } from 'lucide-react';
+import React,{ useCallback,useRef } from 'react';
+import { SSHKey } from '../../types';
+import { Button } from '../ui/button';
+import { Input } from '../ui/input';
+import { Label } from '../ui/label';
+import { Textarea } from '../ui/textarea';
 import { detectKeyType } from './utils';
 
 interface ImportKeyPanelProps {

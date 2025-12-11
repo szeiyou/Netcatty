@@ -1,9 +1,38 @@
-import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { RemoteFile, Host } from '../types';
 import {
-    Folder, FileText, Download, Upload, ArrowUp, RefreshCw, HardDrive, Trash2, Loader2, Plus, X, ChevronRight, Home,
-    FileCode, FileImage, FileVideo, FileAudio, FileArchive, FileSpreadsheet, FileType, File, Terminal, Settings, Database, Globe, Lock, Key
+ArrowUp,
+ChevronRight,
+Database,
+Download,
+File,
+FileArchive,
+FileAudio,
+FileCode,FileImage,
+FileSpreadsheet,
+FileText,
+FileType,
+FileVideo,
+Folder,
+Globe,
+Home,
+Key,
+Loader2,
+Lock,
+Plus,
+RefreshCw,
+Settings,
+Terminal,
+Trash2,
+Upload,
+X
 } from 'lucide-react';
+import React,{ useCallback,useEffect,useMemo,useRef,useState } from 'react';
+import { cn } from '../lib/utils';
+import { Host,RemoteFile } from '../types';
+import { DistroAvatar } from './DistroAvatar';
+import { Button } from './ui/button';
+import { ContextMenu,ContextMenuContent,ContextMenuItem,ContextMenuTrigger } from './ui/context-menu';
+import { Dialog,DialogContent,DialogHeader,DialogTitle } from './ui/dialog';
+import { Input } from './ui/input';
 
 // Comprehensive file icon helper
 const getFileIcon = (fileName: string, isDirectory: boolean) => {
@@ -97,8 +126,6 @@ const getFileIcon = (fileName: string, isDirectory: boolean) => {
     // Default
     return <File size={18} className={iconClass} />;
 };
-import { Button } from './ui/button';
-import { cn } from '../lib/utils';
 
 // Format bytes with appropriate unit (B, KB, MB, GB)
 const formatBytes = (bytes: number | string): string => {
@@ -118,10 +145,6 @@ const formatDate = (dateStr: string | number | undefined): string => {
     const pad = (n: number) => n.toString().padStart(2, '0');
     return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
 };
-import { Input } from './ui/input';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
-import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from './ui/context-menu';
-import { DistroAvatar } from './DistroAvatar';
 
 interface SFTPModalProps {
     host: Host;

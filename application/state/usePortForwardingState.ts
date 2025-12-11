@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useState } from 'react';
-import { PortForwardingRule, PortForwardingType } from '../../domain/models';
+import { useCallback,useEffect,useState } from 'react';
+import { PortForwardingRule } from '../../domain/models';
 import { STORAGE_KEY_PORT_FORWARDING } from '../../infrastructure/config/storageKeys';
 import { localStorageAdapter } from '../../infrastructure/persistence/localStorageAdapter';
-import { getActiveRuleIds, getActiveConnection } from '../../infrastructure/services/portForwardingService';
+import { getActiveConnection,getActiveRuleIds } from '../../infrastructure/services/portForwardingService';
 
 export type ViewMode = 'grid' | 'list';
 export type SortMode = 'az' | 'za' | 'newest' | 'oldest';

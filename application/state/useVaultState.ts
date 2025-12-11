@@ -1,15 +1,15 @@
-import { useCallback, useEffect, useState } from 'react';
-import { Host, SSHKey, Snippet, KeySource, KeyCategory, KnownHost, ShellHistoryEntry } from '../../domain/models';
-import { normalizeDistroId, sanitizeHost } from '../../domain/host';
-import { INITIAL_HOSTS, INITIAL_SNIPPETS } from '../../infrastructure/config/defaultData';
+import { useCallback,useEffect,useState } from 'react';
+import { normalizeDistroId,sanitizeHost } from '../../domain/host';
+import { Host,KeyCategory,KeySource,KnownHost,ShellHistoryEntry,Snippet,SSHKey } from '../../domain/models';
+import { INITIAL_HOSTS,INITIAL_SNIPPETS } from '../../infrastructure/config/defaultData';
 import {
-  STORAGE_KEY_GROUPS,
-  STORAGE_KEY_HOSTS,
-  STORAGE_KEY_KEYS,
-  STORAGE_KEY_SNIPPET_PACKAGES,
-  STORAGE_KEY_SNIPPETS,
-  STORAGE_KEY_KNOWN_HOSTS,
-  STORAGE_KEY_SHELL_HISTORY,
+STORAGE_KEY_GROUPS,
+STORAGE_KEY_HOSTS,
+STORAGE_KEY_KEYS,
+STORAGE_KEY_KNOWN_HOSTS,
+STORAGE_KEY_SHELL_HISTORY,
+STORAGE_KEY_SNIPPET_PACKAGES,
+STORAGE_KEY_SNIPPETS,
 } from '../../infrastructure/config/storageKeys';
 import { localStorageAdapter } from '../../infrastructure/persistence/localStorageAdapter';
 

@@ -13,4 +13,4 @@ export { TerminalToolbar } from './TerminalToolbar';
 export type { TerminalToolbarProps } from './TerminalToolbar';
 
 export { TerminalConnectionDialog } from './TerminalConnectionDialog';
-export type { TerminalConnectionDialogProps, ChainProgress } from './TerminalConnectionDialog';
+export type { ChainProgress,TerminalConnectionDialogProps } from './TerminalConnectionDialog';

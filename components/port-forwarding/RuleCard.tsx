@@ -2,13 +2,13 @@
  * Port Forwarding Rule Card
  * Displays a single port forwarding rule in grid or list view
  */
+import { Copy,Loader2,Pencil,Play,Square,Trash2 } from 'lucide-react';
 import React from 'react';
-import { Play, Square, Loader2, Pencil, Copy, Trash2 } from 'lucide-react';
 import { PortForwardingRule } from '../../domain/models';
-import { Button } from '../ui/button';
-import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger, ContextMenuSeparator } from '../ui/context-menu';
 import { cn } from '../../lib/utils';
-import { getStatusColor, getTypeColor } from './utils';
+import { Button } from '../ui/button';
+import { ContextMenu,ContextMenuContent,ContextMenuItem,ContextMenuSeparator,ContextMenuTrigger } from '../ui/context-menu';
+import { getStatusColor,getTypeColor } from './utils';
 
 export type ViewMode = 'grid' | 'list';
 

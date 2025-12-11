@@ -2,13 +2,13 @@
  * Generate Key Panel - Standard SSH Key generation form
  */
 
+import { Eye,EyeOff } from 'lucide-react';
 import React from 'react';
-import { SSHKey, KeyType } from '../../types';
-import { Label } from '../ui/label';
-import { Input } from '../ui/input';
-import { Button } from '../ui/button';
 import { cn } from '../../lib/utils';
-import { Eye, EyeOff } from 'lucide-react';
+import { KeyType,SSHKey } from '../../types';
+import { Button } from '../ui/button';
+import { Input } from '../ui/input';
+import { Label } from '../ui/label';
 
 interface GenerateStandardPanelProps {
     draftKey: Partial<SSHKey>;

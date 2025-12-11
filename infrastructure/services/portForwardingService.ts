@@ -4,7 +4,7 @@
  * for establishing and managing SSH port forwarding tunnels.
  */
 
-import { PortForwardingRule, PortForwardingType, Host } from '../../domain/models';
+import { Host,PortForwardingRule } from '../../domain/models';
 
 export interface PortForwardingConnection {
   ruleId: string;

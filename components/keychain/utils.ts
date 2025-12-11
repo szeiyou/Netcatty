@@ -2,9 +2,9 @@
  * Keychain utility functions and WebAuthn/FIDO2 helpers
  */
 
-import { KeyType, SSHKey } from '../../types';
+import { BadgeCheck,Fingerprint,Key,Shield } from 'lucide-react';
 import React from 'react';
-import { Key, Fingerprint, Shield, BadgeCheck } from 'lucide-react';
+import { KeyType,SSHKey } from '../../types';
 
 /**
  * Generate mock key pair (for fallback when Electron backend is unavailable)

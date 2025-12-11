@@ -2,9 +2,9 @@
  * SFTP Breadcrumb navigation component
  */
 
-import React, { memo } from 'react';
+import { ChevronRight,Home } from 'lucide-react';
+import React,{ memo } from 'react';
 import { cn } from '../../lib/utils';
-import { ChevronRight, Home } from 'lucide-react';
 
 interface SftpBreadcrumbProps {
     path: string;

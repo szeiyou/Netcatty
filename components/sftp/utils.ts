@@ -2,26 +2,26 @@
  * SFTP utility functions for formatting and file type detection
  */
 
+import {
+Database,
+File,
+FileArchive,
+FileAudio,
+FileCode,
+FileImage,
+FileSpreadsheet,
+FileText,
+FileType,
+FileVideo,
+Folder,
+Globe,
+Key,
+Lock,
+Settings,
+Terminal,
+} from 'lucide-react';
 import React from 'react';
 import { SftpFileEntry } from '../../types';
-import {
-    FileCode,
-    Folder,
-    FileText,
-    FileImage,
-    FileVideo,
-    FileAudio,
-    FileArchive,
-    FileSpreadsheet,
-    FileType,
-    File,
-    Terminal,
-    Settings,
-    Database,
-    Globe,
-    Lock,
-    Key,
-} from 'lucide-react';
 
 /**
  * Format bytes with appropriate unit (B, KB, MB, GB)

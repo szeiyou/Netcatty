@@ -2,14 +2,14 @@
  * Terminal Connection Dialog
  * Full connection overlay with host info, progress indicator, and auth/progress content
  */
-import React from 'react';
 import { User } from 'lucide-react';
-import { Host, SSHKey } from '../../types';
-import { Button } from '../ui/button';
-import { DistroAvatar } from '../DistroAvatar';
+import React from 'react';
 import { cn } from '../../lib/utils';
-import { TerminalAuthDialog, TerminalAuthDialogProps } from './TerminalAuthDialog';
-import { TerminalConnectionProgress, TerminalConnectionProgressProps } from './TerminalConnectionProgress';
+import { Host,SSHKey } from '../../types';
+import { DistroAvatar } from '../DistroAvatar';
+import { Button } from '../ui/button';
+import { TerminalAuthDialog,TerminalAuthDialogProps } from './TerminalAuthDialog';
+import { TerminalConnectionProgress,TerminalConnectionProgressProps } from './TerminalConnectionProgress';
 
 export interface ChainProgress {
     currentHop: number;

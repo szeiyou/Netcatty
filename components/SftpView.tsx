@@ -14,53 +14,48 @@
  * - components/sftp/SftpHostPicker.tsx - Host selection dialog
  */
 
-import React, { useMemo, useState, useCallback, useRef, memo } from 'react';
-import { Badge } from './ui/badge';
+import React,{ memo,useCallback,useMemo,useRef,useState } from 'react';
+import { useIsSftpActive } from '../application/state/activeTabStore';
+import { SftpPane,useSftpState } from '../application/state/useSftpState';
+import { cn } from '../lib/utils';
+import { Host,SftpFileEntry,SSHKey } from '../types';
 import { Button } from './ui/button';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from './ui/dialog';
+import { ContextMenu,ContextMenuContent,ContextMenuItem,ContextMenuSeparator,ContextMenuTrigger } from './ui/context-menu';
+import { Dialog,DialogContent,DialogDescription,DialogFooter,DialogHeader,DialogTitle } from './ui/dialog';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
-import { cn } from '../lib/utils';
-import { Host, SSHKey, SftpFileEntry } from '../types';
-import { DistroAvatar } from './DistroAvatar';
-import { useSftpState, SftpPane } from '../application/state/useSftpState';
-import { useIsSftpActive } from '../application/state/activeTabStore';
-import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from './ui/context-menu';
 
 // Import extracted components
 import {
-    formatBytes,
-    formatDate,
-    getFileIcon,
-    SortField,
-    SortOrder,
-    ColumnWidths,
-    SftpBreadcrumb,
-    SftpFileRow,
-    SftpTransferItem,
-    SftpConflictDialog,
-    SftpPermissionsDialog,
-    SftpHostPicker,
+ColumnWidths,
+SftpBreadcrumb,
+SftpConflictDialog,
+SftpFileRow,
+SftpHostPicker,
+SftpPermissionsDialog,
+SftpTransferItem,
+SortField,
+SortOrder
 } from './sftp';
 
 import {
-    Folder,
-    HardDrive,
-    Monitor,
-    Plus,
-    X,
-    RefreshCw,
-    ChevronLeft,
-    ArrowDown,
-    Loader2,
-    AlertCircle,
-    Trash2,
-    FolderPlus,
-    Pencil,
-    Copy,
-    Home,
-    Search,
-    Shield,
+AlertCircle,
+ArrowDown,
+ChevronLeft,
+Copy,
+Folder,
+FolderPlus,
+HardDrive,
+Home,
+Loader2,
+Monitor,
+Pencil,
+Plus,
+RefreshCw,
+Search,
+Shield,
+Trash2,
+X,
 } from 'lucide-react';
 
 // SFTP Pane component

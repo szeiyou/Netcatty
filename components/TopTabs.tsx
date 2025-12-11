@@ -1,10 +1,10 @@
-import React, { useState, useEffect, useRef, useMemo, useCallback, memo, useLayoutEffect } from 'react';
-import { TerminalSquare, Shield, Folder, LayoutGrid, Plus, Bell, User, Sun, Moon, X, Minus, Square, Copy, MoreHorizontal } from 'lucide-react';
-import { TerminalSession, Workspace } from '../types';
-import { Button } from './ui/button';
+import { Bell,Copy,Folder,LayoutGrid,Minus,Moon,MoreHorizontal,Plus,Shield,Square,Sun,TerminalSquare,User,X } from 'lucide-react';
+import React,{ memo,useCallback,useEffect,useLayoutEffect,useMemo,useRef,useState } from 'react';
+import { activeTabStore,useActiveTabId } from '../application/state/activeTabStore';
 import { cn } from '../lib/utils';
-import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from './ui/context-menu';
-import { useActiveTabId, activeTabStore } from '../application/state/activeTabStore';
+import { TerminalSession,Workspace } from '../types';
+import { Button } from './ui/button';
+import { ContextMenu,ContextMenuContent,ContextMenuItem,ContextMenuTrigger } from './ui/context-menu';
 
 interface TopTabsProps {
   theme: 'dark' | 'light';

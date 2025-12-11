@@ -1,4 +1,4 @@
-import { Workspace, WorkspaceNode, WorkspaceViewMode } from './models';
+import { Workspace,WorkspaceNode,WorkspaceViewMode } from './models';
 
 export type SplitDirection = 'horizontal' | 'vertical';
 export type SplitPosition = 'left' | 'right' | 'top' | 'bottom';

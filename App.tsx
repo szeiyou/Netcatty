@@ -1,22 +1,22 @@
-import React, { useEffect, useMemo, useState, useCallback } from 'react';
-import SettingsDialog from './components/SettingsDialog';
-import { SftpView } from './components/SftpView';
-import { TopTabs } from './components/TopTabs';
-import { QuickSwitcher } from './components/QuickSwitcher';
-import { VaultView } from './components/VaultView';
-import { TerminalLayer } from './components/TerminalLayer';
-import ProtocolSelectDialog from './components/ProtocolSelectDialog';
-import { Host, HostProtocol } from './types';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from './components/ui/dialog';
-import { Button } from './components/ui/button';
-import { Input } from './components/ui/input';
-import { Label } from './components/ui/label';
+import React,{ useCallback,useEffect,useMemo,useState } from 'react';
+import { useIsVaultActive } from './application/state/activeTabStore';
+import { useSessionState } from './application/state/useSessionState';
 import { useSettingsState } from './application/state/useSettingsState';
 import { useVaultState } from './application/state/useVaultState';
-import { useSessionState } from './application/state/useSessionState';
-import { useIsVaultActive } from './application/state/activeTabStore';
+import ProtocolSelectDialog from './components/ProtocolSelectDialog';
+import { QuickSwitcher } from './components/QuickSwitcher';
+import SettingsDialog from './components/SettingsDialog';
+import { SftpView } from './components/SftpView';
+import { TerminalLayer } from './components/TerminalLayer';
+import { TopTabs } from './components/TopTabs';
+import { Button } from './components/ui/button';
+import { Dialog,DialogContent,DialogFooter,DialogHeader,DialogTitle } from './components/ui/dialog';
+import { Input } from './components/ui/input';
+import { Label } from './components/ui/label';
 import { ToastProvider } from './components/ui/toast';
+import { VaultView } from './components/VaultView';
 import { cn } from './lib/utils';
+import { Host,HostProtocol } from './types';
 
 // Visibility container for VaultView - isolates isActive subscription
 const VaultViewContainer: React.FC<{ children: React.ReactNode }> = ({ children }) => {

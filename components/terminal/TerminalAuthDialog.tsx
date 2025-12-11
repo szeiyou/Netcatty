@@ -2,14 +2,14 @@
  * Terminal Authentication Dialog
  * Displays auth form with password/key selection for SSH connection
  */
+import { AlertCircle,ChevronDown,Eye,EyeOff,Key,Lock } from 'lucide-react';
 import React from 'react';
-import { Lock, Key, Eye, EyeOff, ChevronDown, AlertCircle } from 'lucide-react';
+import { cn } from '../../lib/utils';
 import { SSHKey } from '../../types';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
-import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
-import { cn } from '../../lib/utils';
+import { Popover,PopoverContent,PopoverTrigger } from '../ui/popover';
 
 export interface TerminalAuthDialogProps {
     authMethod: 'password' | 'key';

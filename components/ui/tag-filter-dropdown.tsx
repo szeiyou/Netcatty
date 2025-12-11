@@ -1,10 +1,10 @@
+import { Check,ChevronDown,ChevronUp,Pencil,Search,Tag,Trash2,X } from 'lucide-react';
 import React from 'react';
-import { Check, ChevronDown, ChevronUp, Tag, Search, Pencil, Trash2, X } from 'lucide-react';
-import { Button } from './button';
-import { Input } from './input';
-import { Dropdown, DropdownContent, DropdownTrigger } from './dropdown';
-import { ScrollArea } from './scroll-area';
 import { cn } from '../../lib/utils';
+import { Button } from './button';
+import { Dropdown,DropdownContent,DropdownTrigger } from './dropdown';
+import { Input } from './input';
+import { ScrollArea } from './scroll-area';
 
 interface TagFilterDropdownProps {
     allTags: string[];

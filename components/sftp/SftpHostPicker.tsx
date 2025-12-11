@@ -2,13 +2,13 @@
  * SFTP Host Picker Dialog
  */
 
-import React, { useMemo } from 'react';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../ui/dialog';
-import { Badge } from '../ui/badge';
-import { Input } from '../ui/input';
+import { Monitor } from 'lucide-react';
+import React,{ useMemo } from 'react';
 import { Host } from '../../types';
 import { DistroAvatar } from '../DistroAvatar';
-import { Monitor } from 'lucide-react';
+import { Badge } from '../ui/badge';
+import { Dialog,DialogContent,DialogDescription,DialogHeader,DialogTitle } from '../ui/dialog';
+import { Input } from '../ui/input';
 
 interface SftpHostPickerProps {
     open: boolean;

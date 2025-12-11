@@ -2,15 +2,15 @@
  * Proxy Configuration Sub-Panel
  * Panel for configuring HTTP/SOCKS5 proxy settings
  */
+import { Check,Trash2 } from 'lucide-react';
 import React from 'react';
-import { Trash2, Check } from 'lucide-react';
-import { ProxyConfig } from '../../types';
-import { Button } from '../ui/button';
-import { Input } from '../ui/input';
-import { Badge } from '../ui/badge';
-import { Card } from '../ui/card';
-import { AsidePanel, AsidePanelContent } from '../ui/aside-panel';
 import { cn } from '../../lib/utils';
+import { ProxyConfig } from '../../types';
+import { AsidePanel,AsidePanelContent } from '../ui/aside-panel';
+import { Badge } from '../ui/badge';
+import { Button } from '../ui/button';
+import { Card } from '../ui/card';
+import { Input } from '../ui/input';
 
 export interface ProxyPanelProps {
     proxyConfig?: ProxyConfig;

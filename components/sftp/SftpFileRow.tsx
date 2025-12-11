@@ -2,11 +2,11 @@
  * SFTP File row component for file list
  */
 
-import React, { memo } from 'react';
-import { cn } from '../../lib/utils';
 import { Folder } from 'lucide-react';
+import React,{ memo } from 'react';
+import { cn } from '../../lib/utils';
 import { SftpFileEntry } from '../../types';
-import { formatBytes, formatDate, getFileIcon, ColumnWidths } from './utils';
+import { ColumnWidths,formatBytes,formatDate,getFileIcon } from './utils';
 
 interface SftpFileRowProps {
     entry: SftpFileEntry;

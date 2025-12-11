@@ -2,13 +2,13 @@
  * Edit Key Panel - Edit existing SSH key
  */
 
+import { Info } from 'lucide-react';
 import React from 'react';
 import { SSHKey } from '../../types';
-import { Label } from '../ui/label';
-import { Input } from '../ui/input';
 import { Button } from '../ui/button';
+import { Input } from '../ui/input';
+import { Label } from '../ui/label';
 import { Textarea } from '../ui/textarea';
-import { Info } from 'lucide-react';
 
 interface EditKeyPanelProps {
     draftKey: Partial<SSHKey>;

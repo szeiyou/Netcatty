@@ -1,21 +1,20 @@
-import React, { useEffect, useMemo, useState } from "react";
-import { Host, SSHKey, ProxyConfig, ProxyType, HostChainConfig, EnvVar } from "../types";
-import { Input } from "./ui/input";
+import { Check,Fingerprint,FolderPlus,Globe,Key,Link2,Plus,Shield,Tag,TerminalSquare,Variable,X } from "lucide-react";
+import React,{ useEffect,useMemo,useState } from "react";
+import { TERMINAL_THEMES } from "../infrastructure/config/terminalThemes";
+import { cn } from "../lib/utils";
+import { EnvVar,Host,ProxyConfig,SSHKey } from "../types";
+import { DistroAvatar } from "./DistroAvatar";
+import ThemeSelectPanel from "./ThemeSelectPanel";
+import { AsidePanel,AsidePanelContent,AsidePanelFooter } from "./ui/aside-panel";
+import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Card } from "./ui/card";
-import { Badge } from "./ui/badge";
-import { cn } from "../lib/utils";
-import { Network, KeyRound, Lock, Share2, Server, Shield, Zap, TerminalSquare, Tag, ChevronLeft, Navigation, PhoneCall, Plus, FolderPlus, ArrowLeft, Link2, Trash2, GripVertical, Globe, HelpCircle, X, ArrowDown, ArrowRight, Check, Variable, Key, Fingerprint, Palette } from "lucide-react";
-import { ScrollArea } from "./ui/scroll-area";
-import { DistroAvatar } from "./DistroAvatar";
-import { AsidePanel, AsidePanelContent, AsidePanelFooter } from "./ui/aside-panel";
-import { Combobox, MultiCombobox, ComboboxOption } from "./ui/combobox";
-import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
-import ThemeSelectPanel from "./ThemeSelectPanel";
-import { TERMINAL_THEMES } from "../infrastructure/config/terminalThemes";
+import { Combobox,ComboboxOption,MultiCombobox } from "./ui/combobox";
+import { Input } from "./ui/input";
+import { Popover,PopoverContent,PopoverTrigger } from "./ui/popover";
 
 // Import host-details sub-panels
-import { CreateGroupPanel, ProxyPanel, ChainPanel, EnvVarsPanel } from "./host-details";
+import { ChainPanel,CreateGroupPanel,EnvVarsPanel,ProxyPanel } from "./host-details";
 
 type Protocol = "ssh" | "telnet";
 type AuthMethod = "password" | "key" | "certificate" | "fido2";

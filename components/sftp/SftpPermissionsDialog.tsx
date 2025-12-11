@@ -2,10 +2,10 @@
  * SFTP Permissions Editor Dialog
  */
 
-import React, { useState, useEffect } from 'react';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from '../ui/dialog';
-import { Button } from '../ui/button';
+import React,{ useEffect,useState } from 'react';
 import { SftpFileEntry } from '../../types';
+import { Button } from '../ui/button';
+import { Dialog,DialogContent,DialogDescription,DialogFooter,DialogHeader,DialogTitle } from '../ui/dialog';
 
 interface SftpPermissionsDialogProps {
     open: boolean;

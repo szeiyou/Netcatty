@@ -2,10 +2,10 @@
  * SFTP Conflict Resolution Dialog
  */
 
-import React, { useState } from 'react';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from '../ui/dialog';
-import { Button } from '../ui/button';
 import { AlertCircle } from 'lucide-react';
+import React,{ useState } from 'react';
+import { Button } from '../ui/button';
+import { Dialog,DialogContent,DialogDescription,DialogFooter,DialogHeader,DialogTitle } from '../ui/dialog';
 
 interface ConflictItem {
     transferId: string;

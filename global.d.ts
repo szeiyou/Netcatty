@@ -1,4 +1,4 @@
-import type { TerminalSession, RemoteFile } from "./types";
+import type { RemoteFile } from "./types";
 
 // Proxy configuration for SSH connections
 interface NebulaProxyConfig {
@@ -236,4 +236,4 @@ declare global {
   }
 }
 
-export {};
+export { };

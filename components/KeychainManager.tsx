@@ -1,52 +1,47 @@
-import React, { useMemo, useState, useCallback } from 'react';
-import { SSHKey, KeyType, KeySource, KeyCategory, Identity, IdentityAuthMethod, Host } from '../types';
 import {
-    Key,
-    Plus,
-    Trash2,
-    Shield,
-    Search,
-    LayoutGrid,
-    List as ListIcon,
-    ChevronDown,
-    Fingerprint,
-    BadgeCheck,
-    MoreHorizontal,
-    ChevronRight,
-    Upload,
-    UserPlus,
-    Info,
+BadgeCheck,
+ChevronDown,
+ChevronRight,
+Fingerprint,
+Info,
+Key,
+LayoutGrid,
+List as ListIcon,
+MoreHorizontal,
+Plus,
+Search,
+Shield,
+Upload,
+UserPlus
 } from 'lucide-react';
+import React,{ useCallback,useMemo,useState } from 'react';
+import { cn } from '../lib/utils';
+import { Host,Identity,KeyType,SSHKey } from '../types';
+import SelectHostPanel from './SelectHostPanel';
+import { AsidePanel,AsidePanelContent } from './ui/aside-panel';
 import { Button } from './ui/button';
+import { Collapsible,CollapsibleContent,CollapsibleTrigger } from './ui/collapsible';
+import { Dropdown,DropdownContent,DropdownTrigger } from './ui/dropdown';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Textarea } from './ui/textarea';
-import { cn } from '../lib/utils';
-import { Dropdown, DropdownTrigger, DropdownContent } from './ui/dropdown';
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from './ui/collapsible';
-import SelectHostPanel from './SelectHostPanel';
 import { toast } from './ui/toast';
-import { AsidePanel, AsidePanelContent } from './ui/aside-panel';
 
 // Import utilities and components from keychain module
 import {
-    generateMockKeyPair,
-    createFido2Credential,
-    createBiometricCredential,
-    isMacOS,
-    copyToClipboard,
-    type PanelMode,
-    type FilterTab,
-    KeyCard,
-    IdentityCard,
-    GenerateStandardPanel,
-    GenerateBiometricPanel,
-    GenerateFido2Panel,
-    ImportKeyPanel,
-    ViewKeyPanel,
-    EditKeyPanel,
-    IdentityPanel,
-    ExportKeyPanel,
+createBiometricCredential,
+createFido2Credential,
+type FilterTab,
+GenerateBiometricPanel,
+GenerateFido2Panel,
+GenerateStandardPanel,
+IdentityCard,
+IdentityPanel,
+ImportKeyPanel,
+isMacOS,
+KeyCard,
+type PanelMode,
+ViewKeyPanel
 } from './keychain';
 
 interface KeychainManagerProps {

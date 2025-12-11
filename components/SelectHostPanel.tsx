@@ -1,23 +1,22 @@
-import React, { useMemo, useState } from 'react';
-import { Host, SSHKey } from '../types';
 import {
-    ArrowLeft,
-    X,
-    Plus,
-    Search,
-    LayoutGrid,
-    Check,
-    ChevronRight,
-    Home,
+ArrowLeft,
+Check,
+ChevronRight,
+LayoutGrid,
+Plus,
+Search,
+X
 } from 'lucide-react';
+import React,{ useMemo,useState } from 'react';
+import { cn } from '../lib/utils';
+import { Host,SSHKey } from '../types';
+import { DistroAvatar } from './DistroAvatar';
+import HostDetailsPanel from './HostDetailsPanel';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { ScrollArea } from './ui/scroll-area';
-import { cn } from '../lib/utils';
-import { DistroAvatar } from './DistroAvatar';
-import { SortDropdown, SortMode } from './ui/sort-dropdown';
+import { SortDropdown,SortMode } from './ui/sort-dropdown';
 import { TagFilterDropdown } from './ui/tag-filter-dropdown';
-import HostDetailsPanel from './HostDetailsPanel';
 
 interface SelectHostPanelProps {
     hosts: Host[];

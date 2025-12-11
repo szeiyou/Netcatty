@@ -2,15 +2,15 @@
  * Port Forwarding Wizard Content
  * Renders step-by-step wizard content for creating port forwarding rules
  */
-import React from 'react';
 import { Check } from 'lucide-react';
-import { PortForwardingRule, PortForwardingType, Host } from '../../domain/models';
+import React from 'react';
+import { Host,PortForwardingRule,PortForwardingType } from '../../domain/models';
+import { cn } from '../../lib/utils';
+import { DistroAvatar } from '../DistroAvatar';
+import { TrafficDiagram } from '../TrafficDiagram';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
-import { DistroAvatar } from '../DistroAvatar';
-import { TrafficDiagram } from '../TrafficDiagram';
-import { cn } from '../../lib/utils';
 import { TYPE_DESCRIPTIONS } from './utils';
 
 export type WizardStep = 'type' | 'local-config' | 'remote-host-selection' | 'remote-config' | 'destination' | 'host-selection' | 'label';

@@ -1,12 +1,12 @@
-import React, { useState, useEffect } from 'react';
-import { Host, SSHKey } from '../types';
-import { Server, Save, Key, Lock, X, Plus } from 'lucide-react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from './ui/dialog';
+import { Key,Lock,Plus,Save,Server,X } from 'lucide-react';
+import React,{ useEffect,useState } from 'react';
+import { cn } from '../lib/utils';
+import { Host,SSHKey } from '../types';
 import { Button } from './ui/button';
+import { Dialog,DialogContent,DialogDescription,DialogFooter,DialogHeader,DialogTitle } from './ui/dialog';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
-import { cn } from '../lib/utils';
+import { Select,SelectContent,SelectItem,SelectTrigger,SelectValue } from './ui/select';
 
 interface HostFormProps {
   initialData?: Host | null;

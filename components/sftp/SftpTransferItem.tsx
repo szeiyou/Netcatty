@@ -2,19 +2,19 @@
  * SFTP Transfer item component for transfer queue
  */
 
-import React, { memo } from 'react';
-import { cn } from '../../lib/utils';
-import { Button } from '../ui/button';
-import { TransferTask } from '../../types';
-import { formatTransferBytes, formatSpeed } from './utils';
 import {
-    ArrowDown,
-    Loader2,
-    CheckCircle2,
-    XCircle,
-    RefreshCw,
-    X,
+ArrowDown,
+CheckCircle2,
+Loader2,
+RefreshCw,
+X,
+XCircle,
 } from 'lucide-react';
+import React,{ memo } from 'react';
+import { cn } from '../../lib/utils';
+import { TransferTask } from '../../types';
+import { Button } from '../ui/button';
+import { formatSpeed,formatTransferBytes } from './utils';
 
 interface SftpTransferItemProps {
     task: TransferTask;

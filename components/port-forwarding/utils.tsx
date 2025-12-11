@@ -1,8 +1,8 @@
 /**
  * Port Forwarding utilities and constants
  */
+import { Globe,Server,Shuffle } from 'lucide-react';
 import React from 'react';
-import { Globe, Server, Shuffle } from 'lucide-react';
 import { PortForwardingType } from '../../domain/models';
 
 export const TYPE_LABELS: Record<PortForwardingType, string> = {

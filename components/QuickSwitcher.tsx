@@ -1,9 +1,9 @@
-import React, { useState, useRef, useEffect, memo } from 'react';
-import { Monitor, TerminalSquare, Shield, Folder, LayoutGrid, Terminal, Search } from 'lucide-react';
-import { Host, TerminalSession, Workspace } from '../types';
+import { Folder,LayoutGrid,Search,Shield,Terminal,TerminalSquare } from 'lucide-react';
+import React,{ memo,useEffect,useRef,useState } from 'react';
+import { Host,TerminalSession,Workspace } from '../types';
+import { DistroAvatar } from './DistroAvatar';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
-import { DistroAvatar } from './DistroAvatar';
 import { ScrollArea } from './ui/scroll-area';
 
 interface QuickSwitcherProps {

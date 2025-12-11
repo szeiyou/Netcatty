@@ -1,10 +1,10 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback,useEffect,useMemo,useState } from 'react';
 import { SyncConfig } from '../../domain/models';
 import {
-  STORAGE_KEY_COLOR,
-  STORAGE_KEY_SYNC,
-  STORAGE_KEY_TERM_THEME,
-  STORAGE_KEY_THEME,
+STORAGE_KEY_COLOR,
+STORAGE_KEY_SYNC,
+STORAGE_KEY_TERM_THEME,
+STORAGE_KEY_THEME,
 } from '../../infrastructure/config/storageKeys';
 import { TERMINAL_THEMES } from '../../infrastructure/config/terminalThemes';
 import { localStorageAdapter } from '../../infrastructure/persistence/localStorageAdapter';

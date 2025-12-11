@@ -2,13 +2,13 @@
  * Identity Panel - Create/Edit identity
  */
 
+import { BadgeCheck,ChevronDown,Eye,EyeOff,Key,Shield,User } from 'lucide-react';
 import React from 'react';
-import { Identity, SSHKey } from '../../types';
-import { Label } from '../ui/label';
-import { Input } from '../ui/input';
+import { Identity,SSHKey } from '../../types';
 import { Button } from '../ui/button';
-import { Dropdown, DropdownTrigger, DropdownContent } from '../ui/dropdown';
-import { User, Key, BadgeCheck, Shield, ChevronDown, Eye, EyeOff } from 'lucide-react';
+import { Dropdown,DropdownContent,DropdownTrigger } from '../ui/dropdown';
+import { Input } from '../ui/input';
+import { Label } from '../ui/label';
 
 interface IdentityPanelProps {
     draftIdentity: Partial<Identity>;

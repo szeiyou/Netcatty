@@ -1,13 +1,13 @@
-import { MouseEvent, useMemo, useState, useCallback } from 'react';
-import { Host, Snippet, TerminalSession, Workspace, WorkspaceNode, WorkspaceViewMode } from '../../domain/models';
+import { MouseEvent,useCallback,useMemo,useState } from 'react';
+import { Host,Snippet,TerminalSession,Workspace,WorkspaceViewMode } from '../../domain/models';
 import {
-  createWorkspaceFromSessions as createWorkspaceEntity,
-  insertPaneIntoWorkspace,
-  pruneWorkspaceNode,
-  SplitHint,
-  updateWorkspaceSplitSizes,
-  createWorkspaceFromSessionIds,
-  collectSessionIds,
+collectSessionIds,
+createWorkspaceFromSessions as createWorkspaceEntity,
+createWorkspaceFromSessionIds,
+insertPaneIntoWorkspace,
+pruneWorkspaceNode,
+SplitHint,
+updateWorkspaceSplitSizes,
 } from '../../domain/workspace';
 import { activeTabStore } from './activeTabStore';
 

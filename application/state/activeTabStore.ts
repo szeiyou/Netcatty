@@ -1,4 +1,4 @@
-import { useSyncExternalStore, useCallback, useRef } from 'react';
+import { useCallback,useSyncExternalStore } from 'react';
 
 // Simple store for active tab that allows fine-grained subscriptions
 type Listener = () => void;

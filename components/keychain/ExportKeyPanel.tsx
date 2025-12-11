@@ -2,17 +2,17 @@
  * Export Key Panel - Export SSH key to remote host
  */
 
-import React, { useState } from 'react';
-import { SSHKey, Host } from '../../types';
-import { Label } from '../ui/label';
-import { Input } from '../ui/input';
-import { Button } from '../ui/button';
-import { Textarea } from '../ui/textarea';
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '../ui/collapsible';
-import { ChevronRight, Info } from 'lucide-react';
+import { ChevronRight,Info } from 'lucide-react';
+import React,{ useState } from 'react';
 import { cn } from '../../lib/utils';
-import { getKeyIcon, getKeyTypeDisplay, isMacOS } from './utils';
+import { Host,SSHKey } from '../../types';
+import { Button } from '../ui/button';
+import { Collapsible,CollapsibleContent,CollapsibleTrigger } from '../ui/collapsible';
+import { Input } from '../ui/input';
+import { Label } from '../ui/label';
+import { Textarea } from '../ui/textarea';
 import { toast } from '../ui/toast';
+import { getKeyIcon,getKeyTypeDisplay,isMacOS } from './utils';
 
 interface ExportKeyPanelProps {
     keyItem: SSHKey;

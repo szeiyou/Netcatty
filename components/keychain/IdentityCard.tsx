@@ -2,11 +2,11 @@
  * Identity Card component for displaying saved identities
  */
 
+import { Pencil,User } from 'lucide-react';
 import React from 'react';
-import { Identity } from '../../types';
 import { cn } from '../../lib/utils';
+import { Identity } from '../../types';
 import { Button } from '../ui/button';
-import { Pencil, User } from 'lucide-react';
 
 interface IdentityCardProps {
     identity: Identity;

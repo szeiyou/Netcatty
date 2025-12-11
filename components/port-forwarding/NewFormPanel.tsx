@@ -2,16 +2,16 @@
  * Port Forwarding New Form Panel
  * All-in-one form for creating new port forwarding rules (skip wizard mode)
  */
+import { ChevronDown,Zap } from 'lucide-react';
 import React from 'react';
-import { ChevronDown, Zap } from 'lucide-react';
-import { PortForwardingRule, PortForwardingType, Host } from '../../domain/models';
+import { Host,PortForwardingRule,PortForwardingType } from '../../domain/models';
+import { cn } from '../../lib/utils';
+import { DistroAvatar } from '../DistroAvatar';
+import { TrafficDiagram } from '../TrafficDiagram';
+import { AsidePanel,AsidePanelContent,AsidePanelFooter } from '../ui/aside-panel';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
-import { AsidePanel, AsidePanelContent, AsidePanelFooter } from '../ui/aside-panel';
-import { DistroAvatar } from '../DistroAvatar';
-import { TrafficDiagram } from '../TrafficDiagram';
-import { cn } from '../../lib/utils';
 
 export interface NewFormPanelProps {
     draft: Partial<PortForwardingRule>;

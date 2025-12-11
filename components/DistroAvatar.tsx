@@ -1,8 +1,8 @@
-import React, { memo } from 'react';
-import { Host } from '../types';
+import { Server } from 'lucide-react';
+import React,{ memo } from 'react';
 import { normalizeDistroId } from '../domain/host';
 import { cn } from '../lib/utils';
-import { Server } from 'lucide-react';
+import { Host } from '../types';
 
 export const DISTRO_LOGOS: Record<string, string> = {
   ubuntu: "/distro/ubuntu.svg",

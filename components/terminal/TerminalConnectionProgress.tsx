@@ -2,8 +2,8 @@
  * Terminal Connection Progress
  * Displays connection progress with logs and timeout
  */
+import { AlertCircle,Clock,Play,ShieldCheck } from 'lucide-react';
 import React from 'react';
-import { Clock, Play, ShieldCheck, AlertCircle } from 'lucide-react';
 import { Button } from '../ui/button';
 import { ScrollArea } from '../ui/scroll-area';
 

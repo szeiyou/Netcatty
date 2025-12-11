@@ -1,16 +1,15 @@
-import React, { useEffect, useRef, useState, memo } from 'react';
-import { init as initGhostty, Terminal as GhosttyTerminal, FitAddon } from 'ghostty-web';
-import { Host, SSHKey, Snippet, TerminalSession, TerminalTheme, KnownHost, ProxyConfig, HostChainConfig, ShellHistoryEntry } from '../types';
+import { FitAddon,Terminal as GhosttyTerminal,init as initGhostty } from 'ghostty-web';
 import { Maximize2 } from 'lucide-react';
-import { DistroAvatar } from './DistroAvatar';
-import { Button } from './ui/button';
+import React,{ memo,useEffect,useRef,useState } from 'react';
 import { cn } from '../lib/utils';
+import { Host,KnownHost,SSHKey,Snippet,TerminalSession,TerminalTheme } from '../types';
+import KnownHostConfirmDialog,{ HostKeyInfo } from './KnownHostConfirmDialog';
 import SFTPModal from './SFTPModal';
-import KnownHostConfirmDialog, { HostKeyInfo } from './KnownHostConfirmDialog';
+import { Button } from './ui/button';
 
 // Import terminal sub-components
-import { TerminalToolbar } from './terminal/TerminalToolbar';
 import { TerminalConnectionDialog } from './terminal/TerminalConnectionDialog';
+import { TerminalToolbar } from './terminal/TerminalToolbar';
 
 interface TerminalProps {
   host: Host;

@@ -1,28 +1,22 @@
-import React, { useState, useMemo, useCallback } from 'react';
 import {
-    Lock,
-    Key,
-    User,
-    Eye,
-    EyeOff,
-    ChevronDown,
-    Globe,
-    Terminal as TerminalIcon,
-    Plus,
-    ArrowLeft,
+ArrowLeft,
+ChevronDown,
+Eye,
+EyeOff,
+Globe,
+Key,
+Lock,
+Plus,
+Terminal as TerminalIcon,
+User,
 } from 'lucide-react';
-import { Host, SSHKey, KnownHost, ProxyConfig, HostChainConfig, EnvVar } from '../types';
-import { DistroAvatar } from './DistroAvatar';
+import React,{ useMemo,useState } from 'react';
+import { cn } from '../lib/utils';
+import { Host,KnownHost,SSHKey } from '../types';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { ScrollArea } from './ui/scroll-area';
-import { cn } from '../lib/utils';
-import {
-    AsidePanel,
-    AsidePanelContent,
-    AsidePanelFooter,
-} from './ui/aside-panel';
 
 // Protocol types supported for quick connect
 type Protocol = 'ssh' | 'mosh' | 'telnet';

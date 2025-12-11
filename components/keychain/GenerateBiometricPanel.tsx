@@ -2,12 +2,12 @@
  * Generate Biometric Key Panel - Windows Hello / Touch ID
  */
 
+import { Fingerprint } from 'lucide-react';
 import React from 'react';
 import { SSHKey } from '../../types';
-import { Label } from '../ui/label';
-import { Input } from '../ui/input';
 import { Button } from '../ui/button';
-import { Fingerprint } from 'lucide-react';
+import { Input } from '../ui/input';
+import { Label } from '../ui/label';
 import { isMacOS } from './utils';
 
 interface GenerateBiometricPanelProps {

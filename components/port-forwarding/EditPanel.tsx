@@ -2,15 +2,15 @@
  * Port Forwarding Edit Panel
  * Form for editing an existing port forwarding rule
  */
+import { ChevronDown,Copy,Trash2 } from 'lucide-react';
 import React from 'react';
-import { Copy, Trash2, ChevronDown } from 'lucide-react';
-import { PortForwardingRule, Host } from '../../domain/models';
+import { Host,PortForwardingRule } from '../../domain/models';
+import { DistroAvatar } from '../DistroAvatar';
+import { TrafficDiagram } from '../TrafficDiagram';
+import { AsideActionMenu,AsideActionMenuItem,AsidePanel,AsidePanelContent,AsidePanelFooter } from '../ui/aside-panel';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
-import { AsidePanel, AsidePanelContent, AsidePanelFooter, AsideActionMenu, AsideActionMenuItem } from '../ui/aside-panel';
-import { DistroAvatar } from '../DistroAvatar';
-import { TrafficDiagram } from '../TrafficDiagram';
 
 export interface EditPanelProps {
     rule: PortForwardingRule;

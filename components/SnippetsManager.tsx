@@ -1,20 +1,19 @@
-import React, { useMemo, useState, useCallback, useRef, useEffect } from 'react';
-import { Host, Snippet, ShellHistoryEntry, SSHKey } from '../types';
-import { FileCode, Plus, Trash2, Edit2, Copy, Clock, List as ListIcon, FolderPlus, Play, ArrowLeft, X, Check, ChevronDown, Loader2, Package, Search, LayoutGrid } from 'lucide-react';
-import { Button } from './ui/button';
-import { Input } from './ui/input';
-import { Textarea } from './ui/textarea';
-import { Card } from './ui/card';
-import { Label } from './ui/label';
-import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger, ContextMenuSeparator } from './ui/context-menu';
+import { Check,ChevronDown,Clock,Copy,Edit2,FileCode,FolderPlus,LayoutGrid,List as ListIcon,Loader2,Package,Play,Plus,Search,Trash2 } from 'lucide-react';
+import React,{ useCallback,useEffect,useMemo,useRef,useState } from 'react';
 import { cn } from '../lib/utils';
-import { ScrollArea } from './ui/scroll-area';
+import { Host,ShellHistoryEntry,Snippet,SSHKey } from '../types';
 import { DistroAvatar } from './DistroAvatar';
 import SelectHostPanel from './SelectHostPanel';
-import { AsidePanel, AsidePanelContent } from './ui/aside-panel';
-import { Combobox, ComboboxOption } from './ui/combobox';
-import { Dropdown, DropdownTrigger, DropdownContent } from './ui/dropdown';
-import { SortDropdown, SortMode } from './ui/sort-dropdown';
+import { AsidePanel,AsidePanelContent } from './ui/aside-panel';
+import { Button } from './ui/button';
+import { Card } from './ui/card';
+import { Combobox,ComboboxOption } from './ui/combobox';
+import { ContextMenu,ContextMenuContent,ContextMenuItem,ContextMenuSeparator,ContextMenuTrigger } from './ui/context-menu';
+import { Dropdown,DropdownContent,DropdownTrigger } from './ui/dropdown';
+import { Input } from './ui/input';
+import { Label } from './ui/label';
+import { SortDropdown,SortMode } from './ui/sort-dropdown';
+import { Textarea } from './ui/textarea';
 
 interface SnippetsManagerProps {
   snippets: Snippet[];

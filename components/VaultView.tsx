@@ -1,45 +1,44 @@
-import React, { useMemo, useState, memo, useCallback } from 'react';
-import { AppLogo } from './AppLogo';
 import {
-  Activity,
-  BookMarked,
-  ChevronDown,
-  FolderPlus,
-  FolderTree,
-  Edit2,
-  FileCode,
-  Key,
-  LayoutGrid,
-  List,
-  Plug,
-  Plus,
-  Search,
-  Settings,
-  Trash2,
-  TerminalSquare,
-  Upload,
-  Zap,
+Activity,
+BookMarked,
+ChevronDown,
+Edit2,
+FileCode,
+FolderPlus,
+FolderTree,
+Key,
+LayoutGrid,
+List,
+Plug,
+Plus,
+Search,
+Settings,
+TerminalSquare,
+Trash2,
+Upload,
+Zap,
 } from 'lucide-react';
-import { Host, SSHKey, Snippet, GroupNode, TerminalSession, KnownHost, ShellHistoryEntry, HostProtocol } from '../types';
-import { DistroAvatar } from './DistroAvatar';
-import SnippetsManager from './SnippetsManager';
-import KeychainManager from './KeychainManager';
-import PortForwarding from './PortForwardingNew';
-import KnownHostsManager from './KnownHostsManager';
-import HostDetailsPanel from './HostDetailsPanel';
-import QuickConnectWizard, { parseQuickConnectInput, isQuickConnectInput } from './QuickConnectWizard';
-import ProtocolSelectDialog from './ProtocolSelectDialog';
-import { Button } from './ui/button';
-import { Input } from './ui/input';
-import { Dropdown, DropdownTrigger, DropdownContent } from './ui/dropdown';
-import { cn } from '../lib/utils';
-import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from './ui/context-menu';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from './ui/dialog';
-import { Label } from './ui/label';
-import { SortDropdown, SortMode } from './ui/sort-dropdown';
-import { TagFilterDropdown } from './ui/tag-filter-dropdown';
+import React,{ memo,useCallback,useMemo,useState } from 'react';
 import { sanitizeHost } from '../domain/host';
-import { useIsVaultActive } from '../application/state/activeTabStore';
+import { cn } from '../lib/utils';
+import { GroupNode,Host,HostProtocol,KnownHost,SSHKey,ShellHistoryEntry,Snippet,TerminalSession } from '../types';
+import { AppLogo } from './AppLogo';
+import { DistroAvatar } from './DistroAvatar';
+import HostDetailsPanel from './HostDetailsPanel';
+import KeychainManager from './KeychainManager';
+import KnownHostsManager from './KnownHostsManager';
+import PortForwarding from './PortForwardingNew';
+import ProtocolSelectDialog from './ProtocolSelectDialog';
+import QuickConnectWizard,{ isQuickConnectInput,parseQuickConnectInput } from './QuickConnectWizard';
+import SnippetsManager from './SnippetsManager';
+import { Button } from './ui/button';
+import { ContextMenu,ContextMenuContent,ContextMenuItem,ContextMenuTrigger } from './ui/context-menu';
+import { Dialog,DialogContent,DialogDescription,DialogFooter,DialogHeader,DialogTitle } from './ui/dialog';
+import { Dropdown,DropdownContent,DropdownTrigger } from './ui/dropdown';
+import { Input } from './ui/input';
+import { Label } from './ui/label';
+import { SortDropdown,SortMode } from './ui/sort-dropdown';
+import { TagFilterDropdown } from './ui/tag-filter-dropdown';
 
 type VaultSection = 'hosts' | 'keys' | 'snippets' | 'port' | 'knownhosts';
 

@@ -2,13 +2,13 @@
  * Environment Variables Sub-Panel
  * Panel for configuring environment variables for SSH connections
  */
+import { Plus,X } from 'lucide-react';
 import React from 'react';
-import { Plus, X } from 'lucide-react';
 import { EnvVar } from '../../types';
+import { AsidePanel,AsidePanelContent } from '../ui/aside-panel';
 import { Button } from '../ui/button';
-import { Input } from '../ui/input';
 import { Card } from '../ui/card';
-import { AsidePanel, AsidePanelContent } from '../ui/aside-panel';
+import { Input } from '../ui/input';
 
 export interface EnvVarsPanelProps {
     hostLabel: string;

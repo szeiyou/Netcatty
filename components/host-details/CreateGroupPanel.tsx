@@ -2,12 +2,12 @@
  * Create Group Sub-Panel
  * Panel for creating new groups within the host details
  */
+import { FolderPlus,HelpCircle,Plus } from 'lucide-react';
 import React from 'react';
-import { FolderPlus, Plus, HelpCircle } from 'lucide-react';
+import { AsidePanel,AsidePanelContent } from '../ui/aside-panel';
 import { Button } from '../ui/button';
-import { Input } from '../ui/input';
 import { Card } from '../ui/card';
-import { AsidePanel, AsidePanelContent } from '../ui/aside-panel';
+import { Input } from '../ui/input';
 
 interface ToggleRowProps {
     label: string;

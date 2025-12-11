@@ -1,48 +1,38 @@
-import React, { useCallback, useMemo, useState } from 'react';
 import {
-    ChevronDown,
-    Copy,
-    LayoutGrid,
-    List as ListIcon,
-    Loader2,
-    Search,
-    Trash2,
-    Zap,
-    Globe,
-    Server,
-    Shuffle,
-    Check,
+Check,
+ChevronDown,
+Globe,
+LayoutGrid,
+List as ListIcon,
+Search,
+Server,
+Shuffle,
+Zap
 } from 'lucide-react';
-import { PortForwardingRule, PortForwardingType, Host, SSHKey } from '../domain/models';
-import { Button } from './ui/button';
-import { AsidePanel, AsidePanelContent, AsidePanelFooter, AsideActionMenu, AsideActionMenuItem } from './ui/aside-panel';
-import { Input } from './ui/input';
-import { Dropdown, DropdownTrigger, DropdownContent } from './ui/dropdown';
-import { SortDropdown } from './ui/sort-dropdown';
-import { cn } from '../lib/utils';
-import { TrafficDiagram } from './TrafficDiagram';
-import SelectHostPanel from './SelectHostPanel';
+import React,{ useCallback,useState } from 'react';
 import {
-    usePortForwardingState,
-    ViewMode,
-    SortMode
+usePortForwardingState
 } from '../application/state/usePortForwardingState';
+import { Host,PortForwardingRule,PortForwardingType,SSHKey } from '../domain/models';
 import {
-    startPortForward,
-    stopPortForward,
-    isBackendAvailable,
+startPortForward,
+stopPortForward
 } from '../infrastructure/services/portForwardingService';
+import { cn } from '../lib/utils';
+import SelectHostPanel from './SelectHostPanel';
+import { AsidePanel,AsidePanelContent,AsidePanelFooter } from './ui/aside-panel';
+import { Button } from './ui/button';
+import { Dropdown,DropdownContent,DropdownTrigger } from './ui/dropdown';
+import { Input } from './ui/input';
+import { SortDropdown } from './ui/sort-dropdown';
 import { toast } from './ui/toast';
 
 // Import components and utilities from port-forwarding module
 import {
-    TYPE_LABELS,
-    TYPE_DESCRIPTIONS,
-    TYPE_ICONS,
-    RuleCard,
-    WizardContent,
-    EditPanel,
-    NewFormPanel,
+EditPanel,
+NewFormPanel,
+RuleCard,
+WizardContent
 } from './port-forwarding';
 
 type WizardStep = 'type' | 'local-config' | 'remote-host-selection' | 'remote-config' | 'destination' | 'host-selection' | 'label';

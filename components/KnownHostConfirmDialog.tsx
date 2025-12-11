@@ -1,9 +1,8 @@
+import { ShieldCheck } from 'lucide-react';
 import React from 'react';
-import { AlertTriangle, ShieldCheck, ShieldX, Info } from 'lucide-react';
-import { Host, KnownHost } from '../types';
+import { Host } from '../types';
 import { DistroAvatar } from './DistroAvatar';
 import { Button } from './ui/button';
-import { cn } from '../lib/utils';
 
 export interface HostKeyInfo {
     hostname: string;

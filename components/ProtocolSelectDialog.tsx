@@ -1,15 +1,14 @@
-import React, { useState, useMemo } from 'react';
 import {
-    Terminal as TerminalIcon,
-    Globe,
-    Wifi,
-    X,
+Globe,
+Terminal as TerminalIcon,
+Wifi
 } from 'lucide-react';
-import { Host, HostProtocol } from '../types';
+import React,{ useMemo,useState } from 'react';
+import { cn } from '../lib/utils';
+import { Host,HostProtocol } from '../types';
 import { DistroAvatar } from './DistroAvatar';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
-import { cn } from '../lib/utils';
 
 interface ProtocolOption {
     protocol: HostProtocol;
