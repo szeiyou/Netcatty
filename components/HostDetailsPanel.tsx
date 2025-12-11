@@ -14,6 +14,9 @@ import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 import ThemeSelectPanel from "./ThemeSelectPanel";
 import { TERMINAL_THEMES } from "../infrastructure/config/terminalThemes";
 
+// Import host-details sub-panels
+import { CreateGroupPanel, ProxyPanel, ChainPanel, EnvVarsPanel } from "./host-details";
+
 type Protocol = "ssh" | "telnet";
 type AuthMethod = "password" | "key" | "certificate" | "fido2";
 type CredentialType = "sshid" | "key" | "certificate" | "fido2" | null;
@@ -276,342 +279,69 @@ const HostDetailsPanel: React.FC<HostDetailsPanelProps> = ({
   // Render sub-panels
   if (activeSubPanel === "create-group") {
     return (
-      <AsidePanel
-        open={true}
-        onClose={onCancel}
-        title="New Group"
-        showBackButton={true}
+      <CreateGroupPanel
+        newGroupName={newGroupName}
+        setNewGroupName={setNewGroupName}
+        newGroupParent={newGroupParent}
+        setNewGroupParent={setNewGroupParent}
+        groups={groups}
+        onSave={handleCreateGroup}
         onBack={() => setActiveSubPanel("none")}
-        actions={
-          <Button size="sm" onClick={handleCreateGroup} disabled={!newGroupName.trim()}>
-            Save
-          </Button>
-        }
-      >
-        <AsidePanelContent>
-          <Card className="p-3 space-y-3 bg-card border-border/80">
-            <p className="text-xs font-semibold">General</p>
-            <div className="flex items-center gap-2">
-              <div className="h-10 w-10 rounded-lg bg-primary/15 flex items-center justify-center">
-                <FolderPlus size={18} className="text-primary" />
-              </div>
-              <Input
-                placeholder="Group name"
-                value={newGroupName}
-                onChange={(e) => setNewGroupName(e.target.value)}
-                className="h-10 flex-1"
-                autoFocus
-              />
-            </div>
-            <div className="relative">
-              <Input
-                placeholder="Parent Group"
-                value={newGroupParent}
-                onChange={(e) => setNewGroupParent(e.target.value)}
-                list="parent-group-options"
-                className="h-10"
-              />
-              <datalist id="parent-group-options">
-                {groups.map((g) => <option key={g} value={g} />)}
-              </datalist>
-            </div>
-          </Card>
-
-          <Card className="p-3 space-y-2 bg-card border-border/80">
-            <div className="flex items-center justify-between">
-              <p className="text-xs font-semibold">Cloud Sync</p>
-              <HelpCircle size={14} className="text-muted-foreground" />
-            </div>
-            <ToggleRow label="Cloud Sync" enabled={false} onToggle={() => { }} />
-          </Card>
-
-          <Button variant="ghost" className="w-full h-10 gap-2">
-            <Plus size={16} /> Add protocol
-          </Button>
-        </AsidePanelContent>
-      </AsidePanel>
+        onCancel={onCancel}
+      />
     );
   }
 
   if (activeSubPanel === "proxy") {
     return (
-      <AsidePanel
-        open={true}
-        onClose={onCancel}
-        title="New Proxy"
-        showBackButton={true}
+      <ProxyPanel
+        proxyConfig={form.proxyConfig}
+        onUpdateProxy={updateProxyConfig}
+        onClearProxy={clearProxyConfig}
         onBack={() => setActiveSubPanel("none")}
-        actions={
-          <Button size="sm" onClick={() => setActiveSubPanel("none")} disabled={!form.proxyConfig?.host}>
-            Save
-          </Button>
-        }
-      >
-        <AsidePanelContent>
-          <Card className="p-3 space-y-3 bg-card border-border/80">
-            <div className="flex items-center justify-between">
-              <p className="text-xs font-semibold">Type</p>
-              <div className="flex gap-2">
-                <Button
-                  variant={form.proxyConfig?.type === 'http' ? "secondary" : "ghost"}
-                  size="sm"
-                  className={cn("h-8", form.proxyConfig?.type === 'http' && "bg-primary/15")}
-                  onClick={() => updateProxyConfig('type', 'http')}
-                >
-                  <Check size={14} className={cn("mr-1", form.proxyConfig?.type !== 'http' && "opacity-0")} />
-                  HTTP
-                </Button>
-                <Button
-                  variant={form.proxyConfig?.type === 'socks5' ? "secondary" : "ghost"}
-                  size="sm"
-                  className={cn("h-8", form.proxyConfig?.type === 'socks5' && "bg-primary/15")}
-                  onClick={() => updateProxyConfig('type', 'socks5')}
-                >
-                  <Check size={14} className={cn("mr-1", form.proxyConfig?.type !== 'socks5' && "opacity-0")} />
-                  SOCKS5
-                </Button>
-              </div>
-            </div>
-
-            <div className="flex gap-2">
-              <Input
-                placeholder="Proxy Host"
-                value={form.proxyConfig?.host || ""}
-                onChange={(e) => updateProxyConfig('host', e.target.value)}
-                className="h-10 flex-1"
-              />
-              <div className="flex items-center gap-1">
-                <span className="text-xs text-muted-foreground">Port</span>
-                <Input
-                  type="number"
-                  placeholder="3128"
-                  value={form.proxyConfig?.port || ""}
-                  onChange={(e) => updateProxyConfig('port', parseInt(e.target.value) || 0)}
-                  className="h-10 w-20 text-center"
-                />
-              </div>
-            </div>
-          </Card>
-
-          <Card className="p-3 space-y-3 bg-card border-border/80">
-            <div className="flex items-center justify-between">
-              <p className="text-xs font-semibold">Credentials</p>
-              <Badge variant="secondary" className="text-xs">Optional</Badge>
-            </div>
-            <Input
-              placeholder="Proxy Username"
-              value={form.proxyConfig?.username || ""}
-              onChange={(e) => updateProxyConfig('username', e.target.value)}
-              className="h-10"
-            />
-            <Input
-              placeholder="Proxy Password"
-              type="password"
-              value={form.proxyConfig?.password || ""}
-              onChange={(e) => updateProxyConfig('password', e.target.value)}
-              className="h-10"
-            />
-            <Button variant="ghost" size="sm" className="text-primary" onClick={() => { }}>
-              Identities
-            </Button>
-          </Card>
-
-          {form.proxyConfig?.host && (
-            <Button variant="ghost" className="w-full h-10 text-destructive" onClick={clearProxyConfig}>
-              <Trash2 size={14} className="mr-2" /> Remove Proxy
-            </Button>
-          )}
-        </AsidePanelContent>
-      </AsidePanel>
+        onCancel={onCancel}
+      />
     );
   }
 
   if (activeSubPanel === "chain") {
     return (
-      <AsidePanel
-        open={true}
-        onClose={onCancel}
-        title="Edit Chain"
-        showBackButton={true}
+      <ChainPanel
+        formLabel={form.label}
+        formHostname={form.hostname}
+        form={form}
+        chainedHosts={chainedHosts}
+        availableHostsForChain={availableHostsForChain}
+        onAddHost={addHostToChain}
+        onRemoveHost={removeHostFromChain}
+        onClearChain={clearHostChain}
         onBack={() => setActiveSubPanel("none")}
-        actions={
-          <Button size="sm" onClick={() => setActiveSubPanel("none")}>
-            Save
-          </Button>
-        }
-      >
-        <ScrollArea className="flex-1">
-          <div className="p-4 space-y-4">
-            <Card className="p-3 space-y-3 bg-card border-border/80">
-              <p className="text-xs text-muted-foreground">
-                Adding another host will create a connection to <span className="font-semibold text-foreground">{form.label || form.hostname}</span>
-              </p>
-              <Button className="w-full h-10" onClick={() => { }}>
-                <Plus size={14} className="mr-2" /> Add a Host
-              </Button>
-            </Card>
-
-            {/* Chain visualization */}
-            <div className="space-y-2">
-              {chainedHosts.map((host, index) => (
-                <React.Fragment key={host.id}>
-                  {index > 0 && (
-                    <div className="flex justify-center py-1">
-                      <ArrowDown size={16} className="text-muted-foreground" />
-                    </div>
-                  )}
-                  <div className="flex items-center gap-2 p-2 rounded-lg border border-border/60 bg-card">
-                    <DistroAvatar host={host} fallback={host.label.slice(0, 2).toUpperCase()} className="h-8 w-8" />
-                    <span className="text-sm font-medium flex-1">{host.label || host.hostname}</span>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-6 w-6 text-muted-foreground hover:text-destructive"
-                      onClick={() => removeHostFromChain(index)}
-                    >
-                      <X size={14} />
-                    </Button>
-                  </div>
-                </React.Fragment>
-              ))}
-
-              {chainedHosts.length > 0 && (
-                <div className="flex justify-center py-1">
-                  <ArrowDown size={16} className="text-muted-foreground" />
-                </div>
-              )}
-
-              {/* Target host (current) */}
-              <div className="flex items-center gap-2 p-2 rounded-lg border border-border/60 bg-card">
-                <DistroAvatar
-                  host={form as Host}
-                  fallback={form.label?.slice(0, 2).toUpperCase() || form.hostname?.slice(0, 2).toUpperCase() || "H"}
-                  className="h-8 w-8"
-                />
-                <div className="flex-1 min-w-0">
-                  <div className="text-sm font-medium truncate">{form.label || form.hostname || "Target"}</div>
-                  <div className="text-xs text-muted-foreground">Target</div>
-                </div>
-              </div>
-            </div>
-
-            {/* Available hosts to add */}
-            {availableHostsForChain.length > 0 && (
-              <Card className="p-3 bg-card border-border/80">
-                <p className="text-xs font-semibold text-muted-foreground mb-2">Available Hosts</p>
-                <div className="space-y-1">
-                  {availableHostsForChain.map((host) => (
-                    <button
-                      key={host.id}
-                      className="w-full flex items-center gap-2 p-2 rounded-md hover:bg-secondary transition-colors text-left"
-                      onClick={() => addHostToChain(host.id)}
-                    >
-                      <DistroAvatar host={host} fallback={host.label.slice(0, 2).toUpperCase()} className="h-8 w-8" />
-                      <div className="flex-1 min-w-0">
-                        <div className="text-sm font-medium truncate">{host.label}</div>
-                        <div className="text-xs text-muted-foreground truncate">{host.hostname}</div>
-                      </div>
-                      <Plus size={14} className="text-muted-foreground" />
-                    </button>
-                  ))}
-                </div>
-              </Card>
-            )}
-
-            {chainedHosts.length > 0 && (
-              <Button variant="ghost" className="w-full h-10 text-destructive" onClick={clearHostChain}>
-                Clear
-              </Button>
-            )}
-          </div>
-        </ScrollArea>
-      </AsidePanel>
+        onCancel={onCancel}
+      />
     );
   }
 
   // Environment Variables sub-panel
   if (activeSubPanel === "env-vars") {
     return (
-      <AsidePanel
-        open={true}
-        onClose={onCancel}
-        title="Environment Variables"
-        showBackButton={true}
+      <EnvVarsPanel
+        hostLabel={form.label}
+        hostHostname={form.hostname}
+        environmentVariables={form.environmentVariables || []}
+        newEnvName={newEnvName}
+        newEnvValue={newEnvValue}
+        setNewEnvName={setNewEnvName}
+        setNewEnvValue={setNewEnvValue}
+        onAddEnvVar={addEnvVar}
+        onRemoveEnvVar={removeEnvVar}
+        onUpdateEnvVar={(index, field, value) => {
+          const newVars = [...(form.environmentVariables || [])];
+          newVars[index] = { ...newVars[index], [field]: value };
+          setForm(prev => ({ ...prev, environmentVariables: newVars }));
+        }}
         onBack={() => setActiveSubPanel("none")}
-        actions={
-          <Button size="sm" onClick={() => setActiveSubPanel("none")}>
-            Save
-          </Button>
-        }
-      >
-        <AsidePanelContent>
-          <div className="text-sm text-muted-foreground">
-            Set an environment variable for <span className="font-semibold text-foreground">{form.label || form.hostname}</span>.
-            <p className="text-xs mt-1">Some SSH servers by default only allow variables with prefix LC_ and LANG_.</p>
-          </div>
-
-          <Button className="w-full h-10" onClick={addEnvVar} disabled={!newEnvName.trim()}>
-            <Plus size={14} className="mr-2" /> Add a variable
-          </Button>
-
-          {/* Existing variables */}
-          {(form.environmentVariables || []).map((envVar, index) => (
-            <Card key={index} className="p-3 space-y-2 bg-card border-border/80">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold">Variable</span>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-6 w-6 text-muted-foreground hover:text-destructive"
-                  onClick={() => removeEnvVar(index)}
-                >
-                  <X size={14} />
-                </Button>
-              </div>
-              <Input
-                placeholder="Variable"
-                value={envVar.name}
-                onChange={(e) => {
-                  const newVars = [...(form.environmentVariables || [])];
-                  newVars[index] = { ...newVars[index], name: e.target.value };
-                  setForm(prev => ({ ...prev, environmentVariables: newVars }));
-                }}
-                className="h-10"
-              />
-              <Input
-                placeholder="Value"
-                value={envVar.value}
-                onChange={(e) => {
-                  const newVars = [...(form.environmentVariables || [])];
-                  newVars[index] = { ...newVars[index], value: e.target.value };
-                  setForm(prev => ({ ...prev, environmentVariables: newVars }));
-                }}
-                className="h-10"
-              />
-            </Card>
-          ))}
-
-          {/* New variable input */}
-          <Card className="p-3 space-y-2 bg-card border-border/80">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold">Variable</span>
-              <X size={14} className="text-muted-foreground opacity-0" />
-            </div>
-            <Input
-              placeholder="Variable"
-              value={newEnvName}
-              onChange={(e) => setNewEnvName(e.target.value)}
-              className="h-10"
-            />
-            <Input
-              placeholder="Value"
-              value={newEnvValue}
-              onChange={(e) => setNewEnvValue(e.target.value)}
-              className="h-10"
-            />
-          </Card>
-        </AsidePanelContent>
-      </AsidePanel>
+        onCancel={onCancel}
+      />
     );
   }
 

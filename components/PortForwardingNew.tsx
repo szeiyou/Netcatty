@@ -1,44 +1,26 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import {
-    ArrowLeft,
-    ArrowRight,
-    ArrowRightLeft,
     ChevronDown,
     Copy,
     LayoutGrid,
     List as ListIcon,
     Loader2,
-    MoreVertical,
-    Play,
-    Plus,
     Search,
-    Square,
     Trash2,
-    Pencil,
     Zap,
     Globe,
     Server,
     Shuffle,
-    SortAsc,
-    SortDesc,
-    Calendar,
-    CalendarClock,
     Check,
 } from 'lucide-react';
 import { PortForwardingRule, PortForwardingType, Host, SSHKey } from '../domain/models';
 import { Button } from './ui/button';
 import { AsidePanel, AsidePanelContent, AsidePanelFooter, AsideActionMenu, AsideActionMenuItem } from './ui/aside-panel';
 import { Input } from './ui/input';
-import { Label } from './ui/label';
-import { Card, CardContent } from './ui/card';
 import { Dropdown, DropdownTrigger, DropdownContent } from './ui/dropdown';
 import { SortDropdown } from './ui/sort-dropdown';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from './ui/dialog';
-import { ScrollArea } from './ui/scroll-area';
-import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger, ContextMenuSeparator } from './ui/context-menu';
 import { cn } from '../lib/utils';
 import { TrafficDiagram } from './TrafficDiagram';
-import { DistroAvatar } from './DistroAvatar';
 import SelectHostPanel from './SelectHostPanel';
 import {
     usePortForwardingState,
@@ -52,6 +34,17 @@ import {
 } from '../infrastructure/services/portForwardingService';
 import { toast } from './ui/toast';
 
+// Import components and utilities from port-forwarding module
+import {
+    TYPE_LABELS,
+    TYPE_DESCRIPTIONS,
+    TYPE_ICONS,
+    RuleCard,
+    WizardContent,
+    EditPanel,
+    NewFormPanel,
+} from './port-forwarding';
+
 type WizardStep = 'type' | 'local-config' | 'remote-host-selection' | 'remote-config' | 'destination' | 'host-selection' | 'label';
 
 interface PortForwardingProps {
@@ -62,24 +55,6 @@ interface PortForwardingProps {
     onSaveHost?: (host: Host) => void;
     onCreateGroup?: (groupPath: string) => void;
 }
-
-const TYPE_LABELS: Record<PortForwardingType, string> = {
-    local: 'Local Forwarding',
-    remote: 'Remote Forwarding',
-    dynamic: 'Dynamic Forwarding',
-};
-
-const TYPE_DESCRIPTIONS: Record<PortForwardingType, string> = {
-    local: 'Local forwarding lets you access a remote server\'s listening port as though it were local.',
-    remote: 'Remote forwarding opens a port on the remote machine and forwards connections to the local (current) host.',
-    dynamic: 'Dynamic port forwarding turns Netcatty into a SOCKS proxy server. SOCKS proxy server is a protocol to request any connection via a remote host.',
-};
-
-const TYPE_ICONS: Record<PortForwardingType, React.ReactNode> = {
-    local: <Globe size={16} />,
-    remote: <Server size={16} />,
-    dynamic: <Shuffle size={16} />,
-};
 
 const PortForwarding: React.FC<PortForwardingProps> = ({ hosts, keys, customGroups, onNewHost, onSaveHost, onCreateGroup }) => {
     const {
@@ -489,379 +464,7 @@ const PortForwarding: React.FC<PortForwardingProps> = ({ hosts, keys, customGrou
         resetWizard();
     };
 
-    // Render rule card
-    const renderRuleCard = (rule: PortForwardingRule) => {
-        const isSelected = selectedRuleId === rule.id;
-
-        return (
-            <ContextMenu key={rule.id}>
-                <ContextMenuTrigger>
-                    <div
-                        className={cn(
-                            "group cursor-pointer",
-                            viewMode === 'grid'
-                                ? "soft-card elevate rounded-xl h-[68px] px-3 py-2"
-                                : "h-14 px-3 py-2 hover:bg-secondary/60 rounded-lg transition-colors",
-                            isSelected && "ring-2 ring-primary"
-                        )}
-                        onClick={() => {
-                            setSelectedRuleId(rule.id);
-                            startEditRule(rule);
-                        }}
-                    >
-                        <div className="flex items-center gap-3 h-full">
-                            <div className={cn(
-                                "h-11 w-11 rounded-xl flex items-center justify-center text-sm font-bold transition-colors",
-                                rule.status === 'active' ? (
-                                    rule.type === 'local' ? "bg-blue-500 text-white" :
-                                        rule.type === 'remote' ? "bg-orange-500 text-white" :
-                                            "bg-purple-500 text-white"
-                                ) : (
-                                    rule.type === 'local' ? "bg-blue-500/15 text-blue-500" :
-                                        rule.type === 'remote' ? "bg-orange-500/15 text-orange-500" :
-                                            "bg-purple-500/15 text-purple-500"
-                                )
-                            )}>
-                                {rule.type[0].toUpperCase()}
-                            </div>
-                            <div className="flex-1 min-w-0">
-                                <div className="flex items-center gap-2">
-                                    <span className="text-sm font-semibold truncate">{rule.label}</span>
-                                    <span
-                                        className={cn(
-                                            "h-2 w-2 rounded-full flex-shrink-0",
-                                            rule.status === 'active' ? "bg-emerald-500" :
-                                                rule.status === 'connecting' ? "bg-yellow-500 animate-pulse" :
-                                                    rule.status === 'error' ? "bg-red-500" :
-                                                        "bg-muted-foreground/40"
-                                        )}
-                                        title={rule.status === 'error' && rule.error ? rule.error : undefined}
-                                    />
-                                </div>
-                                <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
-                                    <span className="truncate">
-                                        {rule.type === 'dynamic'
-                                            ? `SOCKS on ${rule.bindAddress}:${rule.localPort}`
-                                            : `${rule.bindAddress}:${rule.localPort} → ${rule.remoteHost}:${rule.remotePort}`
-                                        }
-                                    </span>
-                                </div>
-                            </div>
-                            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                {pendingOperations.has(rule.id) ? (
-                                    <Button
-                                        size="icon"
-                                        variant="ghost"
-                                        className="h-7 w-7"
-                                        disabled
-                                    >
-                                        <Loader2 size={12} className="animate-spin" />
-                                    </Button>
-                                ) : rule.status === 'inactive' || rule.status === 'error' ? (
-                                    <Button
-                                        size="icon"
-                                        variant="ghost"
-                                        className="h-7 w-7"
-                                        onClick={(e) => {
-                                            e.stopPropagation();
-                                            handleStartTunnel(rule);
-                                        }}
-                                    >
-                                        <Play size={12} />
-                                    </Button>
-                                ) : rule.status === 'active' || rule.status === 'connecting' ? (
-                                    <Button
-                                        size="icon"
-                                        variant="ghost"
-                                        className="h-7 w-7"
-                                        onClick={(e) => {
-                                            e.stopPropagation();
-                                            handleStopTunnel(rule);
-                                        }}
-                                    >
-                                        <Square size={12} />
-                                    </Button>
-                                ) : null}
-                            </div>
-                        </div>
-                    </div>
-                </ContextMenuTrigger>
-                <ContextMenuContent>
-                    <ContextMenuItem onClick={() => startEditRule(rule)}>
-                        <Pencil className="mr-2 h-4 w-4" /> Edit
-                    </ContextMenuItem>
-                    <ContextMenuItem onClick={() => duplicateRule(rule.id)}>
-                        <Copy className="mr-2 h-4 w-4" /> Duplicate
-                    </ContextMenuItem>
-                    <ContextMenuSeparator />
-                    {(rule.status === 'inactive' || rule.status === 'error') && (
-                        <ContextMenuItem onClick={() => handleStartTunnel(rule)}>
-                            <Play className="mr-2 h-4 w-4" /> Start
-                        </ContextMenuItem>
-                    )}
-                    {(rule.status === 'active' || rule.status === 'connecting') && (
-                        <ContextMenuItem onClick={() => handleStopTunnel(rule)}>
-                            <Square className="mr-2 h-4 w-4" /> Stop
-                        </ContextMenuItem>
-                    )}
-                    <ContextMenuSeparator />
-                    <ContextMenuItem className="text-destructive" onClick={() => {
-                        // Close edit panel if deleting the currently editing rule
-                        if (editingRule?.id === rule.id) {
-                            closeEditPanel();
-                        }
-                        deleteRule(rule.id);
-                    }}>
-                        <Trash2 className="mr-2 h-4 w-4" /> Delete
-                    </ContextMenuItem>
-                </ContextMenuContent>
-            </ContextMenu>
-        );
-    };
-
     // Render wizard panel content
-    const renderWizardContent = () => {
-        const selectedHost = hosts.find(h => h.id === draftRule.hostId);
-
-        switch (wizardStep) {
-            case 'type':
-                return (
-                    <>
-                        <div className="text-sm font-medium mb-3">Select the port forwarding type:</div>
-                        <div className="flex gap-1 p-1 bg-secondary/80 rounded-lg border border-border/60">
-                            {(['local', 'remote', 'dynamic'] as PortForwardingType[]).map((type) => (
-                                <Button
-                                    key={type}
-                                    variant={wizardType === type ? 'default' : 'ghost'}
-                                    size="sm"
-                                    className={cn(
-                                        "flex-1 h-9",
-                                        wizardType === type ? "bg-primary text-primary-foreground" : ""
-                                    )}
-                                    onClick={() => {
-                                        setWizardType(type);
-                                        setDraftRule(prev => ({ ...prev, type }));
-                                    }}
-                                >
-                                    {type[0].toUpperCase() + type.slice(1)}
-                                </Button>
-                            ))}
-                        </div>
-
-                        <div className="mt-6">
-                            <TrafficDiagram type={wizardType} isAnimating={true} />
-                        </div>
-
-                        <p className="text-sm text-muted-foreground mt-4 leading-relaxed">
-                            {TYPE_DESCRIPTIONS[wizardType]}
-                        </p>
-                    </>
-                );
-
-            case 'local-config':
-                return (
-                    <>
-                        <div className="text-sm font-medium mb-3">Set the local port and binding address:</div>
-
-                        <TrafficDiagram type={wizardType} isAnimating={true} highlightRole="app" />
-
-                        <p className="text-sm text-muted-foreground mt-2 mb-4 leading-relaxed">
-                            This port will be open on the local (current) device, and it will receive the traffic.
-                        </p>
-
-                        <div className="space-y-4">
-                            <div className="space-y-2">
-                                <Label className="text-xs">Local port number *</Label>
-                                <Input
-                                    type="number"
-                                    placeholder="e.g. 8080"
-                                    className="h-10"
-                                    value={draftRule.localPort || ''}
-                                    onChange={e => setDraftRule(prev => ({ ...prev, localPort: parseInt(e.target.value) || undefined }))}
-                                />
-                            </div>
-                            <div className="space-y-2">
-                                <Label className="text-xs">Bind address</Label>
-                                <Input
-                                    placeholder="127.0.0.1"
-                                    className="h-10"
-                                    value={draftRule.bindAddress || ''}
-                                    onChange={e => setDraftRule(prev => ({ ...prev, bindAddress: e.target.value }))}
-                                />
-                            </div>
-                        </div>
-                    </>
-                );
-
-            case 'remote-host-selection':
-                return (
-                    <>
-                        <div className="text-sm font-medium mb-3">Select the remote host:</div>
-
-                        <TrafficDiagram type={wizardType} isAnimating={true} highlightRole="ssh-server" />
-
-                        <p className="text-sm text-muted-foreground mt-2 mb-4 leading-relaxed">
-                            Select a host where the port will be open. The traffic from this port will be forwarded to the destination host.
-                        </p>
-
-                        <Button
-                            variant="default"
-                            className="w-full h-11"
-                            onClick={() => setShowHostSelector(true)}
-                        >
-                            {selectedHost ? (
-                                <div className="flex items-center gap-2 w-full">
-                                    <DistroAvatar host={selectedHost} fallback={selectedHost.os[0].toUpperCase()} className="h-6 w-6" />
-                                    <span>{selectedHost.label}</span>
-                                    <Check size={14} className="ml-auto" />
-                                </div>
-                            ) : (
-                                'Select a host'
-                            )}
-                        </Button>
-                    </>
-                );
-
-            case 'remote-config':
-                return (
-                    <>
-                        <div className="text-sm font-medium mb-3">Set the port and binding address:</div>
-
-                        <TrafficDiagram type={wizardType} isAnimating={true} highlightRole="ssh-server" />
-
-                        <p className="text-sm text-muted-foreground mt-2 mb-4 leading-relaxed">
-                            We will forward traffic from specified port and interface address of the selected host.
-                        </p>
-
-                        <div className="space-y-4">
-                            <div className="space-y-2">
-                                <Label className="text-xs">Remote port number *</Label>
-                                <Input
-                                    type="number"
-                                    placeholder="e.g. 8080"
-                                    className="h-10"
-                                    value={draftRule.localPort || ''}
-                                    onChange={e => setDraftRule(prev => ({ ...prev, localPort: parseInt(e.target.value) || undefined }))}
-                                />
-                            </div>
-                            <div className="space-y-2">
-                                <Label className="text-xs">Bind address</Label>
-                                <Input
-                                    placeholder="127.0.0.1"
-                                    className="h-10"
-                                    value={draftRule.bindAddress || ''}
-                                    onChange={e => setDraftRule(prev => ({ ...prev, bindAddress: e.target.value }))}
-                                />
-                            </div>
-                        </div>
-                    </>
-                );
-
-            case 'destination':
-                return (
-                    <>
-                        <div className="text-sm font-medium mb-3">Select the destination host:</div>
-
-                        <TrafficDiagram type={wizardType} isAnimating={true} highlightRole="target" />
-
-                        <p className="text-sm text-muted-foreground mt-2 mb-4 leading-relaxed">
-                            {wizardType === 'local'
-                                ? 'Enter the remote destination that you want to access through the tunnel.'
-                                : 'The destination address and port where the traffic will be forwarded.'
-                            }
-                        </p>
-
-                        <div className="space-y-4">
-                            <div className="space-y-2">
-                                <Label className="text-xs">Destination address *</Label>
-                                <Input
-                                    placeholder="e.g. 127.0.0.1 or 192.168.1.100"
-                                    className="h-10"
-                                    value={draftRule.remoteHost || ''}
-                                    onChange={e => setDraftRule(prev => ({ ...prev, remoteHost: e.target.value }))}
-                                />
-                            </div>
-                            <div className="space-y-2">
-                                <Label className="text-xs">Destination port number *</Label>
-                                <Input
-                                    type="number"
-                                    placeholder="e.g. 3306"
-                                    className="h-10"
-                                    value={draftRule.remotePort || ''}
-                                    onChange={e => setDraftRule(prev => ({ ...prev, remotePort: parseInt(e.target.value) || undefined }))}
-                                />
-                            </div>
-                        </div>
-                    </>
-                );
-
-            case 'host-selection':
-                return (
-                    <>
-                        <div className="text-sm font-medium mb-3">Select the SSH server:</div>
-
-                        <TrafficDiagram type={wizardType} isAnimating={true} highlightRole="ssh-server" />
-
-                        <p className="text-sm text-muted-foreground mt-2 mb-4 leading-relaxed">
-                            {wizardType === 'dynamic'
-                                ? 'Select the SSH server that will act as your SOCKS proxy.'
-                                : 'Select the SSH server that will tunnel your traffic to the destination.'
-                            }
-                        </p>
-
-                        <Button
-                            variant="default"
-                            className="w-full h-11"
-                            onClick={() => setShowHostSelector(true)}
-                        >
-                            {selectedHost ? (
-                                <div className="flex items-center gap-2 w-full">
-                                    <DistroAvatar host={selectedHost} fallback={selectedHost.os[0].toUpperCase()} className="h-6 w-6" />
-                                    <span>{selectedHost.label}</span>
-                                    <Check size={14} className="ml-auto" />
-                                </div>
-                            ) : (
-                                'Select a host'
-                            )}
-                        </Button>
-
-                        {/* Rule label */}
-                        <div className="space-y-2 mt-6">
-                            <Label className="text-xs">Label</Label>
-                            <Input
-                                placeholder={wizardType === 'dynamic' ? "e.g. SOCKS Proxy" : "e.g. MySQL Production"}
-                                className="h-10"
-                                value={draftRule.label || ''}
-                                onChange={e => setDraftRule(prev => ({ ...prev, label: e.target.value }))}
-                            />
-                        </div>
-                    </>
-                );
-
-            case 'label':
-                return (
-                    <>
-                        <div className="text-sm font-medium mb-3">Select the label:</div>
-
-                        <TrafficDiagram type={wizardType} isAnimating={true} />
-
-                        <div className="space-y-2 mt-4">
-                            <Label className="text-xs">Label</Label>
-                            <Input
-                                placeholder="e.g. Remote Rule"
-                                className="h-10"
-                                value={draftRule.label || ''}
-                                onChange={e => setDraftRule(prev => ({ ...prev, label: e.target.value }))}
-                            />
-                        </div>
-                    </>
-                );
-
-            default:
-                return null;
-        }
-    };
-
     const hasRules = filteredRules.length > 0;
 
     return (
@@ -978,7 +581,29 @@ const PortForwarding: React.FC<PortForwardingProps> = ({ hosts, keys, customGrou
                                     ? "grid gap-3 grid-cols-1 md:grid-cols-2 lg:grid-cols-3"
                                     : "flex flex-col gap-2.5"
                             )}>
-                                {filteredRules.map(rule => renderRuleCard(rule))}
+                                {filteredRules.map(rule => (
+                                    <RuleCard
+                                        key={rule.id}
+                                        rule={rule}
+                                        viewMode={viewMode}
+                                        isSelected={selectedRuleId === rule.id}
+                                        isPending={pendingOperations.has(rule.id)}
+                                        onSelect={() => {
+                                            setSelectedRuleId(rule.id);
+                                            startEditRule(rule);
+                                        }}
+                                        onEdit={() => startEditRule(rule)}
+                                        onDuplicate={() => duplicateRule(rule.id)}
+                                        onDelete={() => {
+                                            if (editingRule?.id === rule.id) {
+                                                closeEditPanel();
+                                            }
+                                            deleteRule(rule.id);
+                                        }}
+                                        onStart={() => handleStartTunnel(rule)}
+                                        onStop={() => handleStopTunnel(rule)}
+                                    />
+                                ))}
                             </div>
                         </div>
                     )}
@@ -987,143 +612,23 @@ const PortForwarding: React.FC<PortForwardingProps> = ({ hosts, keys, customGrou
 
             {/* Edit Panel - shown when a rule is selected */}
             {showEditPanel && editingRule && (
-                <AsidePanel
-                    open={true}
+                <EditPanel
+                    rule={editingRule}
+                    draft={editDraft}
+                    hosts={hosts}
+                    onDraftChange={(updates) => setEditDraft(prev => ({ ...prev, ...updates }))}
+                    onSave={saveEditedRule}
                     onClose={closeEditPanel}
-                    title="Edit Port Forwarding"
-                    width="w-[360px]"
-                    actions={
-                        <AsideActionMenu>
-                            <AsideActionMenuItem
-                                icon={<Copy size={14} />}
-                                onClick={() => {
-                                    duplicateRule(editingRule.id);
-                                    closeEditPanel();
-                                }}
-                            >
-                                Duplicate
-                            </AsideActionMenuItem>
-                            <AsideActionMenuItem
-                                icon={<Trash2 size={14} />}
-                                variant="destructive"
-                                onClick={() => {
-                                    deleteRule(editingRule.id);
-                                    closeEditPanel();
-                                }}
-                            >
-                                Delete
-                            </AsideActionMenuItem>
-                        </AsideActionMenu>
-                    }
-                >
-                    <AsidePanelContent>
-                        {/* Traffic Diagram */}
-                        <div className="-my-1">
-                            <TrafficDiagram type={editDraft.type || editingRule.type} isAnimating={true} />
-                        </div>
-
-                        {/* Label */}
-                        <div className="space-y-1">
-                            <Label className="text-[10px] text-muted-foreground">Label</Label>
-                            <Input
-                                placeholder="Rule label"
-                                className="h-10"
-                                value={editDraft.label || ''}
-                                onChange={e => setEditDraft(prev => ({ ...prev, label: e.target.value }))}
-                            />
-                        </div>
-
-                        {/* Local Port */}
-                        <div className="space-y-1">
-                            <Label className="text-[10px] text-muted-foreground">Local port number *</Label>
-                            <Input
-                                type="number"
-                                placeholder="e.g. 8080"
-                                className="h-10"
-                                value={editDraft.localPort || ''}
-                                onChange={e => setEditDraft(prev => ({ ...prev, localPort: parseInt(e.target.value) || undefined }))}
-                            />
-                        </div>
-
-                        {/* Bind Address */}
-                        <div className="space-y-1">
-                            <Label className="text-[10px] text-muted-foreground">Bind address</Label>
-                            <Input
-                                placeholder="127.0.0.1"
-                                className="h-10"
-                                value={editDraft.bindAddress || ''}
-                                onChange={e => setEditDraft(prev => ({ ...prev, bindAddress: e.target.value }))}
-                            />
-                        </div>
-
-                        {/* Intermediate Host - for all types */}
-                        <div className="space-y-1">
-                            <Label className="text-[10px] text-muted-foreground">Intermediate host *</Label>
-                            <Button
-                                variant="secondary"
-                                className="w-full h-10 justify-between"
-                                onClick={() => {
-                                    setShowHostSelector(true);
-                                }}
-                            >
-                                {hosts.find(h => h.id === editDraft.hostId) ? (
-                                    <div className="flex items-center gap-2">
-                                        <DistroAvatar
-                                            host={hosts.find(h => h.id === editDraft.hostId)!}
-                                            fallback={hosts.find(h => h.id === editDraft.hostId)!.os[0].toUpperCase()}
-                                            className="h-6 w-6"
-                                        />
-                                        <span>{hosts.find(h => h.id === editDraft.hostId)?.label}</span>
-                                    </div>
-                                ) : (
-                                    <span className="text-muted-foreground">Select a host</span>
-                                )}
-                                <ChevronDown size={14} />
-                            </Button>
-                        </div>
-
-                        {/* Destination - for local/remote only */}
-                        {(editDraft.type === 'local' || editDraft.type === 'remote') && (
-                            <>
-                                <div className="space-y-1">
-                                    <Label className="text-[10px] text-muted-foreground">Destination address *</Label>
-                                    <Input
-                                        placeholder="e.g. localhost or 192.168.1.100"
-                                        className="h-10"
-                                        value={editDraft.remoteHost || ''}
-                                        onChange={e => setEditDraft(prev => ({ ...prev, remoteHost: e.target.value }))}
-                                    />
-                                </div>
-
-                                <div className="space-y-1">
-                                    <Label className="text-[10px] text-muted-foreground">Destination port number *</Label>
-                                    <Input
-                                        type="number"
-                                        placeholder="e.g. 3306"
-                                        className="h-10"
-                                        value={editDraft.remotePort || ''}
-                                        onChange={e => setEditDraft(prev => ({ ...prev, remotePort: parseInt(e.target.value) || undefined }))}
-                                    />
-                                </div>
-                            </>
-                        )}
-                    </AsidePanelContent>
-                    <AsidePanelFooter className="space-y-2">
-                        <Button
-                            className="w-full h-10"
-                            onClick={saveEditedRule}
-                        >
-                            Save Changes
-                        </Button>
-                        <Button
-                            variant="ghost"
-                            className="w-full h-10 text-muted-foreground hover:text-foreground hover:bg-foreground/5"
-                            onClick={closeEditPanel}
-                        >
-                            Cancel
-                        </Button>
-                    </AsidePanelFooter>
-                </AsidePanel>
+                    onDuplicate={() => {
+                        duplicateRule(editingRule.id);
+                        closeEditPanel();
+                    }}
+                    onDelete={() => {
+                        deleteRule(editingRule.id);
+                        closeEditPanel();
+                    }}
+                    onOpenHostSelector={() => setShowHostSelector(true)}
+                />
             )}
 
             {/* Wizard Panel */}
@@ -1140,7 +645,18 @@ const PortForwarding: React.FC<PortForwardingProps> = ({ hosts, keys, customGrou
                     } : undefined}
                 >
                     <AsidePanelContent>
-                        {renderWizardContent()}
+                        <WizardContent
+                            step={wizardStep}
+                            type={wizardType}
+                            draft={draftRule}
+                            hosts={hosts}
+                            onTypeChange={(type) => {
+                                setWizardType(type);
+                                setDraftRule(prev => ({ ...prev, type }));
+                            }}
+                            onDraftChange={(updates) => setDraftRule(prev => ({ ...prev, ...updates }))}
+                            onOpenHostSelector={() => setShowHostSelector(true)}
+                        />
                     </AsidePanelContent>
                     <AsidePanelFooter className="space-y-2">
                         <Button
@@ -1209,147 +725,16 @@ const PortForwarding: React.FC<PortForwardingProps> = ({ hosts, keys, customGrou
 
             {/* New Form Panel (skip wizard mode) */}
             {showNewForm && (
-                <AsidePanel
-                    open={true}
+                <NewFormPanel
+                    draft={newFormDraft}
+                    hosts={hosts}
+                    onDraftChange={(updates) => setNewFormDraft(prev => ({ ...prev, ...updates }))}
+                    onSave={saveNewFormRule}
                     onClose={closeNewForm}
-                    title="New Port Forwarding"
-                    width="w-[360px]"
-                >
-                    <AsidePanelContent>
-                        {/* Type Selector */}
-                        <div className="flex gap-1 p-1 bg-secondary/80 rounded-lg border border-border/60">
-                            {(['local', 'remote', 'dynamic'] as PortForwardingType[]).map((type) => (
-                                <Button
-                                    key={type}
-                                    variant={newFormDraft.type === type ? 'default' : 'ghost'}
-                                    size="sm"
-                                    className={cn(
-                                        "flex-1 h-9",
-                                        newFormDraft.type === type ? "bg-primary text-primary-foreground" : ""
-                                    )}
-                                    onClick={() => setNewFormDraft(prev => ({ ...prev, type }))}
-                                >
-                                    {type[0].toUpperCase() + type.slice(1)}
-                                </Button>
-                            ))}
-                        </div>
-
-                        {/* Traffic Diagram */}
-                        <div className="-my-1">
-                            <TrafficDiagram type={newFormDraft.type || 'local'} isAnimating={true} />
-                        </div>
-
-                        {/* Label */}
-                        <div className="space-y-1">
-                            <Label className="text-[10px] text-muted-foreground">Label</Label>
-                            <Input
-                                placeholder="Rule label"
-                                className="h-10"
-                                value={newFormDraft.label || ''}
-                                onChange={e => setNewFormDraft(prev => ({ ...prev, label: e.target.value }))}
-                            />
-                        </div>
-
-                        {/* Local Port */}
-                        <div className="space-y-1">
-                            <Label className="text-[10px] text-muted-foreground">Local port number *</Label>
-                            <Input
-                                type="number"
-                                placeholder="e.g. 8080"
-                                className="h-10"
-                                value={newFormDraft.localPort || ''}
-                                onChange={e => setNewFormDraft(prev => ({ ...prev, localPort: parseInt(e.target.value) || undefined }))}
-                            />
-                        </div>
-
-                        {/* Bind Address */}
-                        <div className="space-y-1">
-                            <Label className="text-[10px] text-muted-foreground">Bind address</Label>
-                            <Input
-                                placeholder="127.0.0.1"
-                                className="h-10"
-                                value={newFormDraft.bindAddress || ''}
-                                onChange={e => setNewFormDraft(prev => ({ ...prev, bindAddress: e.target.value }))}
-                            />
-                        </div>
-
-                        {/* Intermediate Host */}
-                        <div className="space-y-1">
-                            <Label className="text-[10px] text-muted-foreground">Intermediate host *</Label>
-                            <Button
-                                variant="secondary"
-                                className="w-full h-10 justify-between"
-                                onClick={() => setShowHostSelector(true)}
-                            >
-                                {hosts.find(h => h.id === newFormDraft.hostId) ? (
-                                    <div className="flex items-center gap-2">
-                                        <DistroAvatar
-                                            host={hosts.find(h => h.id === newFormDraft.hostId)!}
-                                            fallback={hosts.find(h => h.id === newFormDraft.hostId)!.os[0].toUpperCase()}
-                                            className="h-6 w-6"
-                                        />
-                                        <span>{hosts.find(h => h.id === newFormDraft.hostId)?.label}</span>
-                                    </div>
-                                ) : (
-                                    <span className="text-muted-foreground">Select a host</span>
-                                )}
-                                <ChevronDown size={14} />
-                            </Button>
-                        </div>
-
-                        {/* Destination - for local/remote only */}
-                        {(newFormDraft.type === 'local' || newFormDraft.type === 'remote') && (
-                            <>
-                                <div className="space-y-1">
-                                    <Label className="text-[10px] text-muted-foreground">Destination address *</Label>
-                                    <Input
-                                        placeholder="e.g. localhost or 192.168.1.100"
-                                        className="h-10"
-                                        value={newFormDraft.remoteHost || ''}
-                                        onChange={e => setNewFormDraft(prev => ({ ...prev, remoteHost: e.target.value }))}
-                                    />
-                                </div>
-
-                                <div className="space-y-1">
-                                    <Label className="text-[10px] text-muted-foreground">Destination port number *</Label>
-                                    <Input
-                                        type="number"
-                                        placeholder="e.g. 3306"
-                                        className="h-10"
-                                        value={newFormDraft.remotePort || ''}
-                                        onChange={e => setNewFormDraft(prev => ({ ...prev, remotePort: parseInt(e.target.value) || undefined }))}
-                                    />
-                                </div>
-                            </>
-                        )}
-                    </AsidePanelContent>
-                    <AsidePanelFooter className="space-y-2">
-                        <Button
-                            className="w-full h-10"
-                            disabled={!isNewFormValid()}
-                            onClick={saveNewFormRule}
-                        >
-                            Create Rule
-                        </Button>
-                        <div className="flex items-center justify-between">
-                            <Button
-                                variant="ghost"
-                                className="h-10 text-muted-foreground hover:text-foreground hover:bg-foreground/5"
-                                onClick={closeNewForm}
-                            >
-                                Cancel
-                            </Button>
-                            <button
-                                className="text-xs text-muted-foreground hover:text-foreground/80 flex items-center gap-1 px-2 py-1 rounded hover:bg-foreground/5 transition-colors"
-                                onClick={openWizardFromForm}
-                                title="Open Port Forwarding Wizard"
-                            >
-                                <Zap size={12} />
-                                Open Wizard
-                            </button>
-                        </div>
-                    </AsidePanelFooter>
-                </AsidePanel>
+                    onOpenHostSelector={() => setShowHostSelector(true)}
+                    onOpenWizard={openWizardFromForm}
+                    isValid={isNewFormValid()}
+                />
             )}
         </div>
     );

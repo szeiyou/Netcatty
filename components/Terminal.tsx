@@ -1,16 +1,16 @@
 import React, { useEffect, useRef, useState, memo } from 'react';
 import { init as initGhostty, Terminal as GhosttyTerminal, FitAddon } from 'ghostty-web';
 import { Host, SSHKey, Snippet, TerminalSession, TerminalTheme, KnownHost, ProxyConfig, HostChainConfig, ShellHistoryEntry } from '../types';
-import { Zap, FolderInput, Loader2, AlertCircle, ShieldCheck, Clock, Play, X, Lock, Key, User, Eye, EyeOff, ChevronDown, Maximize2 } from 'lucide-react';
+import { Maximize2 } from 'lucide-react';
 import { DistroAvatar } from './DistroAvatar';
 import { Button } from './ui/button';
-import { Input } from './ui/input';
-import { Label } from './ui/label';
 import { cn } from '../lib/utils';
-import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
-import { ScrollArea } from './ui/scroll-area';
 import SFTPModal from './SFTPModal';
 import KnownHostConfirmDialog, { HostKeyInfo } from './KnownHostConfirmDialog';
+
+// Import terminal sub-components
+import { TerminalToolbar } from './terminal/TerminalToolbar';
+import { TerminalConnectionDialog } from './terminal/TerminalConnectionDialog';
 
 interface TerminalProps {
   host: Host;
@@ -1013,78 +1013,18 @@ const TerminalComponent: React.FC<TerminalProps> = ({
     }
   };
 
-  const renderControls = (opts?: { showClose?: boolean }) => {
-    const buttonBase = "h-7 px-2 text-[11px] bg-white/5 hover:bg-white/10 text-white shadow-none border-none";
-
-    return (
-      <>
-        <Button
-          variant="secondary"
-          size="sm"
-          className={buttonBase}
-          disabled={status !== 'connected'}
-          title={status === 'connected' ? "Open SFTP" : "Available after connect"}
-          onClick={() => setShowSFTP((v) => !v)}
-        >
-          <FolderInput size={12} className="mr-2" /> SFTP
-        </Button>
-
-        <Popover open={isScriptsOpen} onOpenChange={setIsScriptsOpen}>
-          <PopoverTrigger asChild>
-            <Button
-              variant="secondary"
-              size="sm"
-              className={buttonBase}
-            >
-              <Zap size={12} className="mr-2" /> Scripts
-            </Button>
-          </PopoverTrigger>
-          <PopoverContent className="w-64 p-0" align="start">
-            <div className="px-3 py-2 text-[10px] uppercase text-muted-foreground font-semibold bg-muted/30 border-b">
-              Library
-            </div>
-            <ScrollArea className="h-64">
-              <div className="py-1">
-                {snippets.length === 0 ? (
-                  <div className="px-3 py-2 text-xs text-muted-foreground italic">
-                    No snippets available
-                  </div>
-                ) : (
-                  snippets.map((s) => (
-                    <button
-                      key={s.id}
-                      onClick={() => handleSnippetClick(s.command)}
-                      className="w-full text-left px-3 py-2 text-xs hover:bg-accent transition-colors flex flex-col gap-0.5"
-                    >
-                      <span className="font-medium">{s.label}</span>
-                      <span className="text-muted-foreground truncate font-mono text-[10px]">
-                        {s.command}
-                      </span>
-                    </button>
-                  ))
-                )}
-              </div>
-            </ScrollArea>
-          </PopoverContent>
-        </Popover>
-
-        {opts?.showClose && (
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-7 w-7 text-white/80 hover:text-white hover:bg-white/10"
-            onClick={(e) => {
-              e.stopPropagation();
-              onCloseSession?.(sessionId);
-            }}
-            title="Close session"
-          >
-            <X size={12} />
-          </Button>
-        )}
-      </>
-    );
-  };
+  const renderControls = (opts?: { showClose?: boolean }) => (
+    <TerminalToolbar
+      status={status}
+      snippets={snippets}
+      isScriptsOpen={isScriptsOpen}
+      setIsScriptsOpen={setIsScriptsOpen}
+      onOpenSFTP={() => setShowSFTP((v) => !v)}
+      onSnippetClick={handleSnippetClick}
+      showClose={opts?.showClose}
+      onClose={() => onCloseSession?.(sessionId)}
+    />
+  );
 
   const statusDotTone = status === 'connected'
     ? "bg-emerald-400"
@@ -1146,294 +1086,44 @@ const TerminalComponent: React.FC<TerminalProps> = ({
         )}
 
         {status !== 'connected' && !needsHostKeyVerification && (
-          <div className={cn(
-            "absolute inset-0 z-20 flex items-center justify-center",
-            needsAuth ? "bg-black" : "bg-black/30"
-          )}>
-            <div className="w-[560px] max-w-[90vw] bg-background/95 border border-border/60 rounded-2xl shadow-xl p-6 space-y-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <DistroAvatar host={host} fallback={host.label.slice(0, 2).toUpperCase()} className="h-10 w-10" />
-                  <div>
-                    {/* Show chain progress if available */}
-                    {chainProgress ? (
-                      <>
-                        <div className="text-sm font-semibold">
-                          <span className="text-muted-foreground">Chain</span>{' '}
-                          <span className="font-bold">{chainProgress.currentHop}</span>{' '}
-                          <span className="text-muted-foreground">of</span>{' '}
-                          <span>{chainProgress.totalHops}:</span>{' '}
-                          <span>{chainProgress.currentHostLabel}</span>
-                        </div>
-                        <div className="text-[11px] text-muted-foreground font-mono">
-                          SSH {host.hostname}:{host.port || 22}
-                        </div>
-                      </>
-                    ) : (
-                      <>
-                        <div className="text-sm font-semibold">{host.label}</div>
-                        <div className="text-[11px] text-muted-foreground font-mono">
-                          SSH {host.hostname}:{host.port || 22}
-                        </div>
-                      </>
-                    )}
-                  </div>
-                </div>
-                {!needsAuth && (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="h-8 text-xs"
-                    onClick={() => setShowLogs((v) => !v)}
-                  >
-                    {showLogs ? 'Hide logs' : 'Show logs'}
-                  </Button>
-                )}
-              </div>
-
-              {/* Progress indicator - icons with progress bar below */}
-              <div className="space-y-2">
-                <div className="flex items-center gap-3">
-                  <div className={cn(
-                    "h-8 w-8 rounded-full flex items-center justify-center flex-shrink-0",
-                    needsAuth
-                      ? "bg-primary text-primary-foreground"
-                      : hasError
-                        ? "bg-destructive/20 text-destructive"
-                        : isConnecting
-                          ? "bg-primary/15 text-primary"
-                          : "bg-muted text-muted-foreground"
-                  )}>
-                    <User size={14} />
-                  </div>
-                  <div className="flex-1 h-1.5 rounded-full bg-border/60 overflow-hidden relative">
-                    <div
-                      className={cn(
-                        "absolute inset-y-0 left-0 rounded-full transition-all duration-300",
-                        error ? "bg-destructive" : "bg-primary"
-                      )}
-                      style={{
-                        width: needsAuth ? '0%' : status === 'connecting' ? `${progressValue}%` : error ? '100%' : '100%',
-                      }}
-                    />
-                  </div>
-                  <div className={cn(
-                    "h-8 w-8 rounded-full flex items-center justify-center flex-shrink-0",
-                    hasError ? "bg-destructive/20 text-destructive" : "bg-muted text-muted-foreground"
-                  )}>
-                    {'>_'}
-                  </div>
-                </div>
-              </div>
-
-              {needsAuth ? (
-                /* Auth form */
-                <>
-                  {/* Auth method tabs */}
-                  <div className="flex gap-1 p-1 bg-secondary/80 rounded-lg border border-border/60">
-                    <button
-                      className={cn(
-                        "flex-1 flex items-center justify-center gap-2 py-2 text-sm font-medium rounded-md transition-all",
-                        authMethod === 'password'
-                          ? "bg-primary text-primary-foreground shadow-sm"
-                          : "text-muted-foreground hover:text-foreground hover:bg-secondary"
-                      )}
-                      onClick={() => setAuthMethod('password')}
-                    >
-                      <Lock size={14} />
-                      Password
-                    </button>
-                    <button
-                      className={cn(
-                        "flex-1 flex items-center justify-center gap-2 py-2 text-sm font-medium rounded-md transition-all",
-                        authMethod === 'key'
-                          ? "bg-primary text-primary-foreground shadow-sm"
-                          : "text-muted-foreground hover:text-foreground hover:bg-secondary"
-                      )}
-                      onClick={() => setAuthMethod('key')}
-                    >
-                      <Key size={14} />
-                      Public Key
-                    </button>
-                  </div>
-
-                  {/* Auth retry error message */}
-                  {authRetryMessage && (
-                    <div className="p-3 rounded-lg bg-destructive/10 border border-destructive/20 text-destructive text-sm flex items-center gap-2">
-                      <AlertCircle size={16} />
-                      {authRetryMessage}
-                    </div>
-                  )}
-
-                  <div className="space-y-3">
-                    <div className="space-y-2">
-                      <Label htmlFor="auth-username">Username</Label>
-                      <Input
-                        id="auth-username"
-                        value={authUsername}
-                        onChange={(e) => setAuthUsername(e.target.value)}
-                        placeholder="root"
-                      />
-                    </div>
-
-                    {authMethod === 'password' ? (
-                      <div className="space-y-2">
-                        <Label htmlFor="auth-password">Password</Label>
-                        <div className="relative">
-                          <Input
-                            id="auth-password"
-                            type={showAuthPassword ? 'text' : 'password'}
-                            value={authPassword}
-                            onChange={(e) => setAuthPassword(e.target.value)}
-                            placeholder="Enter password"
-                            className={cn("pr-10", authRetryMessage && "border-destructive/50")}
-                            autoFocus={!!authRetryMessage}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter' && authUsername.trim() && authPassword.trim()) {
-                                handleAuthSubmit();
-                              }
-                            }}
-                          />
-                          <button
-                            type="button"
-                            className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                            onClick={() => setShowAuthPassword(!showAuthPassword)}
-                          >
-                            {showAuthPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-                          </button>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="space-y-2">
-                        <Label>Select Key</Label>
-                        {keys.filter(k => k.category === 'key').length === 0 ? (
-                          <div className="text-sm text-muted-foreground p-3 border border-dashed border-border/60 rounded-lg text-center">
-                            No keys available. Add keys in the Keychain section.
-                          </div>
-                        ) : (
-                          <div className="space-y-2 max-h-40 overflow-y-auto">
-                            {keys.filter(k => k.category === 'key').map((key) => (
-                              <button
-                                key={key.id}
-                                className={cn(
-                                  "w-full flex items-center gap-3 px-3 py-2.5 rounded-lg border transition-colors text-left",
-                                  authKeyId === key.id
-                                    ? "border-primary bg-primary/5"
-                                    : "border-border/50 hover:bg-secondary/50"
-                                )}
-                                onClick={() => setAuthKeyId(key.id)}
-                              >
-                                <div className={cn(
-                                  "h-8 w-8 rounded-lg flex items-center justify-center",
-                                  key.source === 'biometric' ? "bg-purple-500/20 text-purple-500" : "bg-primary/20 text-primary"
-                                )}>
-                                  <Key size={14} />
-                                </div>
-                                <div className="flex-1 min-w-0">
-                                  <div className="text-sm font-medium truncate">{key.label}</div>
-                                  <div className="text-xs text-muted-foreground">Type {key.type}</div>
-                                </div>
-                              </button>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="flex items-center justify-between pt-2">
-                    <Button variant="secondary" onClick={handleCancelConnect}>
-                      Close
-                    </Button>
-                    <div className="flex items-center gap-2">
-                      <Popover>
-                        <PopoverTrigger asChild>
-                          <Button
-                            disabled={!isAuthValid()}
-                            onClick={handleAuthSubmit}
-                          >
-                            Continue & Save
-                            <ChevronDown size={14} className="ml-2" />
-                          </Button>
-                        </PopoverTrigger>
-                        <PopoverContent className="w-40 p-1 z-50" align="end">
-                          <button
-                            className="w-full px-3 py-2 text-sm text-left hover:bg-secondary rounded-md"
-                            onClick={() => {
-                              setSaveCredentials(false);
-                              handleAuthSubmit();
-                            }}
-                            disabled={!isAuthValid()}
-                          >
-                            Continue
-                          </button>
-                        </PopoverContent>
-                      </Popover>
-                    </div>
-                  </div>
-                </>
-              ) : (
-                /* Connection progress */
-                <>
-                  <div className="flex items-center justify-between text-xs text-muted-foreground">
-                    <div className="flex items-center gap-2">
-                      <Clock className="h-3 w-3" />
-                      <span>
-                        {status === 'connecting'
-                          ? `Timeout in ${timeLeft}s`
-                          : error || 'Disconnected'}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {status === 'connecting' ? (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-8"
-                          onClick={handleCancelConnect}
-                          disabled={isCancelling}
-                        >
-                          {isCancelling ? 'Cancelling...' : 'Close'}
-                        </Button>
-                      ) : (
-                        <div className="flex gap-2">
-                          <Button variant="ghost" size="sm" className="h-8" onClick={handleCancelConnect}>
-                            Close
-                          </Button>
-                          <Button size="sm" className="h-8" onClick={handleRetry}>
-                            <Play className="h-3 w-3 mr-2" /> Start over
-                          </Button>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  {showLogs && (
-                    <div className="rounded-xl border border-border/60 bg-background/70 shadow-inner">
-                      <ScrollArea className="max-h-52 p-3">
-                        <div className="space-y-2 text-sm text-foreground/90">
-                          {progressLogs.map((line, idx) => (
-                            <div key={idx} className="flex items-start gap-2">
-                              <div className="mt-0.5">
-                                <ShieldCheck className="h-3.5 w-3.5 text-primary" />
-                              </div>
-                              <div>{line}</div>
-                            </div>
-                          ))}
-                          {error && (
-                            <div className="flex items-start gap-2 text-destructive">
-                              <AlertCircle className="h-3.5 w-3.5 mt-0.5" />
-                              <div>{error}</div>
-                            </div>
-                          )}
-                        </div>
-                      </ScrollArea>
-                    </div>
-                  )}
-                </>
-              )}
-            </div>
-          </div>
+          <TerminalConnectionDialog
+            host={host}
+            status={status}
+            error={error}
+            progressValue={progressValue}
+            chainProgress={chainProgress}
+            needsAuth={needsAuth}
+            showLogs={showLogs}
+            setShowLogs={setShowLogs}
+            keys={keys}
+            authProps={{
+              authMethod,
+              setAuthMethod,
+              authUsername,
+              setAuthUsername,
+              authPassword,
+              setAuthPassword,
+              authKeyId,
+              setAuthKeyId,
+              showAuthPassword,
+              setShowAuthPassword,
+              authRetryMessage,
+              onSubmit: handleAuthSubmit,
+              onSubmitWithoutSave: () => {
+                setSaveCredentials(false);
+                handleAuthSubmit();
+              },
+              onCancel: handleCancelConnect,
+              isValid: isAuthValid(),
+            }}
+            progressProps={{
+              timeLeft,
+              isCancelling,
+              progressLogs,
+              onCancel: handleCancelConnect,
+              onRetry: handleRetry,
+            }}
+          />
         )}
 
       </div>

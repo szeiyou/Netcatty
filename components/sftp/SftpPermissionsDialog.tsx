@@ -1,0 +1,137 @@
+/**
+ * SFTP Permissions Editor Dialog
+ */
+
+import React, { useState, useEffect } from 'react';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from '../ui/dialog';
+import { Button } from '../ui/button';
+import { SftpFileEntry } from '../../types';
+
+interface SftpPermissionsDialogProps {
+    open: boolean;
+    onOpenChange: (open: boolean) => void;
+    file: SftpFileEntry | null;
+    onSave: (file: SftpFileEntry, permissions: string) => void;
+}
+
+export const SftpPermissionsDialog: React.FC<SftpPermissionsDialogProps> = ({ open, onOpenChange, file, onSave }) => {
+    const [permissions, setPermissions] = useState({
+        owner: { read: false, write: false, execute: false },
+        group: { read: false, write: false, execute: false },
+        others: { read: false, write: false, execute: false },
+    });
+
+    // Parse permissions from file
+    useEffect(() => {
+        if (file?.permissions) {
+            const perms = file.permissions;
+            // Parse rwxrwxrwx format (skip first char for type)
+            const pStr = perms.length === 10 ? perms.slice(1) : perms;
+            if (pStr.length >= 9) {
+                setPermissions({
+                    owner: {
+                        read: pStr[0] === 'r',
+                        write: pStr[1] === 'w',
+                        execute: pStr[2] === 'x' || pStr[2] === 's',
+                    },
+                    group: {
+                        read: pStr[3] === 'r',
+                        write: pStr[4] === 'w',
+                        execute: pStr[5] === 'x' || pStr[5] === 's',
+                    },
+                    others: {
+                        read: pStr[6] === 'r',
+                        write: pStr[7] === 'w',
+                        execute: pStr[8] === 'x' || pStr[8] === 't',
+                    },
+                });
+            }
+        }
+    }, [file]);
+
+    const togglePerm = (role: 'owner' | 'group' | 'others', perm: 'read' | 'write' | 'execute') => {
+        setPermissions(prev => ({
+            ...prev,
+            [role]: { ...prev[role], [perm]: !prev[role][perm] }
+        }));
+    };
+
+    const getOctalPermissions = (): string => {
+        const getNum = (p: { read: boolean; write: boolean; execute: boolean }) =>
+            (p.read ? 4 : 0) + (p.write ? 2 : 0) + (p.execute ? 1 : 0);
+        return `${getNum(permissions.owner)}${getNum(permissions.group)}${getNum(permissions.others)}`;
+    };
+
+    const getSymbolicPermissions = (): string => {
+        const getSym = (p: { read: boolean; write: boolean; execute: boolean }) =>
+            `${p.read ? 'r' : '-'}${p.write ? 'w' : '-'}${p.execute ? 'x' : '-'}`;
+        return getSym(permissions.owner) + getSym(permissions.group) + getSym(permissions.others);
+    };
+
+    const handleSave = () => {
+        if (file) {
+            onSave(file, getOctalPermissions());
+            onOpenChange(false);
+        }
+    };
+
+    if (!file) return null;
+
+    const PermRow = ({ role, label }: { role: 'owner' | 'group' | 'others'; label: string }) => (
+        <div className="flex items-center gap-4">
+            <div className="w-16 text-sm font-medium">{label}</div>
+            <div className="flex gap-3">
+                {(['read', 'write', 'execute'] as const).map(perm => (
+                    <label key={perm} className="flex items-center gap-1.5 cursor-pointer">
+                        <input
+                            type="checkbox"
+                            checked={permissions[role][perm]}
+                            onChange={() => togglePerm(role, perm)}
+                            className="rounded border-border"
+                        />
+                        <span className="text-xs capitalize">{perm[0].toUpperCase()}</span>
+                    </label>
+                ))}
+            </div>
+        </div>
+    );
+
+    return (
+        <Dialog open={open} onOpenChange={onOpenChange}>
+            <DialogContent className="sm:max-w-[400px]">
+                <DialogHeader>
+                    <DialogTitle>Edit Permissions</DialogTitle>
+                    <DialogDescription className="truncate">
+                        {file.name}
+                    </DialogDescription>
+                </DialogHeader>
+
+                <div className="space-y-4 py-4">
+                    <div className="space-y-3">
+                        <PermRow role="owner" label="Owner" />
+                        <PermRow role="group" label="Group" />
+                        <PermRow role="others" label="Others" />
+                    </div>
+
+                    <div className="flex items-center justify-between pt-2 border-t border-border/60">
+                        <div className="text-xs text-muted-foreground">
+                            Octal: <span className="font-mono text-foreground">{getOctalPermissions()}</span>
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                            Symbolic: <span className="font-mono text-foreground">{getSymbolicPermissions()}</span>
+                        </div>
+                    </div>
+                </div>
+
+                <DialogFooter>
+                    <Button variant="outline" onClick={() => onOpenChange(false)}>
+                        Cancel
+                    </Button>
+                    <Button onClick={handleSave}>
+                        Apply
+                    </Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
+    );
+};
