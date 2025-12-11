@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import React, { useEffect, useMemo, useState, useCallback } from "react";
 import { TERMINAL_THEMES } from "../infrastructure/config/terminalThemes";
+import { MIN_FONT_SIZE, MAX_FONT_SIZE } from "../infrastructure/config/fonts";
 import { cn } from "../lib/utils";
 import { EnvVar, Host, ProxyConfig, SSHKey } from "../types";
 import { DistroAvatar } from "./DistroAvatar";
@@ -533,6 +534,51 @@ const HostDetailsPanel: React.FC<HostDetailsPanelProps> = ({
               )?.name || "Flexoki Dark"}
             </span>
           </button>
+
+          {/* Font Size */}
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-muted-foreground">Font Size:</span>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                if ((form.fontSize || 14) > MIN_FONT_SIZE) {
+                  update("fontSize", (form.fontSize || 14) - 1);
+                }
+              }}
+              disabled={(form.fontSize || 14) <= MIN_FONT_SIZE}
+              className="px-2 h-8"
+            >
+              −
+            </Button>
+            <Input
+              type="number"
+              min={MIN_FONT_SIZE}
+              max={MAX_FONT_SIZE}
+              value={form.fontSize || 14}
+              onChange={(e) => {
+                const val = parseInt(e.target.value);
+                if (val >= MIN_FONT_SIZE && val <= MAX_FONT_SIZE) {
+                  update("fontSize", val);
+                }
+              }}
+              className="w-16 text-center h-8"
+            />
+            <span className="text-sm text-muted-foreground">pt</span>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                if ((form.fontSize || 14) < MAX_FONT_SIZE) {
+                  update("fontSize", (form.fontSize || 14) + 1);
+                }
+              }}
+              disabled={(form.fontSize || 14) >= MAX_FONT_SIZE}
+              className="px-2 h-8"
+            >
+              +
+            </Button>
+          </div>
 
           {/* Mosh Toggle */}
           <ToggleRow

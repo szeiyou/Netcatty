@@ -20,6 +20,15 @@ export const localStorageAdapter = {
   writeString(key: string, value: string) {
     localStorage.setItem(key, value);
   },
+  readNumber(key: string): number | null {
+    const value = localStorage.getItem(key);
+    if (!value) return null;
+    const num = parseInt(value, 10);
+    return isNaN(num) ? null : num;
+  },
+  writeNumber(key: string, value: number) {
+    localStorage.setItem(key, String(value));
+  },
   remove(key: string) {
     localStorage.removeItem(key);
   },

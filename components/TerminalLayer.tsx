@@ -36,6 +36,7 @@ interface TerminalLayerProps {
   knownHosts?: KnownHost[];
   draggingSessionId: string | null;
   terminalTheme: TerminalTheme;
+  fontSize?: number;
   onCloseSession: (sessionId: string, e?: React.MouseEvent) => void;
   onUpdateSessionStatus: (sessionId: string, status: TerminalSession['status']) => void;
   onUpdateHostDistro: (hostId: string, distro: string) => void;
@@ -59,6 +60,7 @@ const TerminalLayerInner: React.FC<TerminalLayerProps> = ({
   knownHosts = [],
   draggingSessionId,
   terminalTheme,
+  fontSize = 14,
   onCloseSession,
   onUpdateSessionStatus,
   onUpdateHostDistro,
@@ -551,7 +553,7 @@ const TerminalLayerInner: React.FC<TerminalLayerProps> = ({
                 inWorkspace={inActiveWorkspace}
                 isResizing={!!resizing}
                 isFocusMode={isFocusMode}
-                fontSize={14}
+                fontSize={fontSize}
                 terminalTheme={terminalTheme}
                 sessionId={session.id}
                 startupCommand={session.startupCommand}
@@ -634,6 +636,7 @@ const terminalLayerAreEqual = (prev: TerminalLayerProps, next: TerminalLayerProp
     prev.workspaces === next.workspaces &&
     prev.draggingSessionId === next.draggingSessionId &&
     prev.terminalTheme === next.terminalTheme &&
+    prev.fontSize === next.fontSize &&
     prev.onUpdateHost === next.onUpdateHost &&
     prev.onToggleWorkspaceViewMode === next.onToggleWorkspaceViewMode &&
     prev.onSetWorkspaceFocusedSession === next.onSetWorkspaceFocusedSession

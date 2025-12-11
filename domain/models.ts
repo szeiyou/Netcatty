@@ -60,6 +60,8 @@ export interface Host {
   moshEnabled?: boolean;
   moshServerPath?: string; // Custom mosh-server path (e.g., /usr/local/bin/mosh-server)
   theme?: string;
+  fontFamily?: string; // Terminal font family for this host
+  fontSize?: number; // Terminal font size for this host (pt)
   distro?: string; // detected distro id (e.g., ubuntu, debian)
   // Multi-protocol support
   protocols?: ProtocolConfig[]; // Multiple protocol configurations

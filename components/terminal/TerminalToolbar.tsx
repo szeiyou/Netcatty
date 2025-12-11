@@ -1,21 +1,24 @@
 /**
  * Terminal Toolbar
- * Displays SFTP, Scripts buttons and close button in terminal status bar
+ * Displays SFTP, Scripts, Theme buttons and close button in terminal status bar
  */
-import { FolderInput,X,Zap } from 'lucide-react';
-import React from 'react';
-import { Snippet } from '../../types';
+import { FolderInput,X,Zap,Palette } from 'lucide-react';
+import React, { useState } from 'react';
+import { Snippet, Host } from '../../types';
 import { Button } from '../ui/button';
 import { Popover,PopoverContent,PopoverTrigger } from '../ui/popover';
 import { ScrollArea } from '../ui/scroll-area';
+import ThemeCustomizeModal from './ThemeCustomizeModal';
 
 export interface TerminalToolbarProps {
     status: 'connecting' | 'connected' | 'disconnected';
     snippets: Snippet[];
+    host?: Host;
     isScriptsOpen: boolean;
     setIsScriptsOpen: (open: boolean) => void;
     onOpenSFTP: () => void;
     onSnippetClick: (command: string) => void;
+    onUpdateHost?: (host: Host) => void;
     showClose?: boolean;
     onClose?: () => void;
 }
@@ -23,14 +26,35 @@ export interface TerminalToolbarProps {
 export const TerminalToolbar: React.FC<TerminalToolbarProps> = ({
     status,
     snippets,
+    host,
     isScriptsOpen,
     setIsScriptsOpen,
     onOpenSFTP,
     onSnippetClick,
+    onUpdateHost,
     showClose,
     onClose,
 }) => {
+    const [themeModalOpen, setThemeModalOpen] = useState(false);
     const buttonBase = "h-7 px-2 text-[11px] bg-white/5 hover:bg-white/10 text-white shadow-none border-none";
+
+    const handleThemeChange = (themeId: string) => {
+        if (host && onUpdateHost) {
+            onUpdateHost({ ...host, theme: themeId });
+        }
+    };
+
+    const handleFontFamilyChange = (fontFamilyId: string) => {
+        if (host && onUpdateHost) {
+            onUpdateHost({ ...host, fontFamily: fontFamilyId });
+        }
+    };
+
+    const handleFontSizeChange = (fontSize: number) => {
+        if (host && onUpdateHost) {
+            onUpdateHost({ ...host, fontSize });
+        }
+    };
 
     return (
         <>
@@ -84,6 +108,16 @@ export const TerminalToolbar: React.FC<TerminalToolbarProps> = ({
                 </PopoverContent>
             </Popover>
 
+            <Button
+                variant="secondary"
+                size="sm"
+                className={buttonBase}
+                title="Terminal settings"
+                onClick={() => setThemeModalOpen(true)}
+            >
+                <Palette size={12} className="mr-2" /> Settings
+            </Button>
+
             {showClose && onClose && (
                 <Button
                     variant="ghost"
@@ -98,6 +132,20 @@ export const TerminalToolbar: React.FC<TerminalToolbarProps> = ({
                     <X size={12} />
                 </Button>
             )}
+
+            <ThemeCustomizeModal
+                open={themeModalOpen}
+                onClose={() => setThemeModalOpen(false)}
+                currentThemeId={host?.theme || 'termius-dark'}
+                currentFontFamilyId={host?.fontFamily || 'menlo'}
+                currentFontSize={host?.fontSize || 14}
+                onThemeChange={handleThemeChange}
+                onFontFamilyChange={handleFontFamilyChange}
+                onFontSizeChange={handleFontSizeChange}
+                onSave={() => {
+                    // Trigger any necessary updates
+                }}
+            />
         </>
     );
 };

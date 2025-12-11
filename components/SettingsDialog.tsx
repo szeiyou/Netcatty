@@ -13,6 +13,7 @@ import {
 import React, { useState } from "react";
 import { Host, SSHKey, Snippet } from "../domain/models";
 import { TERMINAL_THEMES } from "../infrastructure/config/terminalThemes";
+import { MIN_FONT_SIZE, MAX_FONT_SIZE } from "../infrastructure/config/fonts";
 import {
   loadFromGist,
   syncToGist,
@@ -46,6 +47,8 @@ interface SettingsDialogProps {
   onSyncConfigChange: (config: SyncConfig | null) => void;
   terminalThemeId: string;
   onTerminalThemeChange: (id: string) => void;
+  terminalFontSize?: number;
+  onTerminalFontSizeChange?: (size: number) => void;
 }
 
 const COLORS = [
@@ -69,6 +72,8 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({
   onSyncConfigChange,
   terminalThemeId,
   onTerminalThemeChange,
+  terminalFontSize = 14,
+  onTerminalFontSizeChange,
 }) => {
   const [importText, setImportText] = useState("");
 
@@ -344,6 +349,56 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({
                         </div>
                       </div>
                     ))}
+                  </div>
+                </div>
+
+                <div className="h-px bg-border" />
+
+                <div>
+                  <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wider mb-4">
+                    Font Size
+                  </h3>
+                  <div className="flex items-center gap-4 max-w-xs">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        if (terminalFontSize > MIN_FONT_SIZE) {
+                          onTerminalFontSizeChange?.(terminalFontSize - 1);
+                        }
+                      }}
+                      disabled={terminalFontSize <= MIN_FONT_SIZE}
+                      className="px-3"
+                    >
+                      −
+                    </Button>
+                    <Input
+                      type="number"
+                      min={MIN_FONT_SIZE}
+                      max={MAX_FONT_SIZE}
+                      value={terminalFontSize}
+                      onChange={(e) => {
+                        const val = parseInt(e.target.value);
+                        if (val >= MIN_FONT_SIZE && val <= MAX_FONT_SIZE) {
+                          onTerminalFontSizeChange?.(val);
+                        }
+                      }}
+                      className="w-20 text-center"
+                    />
+                    <span className="text-sm text-muted-foreground">pt</span>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        if (terminalFontSize < MAX_FONT_SIZE) {
+                          onTerminalFontSizeChange?.(terminalFontSize + 1);
+                        }
+                      }}
+                      disabled={terminalFontSize >= MAX_FONT_SIZE}
+                      className="px-3"
+                    >
+                      +
+                    </Button>
                   </div>
                 </div>
               </TabsContent>

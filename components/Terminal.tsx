@@ -17,6 +17,7 @@ import {
 import KnownHostConfirmDialog, { HostKeyInfo } from "./KnownHostConfirmDialog";
 import SFTPModal from "./SFTPModal";
 import { Button } from "./ui/button";
+import { TERMINAL_FONTS } from "../infrastructure/config/fonts";
 
 // Import terminal sub-components
 import { TerminalConnectionDialog } from "./terminal/TerminalConnectionDialog";
@@ -241,11 +242,18 @@ const TerminalComponent: React.FC<TerminalProps> = ({
           deviceMemoryGb,
         });
 
+        // Get font family from host config or use default fallback
+        const hostFontId = host.fontFamily || 'menlo';
+        const fontObj = TERMINAL_FONTS.find(f => f.id === hostFontId) || TERMINAL_FONTS[0];
+        const fontFamily = fontObj.family;
+
+        // Use host-specific font size if available, otherwise use the global fontSize prop
+        const effectiveFontSize = host.fontSize || fontSize;
+
         const term = new XTerm({
           ...performanceConfig.options,
-          fontSize,
-          fontFamily:
-            '"JetBrains Mono", "Cascadia Code", "Fira Code", "SF Mono", "Menlo", "DejaVu Sans Mono", monospace',
+          fontSize: effectiveFontSize,
+          fontFamily: fontFamily,
           theme: {
             ...terminalTheme.colors,
             selectionBackground: terminalTheme.colors.selection,
@@ -534,17 +542,49 @@ const TerminalComponent: React.FC<TerminalProps> = ({
     }
   };
 
+  // Effect for global fontSize/terminalTheme changes (from Settings)
   useEffect(() => {
     if (termRef.current) {
-      termRef.current.options.fontSize = fontSize;
+      // Only apply global settings if host doesn't have specific overrides
+      const effectiveFontSize = host.fontSize || fontSize;
+      termRef.current.options.fontSize = effectiveFontSize;
       termRef.current.options.theme = {
         ...terminalTheme.colors,
         selectionBackground: terminalTheme.colors.selection,
       };
+      // Refit after font size change
+      setTimeout(() => safeFit(), 50);
     }
-    // Note: ghostty-web handles fontSize/theme changes internally with its own resize logic
-    // We only need safeFit() on visibility change, not on every theme update
   }, [fontSize, terminalTheme]);
+
+  // Effect for host-specific font/theme changes (from ThemeCustomizeModal)
+  useEffect(() => {
+    if (termRef.current) {
+      // Apply host-specific font size
+      const effectiveFontSize = host.fontSize || fontSize;
+      termRef.current.options.fontSize = effectiveFontSize;
+
+      // Apply host-specific font family
+      const hostFontId = host.fontFamily || 'menlo';
+      const fontObj = TERMINAL_FONTS.find(f => f.id === hostFontId) || TERMINAL_FONTS[0];
+      termRef.current.options.fontFamily = fontObj.family;
+
+      // Apply host-specific theme if set
+      if (host.theme) {
+        const { TERMINAL_THEMES } = require('../infrastructure/config/terminalThemes');
+        const hostTheme = TERMINAL_THEMES.find((t: { id: string }) => t.id === host.theme);
+        if (hostTheme) {
+          termRef.current.options.theme = {
+            ...hostTheme.colors,
+            selectionBackground: hostTheme.colors.selection,
+          };
+        }
+      }
+
+      // Refit after changes
+      setTimeout(() => safeFit(), 50);
+    }
+  }, [host.fontSize, host.fontFamily, host.theme, fontSize]);
 
   // Separate effect for visibility-triggered fit (less frequent)
   useEffect(() => {
@@ -1254,10 +1294,12 @@ const TerminalComponent: React.FC<TerminalProps> = ({
     <TerminalToolbar
       status={status}
       snippets={snippets}
+      host={host}
       isScriptsOpen={isScriptsOpen}
       setIsScriptsOpen={setIsScriptsOpen}
       onOpenSFTP={() => setShowSFTP((v) => !v)}
       onSnippetClick={handleSnippetClick}
+      onUpdateHost={onUpdateHost}
       showClose={opts?.showClose}
       onClose={() => onCloseSession?.(sessionId)}
     />

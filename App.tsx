@@ -51,6 +51,8 @@ function App() {
     terminalThemeId,
     setTerminalThemeId,
     currentTerminalTheme,
+    terminalFontSize,
+    setTerminalFontSize,
   } = useSettingsState();
 
   const {
@@ -249,6 +251,7 @@ function App() {
           knownHosts={knownHosts}
           draggingSessionId={draggingSessionId}
           terminalTheme={currentTerminalTheme}
+          fontSize={terminalFontSize}
           onCloseSession={closeSession}
           onUpdateSessionStatus={updateSessionStatus}
           onUpdateHostDistro={updateHostDistro}
@@ -334,6 +337,8 @@ function App() {
         onSyncConfigChange={updateSyncConfig}
         terminalThemeId={terminalThemeId}
         onTerminalThemeChange={setTerminalThemeId}
+        terminalFontSize={terminalFontSize}
+        onTerminalFontSizeChange={setTerminalFontSize}
       />
 
       {/* Protocol Select Dialog for QuickSwitcher */}
