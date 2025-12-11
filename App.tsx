@@ -64,6 +64,8 @@ function App() {
     updateKeyBinding,
     resetKeyBinding,
     resetAllKeyBindings,
+    customCSS,
+    setCustomCSS,
   } = useSettingsState();
 
   const {
@@ -542,6 +544,8 @@ function App() {
         onUpdateKeyBinding={updateKeyBinding}
         onResetKeyBinding={resetKeyBinding}
         onResetAllKeyBindings={resetAllKeyBindings}
+        customCSS={customCSS}
+        onCustomCSSChange={setCustomCSS}
       />
 
       {/* Protocol Select Dialog for QuickSwitcher */}

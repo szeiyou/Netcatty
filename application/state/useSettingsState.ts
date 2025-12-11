@@ -10,6 +10,7 @@ STORAGE_KEY_TERM_FONT_SIZE,
 STORAGE_KEY_TERM_SETTINGS,
 STORAGE_KEY_HOTKEY_SCHEME,
 STORAGE_KEY_CUSTOM_KEY_BINDINGS,
+STORAGE_KEY_CUSTOM_CSS,
 } from '../../infrastructure/config/storageKeys';
 import { TERMINAL_THEMES } from '../../infrastructure/config/terminalThemes';
 import { TERMINAL_FONTS, DEFAULT_FONT_SIZE } from '../../infrastructure/config/fonts';
@@ -53,6 +54,9 @@ export const useSettingsState = () => {
   const [customKeyBindings, setCustomKeyBindings] = useState<CustomKeyBindings>(() => 
     localStorageAdapter.read<CustomKeyBindings>(STORAGE_KEY_CUSTOM_KEY_BINDINGS) || {}
   );
+  const [customCSS, setCustomCSS] = useState<string>(() => 
+    localStorageAdapter.readString(STORAGE_KEY_CUSTOM_CSS) || ''
+  );
 
   useEffect(() => {
     applyThemeTokens(theme, primaryColor);
@@ -83,6 +87,20 @@ export const useSettingsState = () => {
   useEffect(() => {
     localStorageAdapter.write(STORAGE_KEY_CUSTOM_KEY_BINDINGS, customKeyBindings);
   }, [customKeyBindings]);
+
+  // Apply and persist custom CSS
+  useEffect(() => {
+    localStorageAdapter.writeString(STORAGE_KEY_CUSTOM_CSS, customCSS);
+    
+    // Apply custom CSS to document
+    let styleEl = document.getElementById('netcatty-custom-css') as HTMLStyleElement | null;
+    if (!styleEl) {
+      styleEl = document.createElement('style');
+      styleEl.id = 'netcatty-custom-css';
+      document.head.appendChild(styleEl);
+    }
+    styleEl.textContent = customCSS;
+  }, [customCSS]);
 
   // Get merged key bindings (defaults + custom overrides)
   const keyBindings = useMemo((): KeyBinding[] => {
@@ -178,5 +196,7 @@ export const useSettingsState = () => {
     updateKeyBinding,
     resetKeyBinding,
     resetAllKeyBindings,
+    customCSS,
+    setCustomCSS,
   };
 };
