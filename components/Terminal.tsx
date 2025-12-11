@@ -107,7 +107,7 @@ const TerminalComponent: React.FC<TerminalProps> = ({
   const hasConnectedRef = useRef(false);
   const hasRunStartupCommandRef = useRef(false); // Track if startup command has been executed
   const commandBufferRef = useRef<string>(""); // Buffer for tracking typed commands
-  
+
   // Refs to store latest hotkey config for use in keyboard handler
   const hotkeySchemeRef = useRef(hotkeyScheme);
   const keyBindingsRef = useRef(keyBindings);
@@ -401,14 +401,14 @@ const TerminalComponent: React.FC<TerminalProps> = ({
             const currentScheme = hotkeySchemeRef.current;
             const currentBindings = keyBindingsRef.current;
             const hotkeyCallback = onHotkeyActionRef.current;
-            
+
             // Skip if hotkeys are disabled
             if (currentScheme === 'disabled' || currentBindings.length === 0) {
               return true; // Let xterm handle it
             }
-            
+
             const isMac = currentScheme === 'mac';
-            
+
             // Check if this matches any of our shortcuts
             const matched = checkAppShortcut(e, currentBindings, isMac);
             if (!matched) return true; // Let xterm handle it
