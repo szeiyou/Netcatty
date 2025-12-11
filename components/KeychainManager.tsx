@@ -22,7 +22,7 @@ import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Textarea } from './ui/textarea';
 import { cn } from '../lib/utils';
-import { Popover, PopoverTrigger, PopoverContent, PopoverAnchor } from './ui/popover';
+import { Dropdown, DropdownTrigger, DropdownContent } from './ui/dropdown';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from './ui/collapsible';
 import SelectHostPanel from './SelectHostPanel';
 import { toast } from './ui/toast';
@@ -607,41 +607,39 @@ echo $3 >> "$FILE"`);
                     {/* Filter Tabs */}
                     <div className="flex items-center gap-1">
                         {/* KEY button with split interaction: left=switch view, right=dropdown */}
-                        <Popover>
-                            <PopoverAnchor asChild>
-                                <div className={cn(
-                                    "flex items-center rounded-md transition-colors",
-                                    activeFilter === 'key'
-                                        ? "bg-primary/15"
-                                        : "hover:bg-accent"
-                                )}>
+                        <Dropdown>
+                            <div className={cn(
+                                "flex items-center rounded-md transition-colors",
+                                activeFilter === 'key'
+                                    ? "bg-primary/15"
+                                    : "hover:bg-accent"
+                            )}>
+                                <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    className={cn(
+                                        "h-8 px-3 gap-2 rounded-r-none hover:bg-transparent",
+                                        activeFilter === 'key' && "text-primary"
+                                    )}
+                                    onClick={() => setActiveFilter('key')}
+                                >
+                                    <Key size={14} />
+                                    KEY
+                                </Button>
+                                <DropdownTrigger asChild>
                                     <Button
                                         size="sm"
                                         variant="ghost"
                                         className={cn(
-                                            "h-8 px-3 gap-2 rounded-r-none hover:bg-transparent",
+                                            "h-8 px-1.5 rounded-l-none hover:bg-transparent",
                                             activeFilter === 'key' && "text-primary"
                                         )}
-                                        onClick={() => setActiveFilter('key')}
                                     >
-                                        <Key size={14} />
-                                        KEY
+                                        <ChevronDown size={12} />
                                     </Button>
-                                    <PopoverTrigger asChild>
-                                        <Button
-                                            size="sm"
-                                            variant="ghost"
-                                            className={cn(
-                                                "h-8 px-1.5 rounded-l-none hover:bg-transparent",
-                                                activeFilter === 'key' && "text-primary"
-                                            )}
-                                        >
-                                            <ChevronDown size={12} />
-                                        </Button>
-                                    </PopoverTrigger>
-                                </div>
-                            </PopoverAnchor>
-                            <PopoverContent className="w-44 p-1" align="start">
+                                </DropdownTrigger>
+                            </div>
+                            <DropdownContent className="w-44" align="start" alignToParent>
                                 <Button
                                     variant="ghost"
                                     className="w-full justify-start gap-2"
@@ -665,48 +663,46 @@ echo $3 >> "$FILE"`);
                                         <UserPlus size={14} /> New Identity
                                     </Button>
                                 )}
-                            </PopoverContent>
-                        </Popover>
+                            </DropdownContent>
+                        </Dropdown>
 
                         {/* CERTIFICATE button with split interaction */}
-                        <Popover>
-                            <PopoverAnchor asChild>
-                                <div className={cn(
-                                    "flex items-center rounded-md transition-colors",
-                                    activeFilter === 'certificate'
-                                        ? "bg-primary/15"
-                                        : "hover:bg-accent"
-                                )}>
+                        <Dropdown>
+                            <div className={cn(
+                                "flex items-center rounded-md transition-colors",
+                                activeFilter === 'certificate'
+                                    ? "bg-primary/15"
+                                    : "hover:bg-accent"
+                            )}>
+                                <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    className={cn(
+                                        "h-8 px-3 gap-2 rounded-r-none hover:bg-transparent",
+                                        activeFilter === 'certificate' && "text-primary"
+                                    )}
+                                    onClick={() => setActiveFilter('certificate')}
+                                >
+                                    <BadgeCheck size={14} />
+                                    CERTIFICATE
+                                    <span className="text-[10px] px-1.5 rounded-full bg-muted text-muted-foreground">
+                                        {keys.filter(k => k.certificate).length}
+                                    </span>
+                                </Button>
+                                <DropdownTrigger asChild>
                                     <Button
                                         size="sm"
                                         variant="ghost"
                                         className={cn(
-                                            "h-8 px-3 gap-2 rounded-r-none hover:bg-transparent",
+                                            "h-8 px-1.5 rounded-l-none hover:bg-transparent",
                                             activeFilter === 'certificate' && "text-primary"
                                         )}
-                                        onClick={() => setActiveFilter('certificate')}
                                     >
-                                        <BadgeCheck size={14} />
-                                        CERTIFICATE
-                                        <span className="text-[10px] px-1.5 rounded-full bg-muted text-muted-foreground">
-                                            {keys.filter(k => k.certificate).length}
-                                        </span>
+                                        <ChevronDown size={12} />
                                     </Button>
-                                    <PopoverTrigger asChild>
-                                        <Button
-                                            size="sm"
-                                            variant="ghost"
-                                            className={cn(
-                                                "h-8 px-1.5 rounded-l-none hover:bg-transparent",
-                                                activeFilter === 'certificate' && "text-primary"
-                                            )}
-                                        >
-                                            <ChevronDown size={12} />
-                                        </Button>
-                                    </PopoverTrigger>
-                                </div>
-                            </PopoverAnchor>
-                            <PopoverContent className="w-44 p-1" align="start">
+                                </DropdownTrigger>
+                            </div>
+                            <DropdownContent className="w-44" align="start" alignToParent>
                                 <Button
                                     variant="ghost"
                                     className="w-full justify-start gap-2"
@@ -714,8 +710,8 @@ echo $3 >> "$FILE"`);
                                 >
                                     <Upload size={14} /> Import Certificate
                                 </Button>
-                            </PopoverContent>
-                        </Popover>
+                            </DropdownContent>
+                        </Dropdown>
 
                         <Button
                             size="sm"
@@ -757,14 +753,14 @@ echo $3 >> "$FILE"`);
                                 />
                             </div>
                         )}
-                        <Popover>
-                            <PopoverTrigger asChild>
+                        <Dropdown>
+                            <DropdownTrigger asChild>
                                 <Button variant="ghost" size="icon" className="h-9 w-9 flex-shrink-0">
                                     {viewMode === 'grid' ? <LayoutGrid size={16} /> : <ListIcon size={16} />}
                                     <ChevronDown size={10} className="ml-0.5" />
                                 </Button>
-                            </PopoverTrigger>
-                            <PopoverContent className="w-32 p-1" align="end">
+                            </DropdownTrigger>
+                            <DropdownContent className="w-32" align="end">
                                 <Button
                                     variant={viewMode === 'grid' ? 'secondary' : 'ghost'}
                                     className="w-full justify-start gap-2 h-9"
@@ -779,8 +775,8 @@ echo $3 >> "$FILE"`);
                                 >
                                     <ListIcon size={14} /> List
                                 </Button>
-                            </PopoverContent>
-                        </Popover>
+                            </DropdownContent>
+                        </Dropdown>
                     </div>
                 </div>
 
