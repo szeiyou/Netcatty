@@ -204,6 +204,14 @@ body {
   }
 }
 
+.xterm {
+  /* 如需左右边距可取消注释 */
+  /* padding-left: 10px; */
+  /* padding-right: 10px; */
+}
+
+
+
 .traffic-line {
   stroke-dasharray: 8 4;
   animation: traffic-flow 0.8s linear infinite;

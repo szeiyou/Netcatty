@@ -2,9 +2,14 @@
  * Terminal Theme Customize Modal
  * Left-right split design: list on left, large preview on right
  * Uses React Portal to render at document root for proper z-index
+ * 
+ * Features:
+ * - Real-time preview: changes are applied immediately to the terminal
+ * - Save: persists the current settings
+ * - Cancel: reverts to the original settings when modal was opened
  */
 
-import React, { useEffect, useMemo, useState, useCallback } from 'react';
+import React, { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { Check, Minus, Palette, Plus, Type, X } from 'lucide-react';
 import { TERMINAL_THEMES, TerminalThemeConfig } from '../../infrastructure/config/terminalThemes';
@@ -20,9 +25,13 @@ interface ThemeCustomizeModalProps {
     currentThemeId?: string;
     currentFontFamilyId?: string;
     currentFontSize?: number;
+    /** Called immediately when user selects a theme (for real-time preview) */
     onThemeChange?: (themeId: string) => void;
+    /** Called immediately when user selects a font (for real-time preview) */
     onFontFamilyChange?: (fontFamilyId: string) => void;
+    /** Called immediately when user changes font size (for real-time preview) */
     onFontSizeChange?: (fontSize: number) => void;
+    /** Called when user clicks Save to persist settings */
     onSave?: () => void;
 }
 
@@ -42,9 +51,23 @@ export const ThemeCustomizeModal: React.FC<ThemeCustomizeModalProps> = ({
     const [selectedFont, setSelectedFont] = useState(currentFontFamilyId);
     const [fontSize, setFontSize] = useState(currentFontSize);
 
-    // Sync state when props change
+    // Store original values when modal opens (for cancel/revert)
+    const originalValuesRef = useRef({
+        theme: currentThemeId,
+        font: currentFontFamilyId,
+        fontSize: currentFontSize,
+    });
+
+    // Sync state when modal opens
     useEffect(() => {
         if (open) {
+            // Store original values for potential cancel
+            originalValuesRef.current = {
+                theme: currentThemeId,
+                font: currentFontFamilyId,
+                fontSize: currentFontSize,
+            };
+            // Initialize selected values
             setSelectedTheme(currentThemeId);
             setSelectedFont(currentFontFamilyId);
             setFontSize(currentFontSize);
@@ -60,30 +83,57 @@ export const ThemeCustomizeModal: React.FC<ThemeCustomizeModalProps> = ({
         [selectedTheme]
     );
 
+    // Handle theme selection - apply immediately for real-time preview
+    const handleThemeSelect = useCallback((themeId: string) => {
+        setSelectedTheme(themeId);
+        onThemeChange?.(themeId); // Apply immediately
+    }, [onThemeChange]);
+
+    // Handle font selection - apply immediately for real-time preview
+    const handleFontSelect = useCallback((fontId: string) => {
+        setSelectedFont(fontId);
+        onFontFamilyChange?.(fontId); // Apply immediately
+    }, [onFontFamilyChange]);
+
+    // Handle font size change - apply immediately for real-time preview
     const handleFontSizeChange = useCallback((delta: number) => {
         setFontSize(prev => {
-            const newSize = prev + delta;
-            return Math.max(MIN_FONT_SIZE, Math.min(MAX_FONT_SIZE, newSize));
+            const newSize = Math.max(MIN_FONT_SIZE, Math.min(MAX_FONT_SIZE, prev + delta));
+            onFontSizeChange?.(newSize); // Apply immediately
+            return newSize;
         });
-    }, []);
+    }, [onFontSizeChange]);
 
+    // Save: just close (changes are already applied)
     const handleSave = useCallback(() => {
-        onThemeChange?.(selectedTheme);
-        onFontFamilyChange?.(selectedFont);
-        onFontSizeChange?.(fontSize);
         onSave?.();
         onClose();
-    }, [selectedTheme, selectedFont, fontSize, onThemeChange, onFontFamilyChange, onFontSizeChange, onSave, onClose]);
+    }, [onSave, onClose]);
 
-    // Handle ESC key
+    // Cancel: revert to original values
+    const handleCancel = useCallback(() => {
+        const original = originalValuesRef.current;
+        // Revert all changes
+        onThemeChange?.(original.theme);
+        onFontFamilyChange?.(original.font);
+        onFontSizeChange?.(original.fontSize);
+        onClose();
+    }, [onThemeChange, onFontFamilyChange, onFontSizeChange, onClose]);
+
+    // Handle ESC key - same as cancel
     useEffect(() => {
         if (!open) return;
         const handleKeyDown = (e: KeyboardEvent) => {
-            if (e.key === 'Escape') onClose();
+            if (e.key === 'Escape') handleCancel();
         };
         document.addEventListener('keydown', handleKeyDown);
         return () => document.removeEventListener('keydown', handleKeyDown);
-    }, [open, onClose]);
+    }, [open, handleCancel]);
+
+    // Handle backdrop click - same as cancel
+    const handleBackdropClick = useCallback((e: React.MouseEvent) => {
+        if (e.target === e.currentTarget) handleCancel();
+    }, [handleCancel]);
 
     if (!open) return null;
 
@@ -91,7 +141,7 @@ export const ThemeCustomizeModal: React.FC<ThemeCustomizeModalProps> = ({
     const renderThemeItem = (theme: TerminalThemeConfig) => (
         <button
             key={theme.id}
-            onClick={() => setSelectedTheme(theme.id)}
+            onClick={() => handleThemeSelect(theme.id)}
             className={cn(
                 'w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left transition-all',
                 selectedTheme === theme.id
@@ -124,7 +174,7 @@ export const ThemeCustomizeModal: React.FC<ThemeCustomizeModalProps> = ({
     const renderFontItem = (font: TerminalFont) => (
         <button
             key={font.id}
-            onClick={() => setSelectedFont(font.id)}
+            onClick={() => handleFontSelect(font.id)}
             className={cn(
                 'w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left transition-all',
                 selectedFont === font.id
@@ -151,9 +201,7 @@ export const ThemeCustomizeModal: React.FC<ThemeCustomizeModalProps> = ({
         <div
             className="fixed inset-0 flex items-center justify-center bg-black/60"
             style={{ zIndex: 99999 }}
-            onClick={(e) => {
-                if (e.target === e.currentTarget) onClose();
-            }}
+            onClick={handleBackdropClick}
         >
             <div
                 className="w-[800px] h-[560px] bg-background border border-border rounded-2xl shadow-2xl flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200"
@@ -167,11 +215,11 @@ export const ThemeCustomizeModal: React.FC<ThemeCustomizeModalProps> = ({
                         </div>
                         <div>
                             <h2 className="text-sm font-semibold text-foreground">Terminal Appearance</h2>
-                            <p className="text-xs text-muted-foreground">Customize theme, font and size</p>
+                            <p className="text-xs text-muted-foreground">Changes apply in real-time</p>
                         </div>
                     </div>
                     <button
-                        onClick={onClose}
+                        onClick={handleCancel}
                         className="w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
                     >
                         <X size={16} />
@@ -400,7 +448,7 @@ export const ThemeCustomizeModal: React.FC<ThemeCustomizeModalProps> = ({
                 <div className="flex gap-3 px-5 py-3 shrink-0 border-t border-border bg-muted/20">
                     <Button
                         variant="ghost"
-                        onClick={onClose}
+                        onClick={handleCancel}
                         className="flex-1 h-10"
                     >
                         Cancel
@@ -409,7 +457,7 @@ export const ThemeCustomizeModal: React.FC<ThemeCustomizeModalProps> = ({
                         onClick={handleSave}
                         className="flex-1 h-10"
                     >
-                        Save & Apply
+                        Save
                     </Button>
                 </div>
             </div>

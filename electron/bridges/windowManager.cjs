@@ -45,6 +45,7 @@ let mainWindow = null;
 let productionServer = null;
 let productionServerUrl = null;
 let currentTheme = "light";
+let handlersRegistered = false; // Prevent duplicate IPC handler registration
 
 /**
  * Start a local HTTP server for production (WebAuthn requires secure context)
@@ -181,9 +182,15 @@ async function createWindow(electronModule, options) {
 }
 
 /**
- * Register window control IPC handlers
+ * Register window control IPC handlers (only once)
  */
 function registerWindowHandlers(ipcMain, nativeTheme) {
+  // Prevent duplicate registration
+  if (handlersRegistered) {
+    return;
+  }
+  handlersRegistered = true;
+
   ipcMain.handle("netcatty:window:minimize", () => {
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.minimize();

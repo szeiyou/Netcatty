@@ -18,6 +18,7 @@ import KnownHostConfirmDialog, { HostKeyInfo } from "./KnownHostConfirmDialog";
 import SFTPModal from "./SFTPModal";
 import { Button } from "./ui/button";
 import { TERMINAL_FONTS } from "../infrastructure/config/fonts";
+import { TERMINAL_THEMES } from "../infrastructure/config/terminalThemes";
 
 // Import terminal sub-components
 import { TerminalConnectionDialog } from "./terminal/TerminalConnectionDialog";
@@ -555,7 +556,7 @@ const TerminalComponent: React.FC<TerminalProps> = ({
       // Refit after font size change
       setTimeout(() => safeFit(), 50);
     }
-  }, [fontSize, terminalTheme]);
+  }, [fontSize, terminalTheme, host.fontSize]);
 
   // Effect for host-specific font/theme changes (from ThemeCustomizeModal)
   useEffect(() => {
@@ -571,8 +572,7 @@ const TerminalComponent: React.FC<TerminalProps> = ({
 
       // Apply host-specific theme if set
       if (host.theme) {
-        const { TERMINAL_THEMES } = require('../infrastructure/config/terminalThemes');
-        const hostTheme = TERMINAL_THEMES.find((t: { id: string }) => t.id === host.theme);
+        const hostTheme = TERMINAL_THEMES.find(t => t.id === host.theme);
         if (hostTheme) {
           termRef.current.options.theme = {
             ...hostTheme.colors,
@@ -1361,7 +1361,7 @@ const TerminalComponent: React.FC<TerminalProps> = ({
         <div
           ref={containerRef}
           className="absolute inset-x-0 bottom-0"
-          style={{ top: "40px", paddingLeft: "6px" }}
+          style={{ top: "35px" }}
         />
         {error && (
           <div className="absolute bottom-3 left-3 text-xs text-destructive bg-background/80 border border-destructive/40 rounded px-3 py-2 shadow-lg">
