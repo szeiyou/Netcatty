@@ -20,13 +20,13 @@ import { cn } from '../../lib/utils';
 type TabType = 'theme' | 'font';
 
 // Memoized theme item component to prevent unnecessary re-renders
-const ThemeItem = memo(({ 
-    theme, 
-    isSelected, 
-    onSelect 
-}: { 
-    theme: TerminalThemeConfig; 
-    isSelected: boolean; 
+const ThemeItem = memo(({
+    theme,
+    isSelected,
+    onSelect
+}: {
+    theme: TerminalThemeConfig;
+    isSelected: boolean;
     onSelect: (id: string) => void;
 }) => (
     <button
@@ -61,13 +61,13 @@ const ThemeItem = memo(({
 ThemeItem.displayName = 'ThemeItem';
 
 // Memoized font item component
-const FontItem = memo(({ 
-    font, 
-    isSelected, 
-    onSelect 
-}: { 
-    font: TerminalFont; 
-    isSelected: boolean; 
+const FontItem = memo(({
+    font,
+    isSelected,
+    onSelect
+}: {
+    font: TerminalFont;
+    isSelected: boolean;
     onSelect: (id: string) => void;
 }) => (
     <button
@@ -112,13 +112,13 @@ interface ThemeCustomizeModalProps {
 }
 
 // Memoized preview component to avoid re-rendering on every state change
-const TerminalPreview = memo(({ 
-    theme, 
-    font, 
-    fontSize 
-}: { 
-    theme: TerminalThemeConfig; 
-    font: TerminalFont; 
+const TerminalPreview = memo(({
+    theme,
+    font,
+    fontSize
+}: {
+    theme: TerminalThemeConfig;
+    font: TerminalFont;
     fontSize: number;
 }) => (
     <div
@@ -417,9 +417,9 @@ export const ThemeCustomizeModal: React.FC<ThemeCustomizeModalProps> = ({
                             {activeTab === 'theme' && (
                                 <div className="space-y-1">
                                     {TERMINAL_THEMES.map(theme => (
-                                        <ThemeItem 
-                                            key={theme.id} 
-                                            theme={theme} 
+                                        <ThemeItem
+                                            key={theme.id}
+                                            theme={theme}
                                             isSelected={selectedTheme === theme.id}
                                             onSelect={handleThemeSelect}
                                         />
@@ -429,9 +429,9 @@ export const ThemeCustomizeModal: React.FC<ThemeCustomizeModalProps> = ({
                             {activeTab === 'font' && (
                                 <div className="space-y-1">
                                     {TERMINAL_FONTS.map(font => (
-                                        <FontItem 
-                                            key={font.id} 
-                                            font={font} 
+                                        <FontItem
+                                            key={font.id}
+                                            font={font}
                                             isSelected={selectedFont === font.id}
                                             onSelect={handleFontSelect}
                                         />

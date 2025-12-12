@@ -127,7 +127,7 @@ const TerminalComponent: React.FC<TerminalProps> = ({
 
   // Keyword highlight processor - processes terminal output for keyword highlighting
   const highlightProcessorRef = useRef<(text: string) => string>((t) => t);
-  
+
   // Update highlight processor when settings change
   useEffect(() => {
     highlightProcessorRef.current = createHighlightProcessor(
@@ -780,37 +780,37 @@ const TerminalComponent: React.FC<TerminalProps> = ({
       // Only apply global settings if host doesn't have specific overrides
       const effectiveFontSize = host.fontSize || fontSize;
       termRef.current.options.fontSize = effectiveFontSize;
-      
+
       // Use effectiveTheme which respects host-specific theme override
       termRef.current.options.theme = {
         ...effectiveTheme.colors,
         selectionBackground: effectiveTheme.colors.selection,
       };
-      
+
       // Apply all terminal settings for real-time updates
       if (terminalSettings) {
         // Cursor settings
         termRef.current.options.cursorStyle = terminalSettings.cursorShape;
         termRef.current.options.cursorBlink = terminalSettings.cursorBlink;
-        
+
         // Buffer settings
         termRef.current.options.scrollback = terminalSettings.scrollback;
-        
+
         // Font settings
         termRef.current.options.fontWeight = terminalSettings.fontWeight as 100 | 200 | 300 | 400 | 500 | 600 | 700 | 800 | 900;
         termRef.current.options.fontWeightBold = terminalSettings.fontWeightBold as 100 | 200 | 300 | 400 | 500 | 600 | 700 | 800 | 900;
         termRef.current.options.lineHeight = 1 + terminalSettings.linePadding / 10;
         termRef.current.options.drawBoldTextInBrightColors = terminalSettings.drawBoldInBrightColors;
-        
+
         // Accessibility
         termRef.current.options.minimumContrastRatio = terminalSettings.minimumContrastRatio;
-        
+
         // Input behavior
         termRef.current.options.scrollOnUserInput = terminalSettings.scrollOnInput;
         termRef.current.options.altClickMovesCursor = !terminalSettings.altAsMeta;
         termRef.current.options.wordSeparator = terminalSettings.wordSeparators;
       }
-      
+
       // Refit after settings change (especially important for lineHeight changes)
       setTimeout(() => safeFit(), 50);
     }
@@ -981,7 +981,7 @@ const TerminalComponent: React.FC<TerminalProps> = ({
       const selection = term.getSelection();
       const hasText = !!selection && selection.length > 0;
       setHasSelection(hasText);
-      
+
       // Copy on select if enabled
       if (hasText && terminalSettings?.copyOnSelect) {
         navigator.clipboard.writeText(selection).catch(err => {
@@ -1110,14 +1110,14 @@ const TerminalComponent: React.FC<TerminalProps> = ({
       const termEnv: Record<string, string> = {
         TERM: terminalSettings?.terminalEmulationType ?? 'xterm-256color',
       };
-      
+
       // Add host-specific environment variables
       if (host.environmentVariables) {
         for (const { name, value } of host.environmentVariables) {
           if (name) termEnv[name] = value;
         }
       }
-      
+
       const id = await window.netcatty.startSSHSession({
         sessionId,
         hostname: host.hostname,
@@ -1260,14 +1260,14 @@ const TerminalComponent: React.FC<TerminalProps> = ({
       const telnetEnv: Record<string, string> = {
         TERM: terminalSettings?.terminalEmulationType ?? 'xterm-256color',
       };
-      
+
       // Add host-specific environment variables
       if (host.environmentVariables) {
         for (const { name, value } of host.environmentVariables) {
           if (name) telnetEnv[name] = value;
         }
       }
-      
+
       const id = await startTelnetSession({
         sessionId,
         hostname: host.hostname,
@@ -1341,14 +1341,14 @@ const TerminalComponent: React.FC<TerminalProps> = ({
       const moshEnv: Record<string, string> = {
         TERM: terminalSettings?.terminalEmulationType ?? 'xterm-256color',
       };
-      
+
       // Add host-specific environment variables
       if (host.environmentVariables) {
         for (const { name, value } of host.environmentVariables) {
           if (name) moshEnv[name] = value;
         }
       }
-      
+
       const id = await startMoshSession({
         sessionId,
         hostname: host.hostname,
