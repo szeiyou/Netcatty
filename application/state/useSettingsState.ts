@@ -20,7 +20,11 @@ const DEFAULT_COLOR = '221.2 83.2% 53.3%';
 const DEFAULT_THEME: 'light' | 'dark' = 'light';
 const DEFAULT_TERMINAL_THEME = 'netcatty-dark';
 const DEFAULT_FONT_FAMILY = 'menlo';
-const DEFAULT_HOTKEY_SCHEME: HotkeyScheme = 'mac';
+// Auto-detect default hotkey scheme based on platform
+const DEFAULT_HOTKEY_SCHEME: HotkeyScheme = 
+  typeof navigator !== 'undefined' && /Mac|iPhone|iPad|iPod/i.test(navigator.platform) 
+    ? 'mac' 
+    : 'pc';
 
 const applyThemeTokens = (theme: 'light' | 'dark', primaryColor: string) => {
   const root = window.document.documentElement;
