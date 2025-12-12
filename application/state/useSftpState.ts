@@ -110,6 +110,31 @@ export const useSftpState = (hosts: Host[], keys: SSHKey[]) => {
   // SFTP session refs
   const sftpSessionsRef = useRef<Map<string, string>>(new Map()); // connectionId -> sftpId
 
+  // Directory listing cache (connectionId + path)
+  const DIR_CACHE_TTL_MS = 10_000;
+  const dirCacheRef = useRef<
+    Map<string, { files: SftpFileEntry[]; timestamp: number }>
+  >(new Map());
+
+  // Navigation sequence per pane, used to ignore stale async results
+  const navSeqRef = useRef<{ left: number; right: number }>({
+    left: 0,
+    right: 0,
+  });
+
+  const makeCacheKey = useCallback(
+    (connectionId: string, path: string) => `${connectionId}::${path}`,
+    [],
+  );
+
+  const clearCacheForConnection = useCallback((connectionId: string) => {
+    for (const key of dirCacheRef.current.keys()) {
+      if (key.startsWith(`${connectionId}::`)) {
+        dirCacheRef.current.delete(key);
+      }
+    }
+  }, []);
+
   // Progress simulation refs
   const progressIntervalsRef = useRef<Map<string, NodeJS.Timeout>>(new Map());
 
@@ -201,7 +226,11 @@ export const useSftpState = (hosts: Host[], keys: SSHKey[]) => {
       if (pane.connection) {
         // Clean up stale session reference
         sftpSessionsRef.current.delete(pane.connection.id);
+        clearCacheForConnection(pane.connection.id);
       }
+
+      // Invalidate pending navigation/results for this side
+      navSeqRef.current[side] += 1;
 
       // Check if we have host info to attempt reconnection
       const lastHost = lastConnectedHostRef.current[side];
@@ -226,7 +255,7 @@ export const useSftpState = (hosts: Host[], keys: SSHKey[]) => {
         });
       }
     },
-    [leftPane, rightPane],
+    [leftPane, rightPane, clearCacheForConnection],
   );
 
   // Cleanup on unmount
@@ -279,10 +308,17 @@ export const useSftpState = (hosts: Host[], keys: SSHKey[]) => {
       const setPane = side === "left" ? setLeftPane : setRightPane;
       const connectionId = `${side}-${Date.now()}`;
 
+      // Invalidate any pending navigation for this side
+      navSeqRef.current[side] += 1;
+      const connectRequestId = navSeqRef.current[side];
+
       // Save host info for potential reconnection
       lastConnectedHostRef.current[side] = host;
 
       // First, disconnect any existing connection
+      if (currentPane.connection) {
+        clearCacheForConnection(currentPane.connection.id);
+      }
       if (currentPane.connection && !currentPane.connection.isLocal) {
         const oldSftpId = sftpSessionsRef.current.get(
           currentPane.connection.id,
@@ -327,6 +363,11 @@ export const useSftpState = (hosts: Host[], keys: SSHKey[]) => {
 
         try {
           const files = await listLocalFiles(homeDir);
+          if (navSeqRef.current[side] !== connectRequestId) return;
+          dirCacheRef.current.set(makeCacheKey(connectionId, homeDir), {
+            files,
+            timestamp: Date.now(),
+          });
           // Clear reconnecting flag on success
           reconnectingRef.current[side] = false;
           setPane((prev) => ({
@@ -336,6 +377,7 @@ export const useSftpState = (hosts: Host[], keys: SSHKey[]) => {
             reconnecting: false,
           }));
         } catch (err) {
+          if (navSeqRef.current[side] !== connectRequestId) return;
           reconnectingRef.current[side] = false;
           setPane((prev) => ({
             ...prev,
@@ -376,24 +418,57 @@ export const useSftpState = (hosts: Host[], keys: SSHKey[]) => {
 
           sftpSessionsRef.current.set(connectionId, sftpId);
 
-          // Try to get home directory, default to /
+          // Try to get home directory, default to "/"
           let startPath = "/";
-          try {
-            const homeFiles = await window.netcatty?.listSftp(
-              sftpId,
-              `/home/${credentials.username}`,
-            );
-            if (homeFiles) startPath = `/home/${credentials.username}`;
-          } catch {
-            try {
-              const rootFiles = await window.netcatty?.listSftp(sftpId, "/root");
-              if (rootFiles) startPath = "/root";
-            } catch {
-              // Fallback path not available, use default
+          const statSftp = window.netcatty?.statSftp;
+          if (statSftp) {
+            const candidates: string[] = [];
+            if (credentials.username) {
+              candidates.push(`/home/${credentials.username}`);
+            }
+            candidates.push("/root");
+            for (const candidate of candidates) {
+              try {
+                const stat = await statSftp(sftpId, candidate);
+                if (stat?.type === "directory") {
+                  startPath = candidate;
+                  break;
+                }
+              } catch {
+                // Ignore missing/permission errors
+              }
+            }
+          } else {
+            if (credentials.username) {
+              try {
+                const homeFiles = await window.netcatty?.listSftp(
+                  sftpId,
+                  `/home/${credentials.username}`,
+                );
+                if (homeFiles) startPath = `/home/${credentials.username}`;
+              } catch {
+                // Fall through to /root check
+              }
+            }
+            if (startPath === "/") {
+              try {
+                const rootFiles = await window.netcatty?.listSftp(
+                  sftpId,
+                  "/root",
+                );
+                if (rootFiles) startPath = "/root";
+              } catch {
+                // Fallback path not available, use default
+              }
             }
           }
 
           const files = await listRemoteFiles(sftpId, startPath);
+          if (navSeqRef.current[side] !== connectRequestId) return;
+          dirCacheRef.current.set(makeCacheKey(connectionId, startPath), {
+            files,
+            timestamp: Date.now(),
+          });
 
           // Clear reconnecting flag on success
           reconnectingRef.current[side] = false;
@@ -413,6 +488,7 @@ export const useSftpState = (hosts: Host[], keys: SSHKey[]) => {
             reconnecting: false,
           }));
         } catch (err) {
+          if (navSeqRef.current[side] !== connectRequestId) return;
           reconnectingRef.current[side] = false;
           setPane((prev) => ({
             ...prev,
@@ -432,7 +508,7 @@ export const useSftpState = (hosts: Host[], keys: SSHKey[]) => {
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps -- listLocalFiles is intentionally omitted to prevent infinite loops
-    [getHostCredentials, leftPane, rightPane],
+    [getHostCredentials, leftPane, rightPane, clearCacheForConnection],
   );
 
   // Auto-connect left pane to local filesystem on first mount
@@ -473,6 +549,13 @@ export const useSftpState = (hosts: Host[], keys: SSHKey[]) => {
       const pane = side === "left" ? leftPane : rightPane;
       const setPane = side === "left" ? setLeftPane : setRightPane;
 
+      // Invalidate any pending navigation for this side
+      navSeqRef.current[side] += 1;
+
+      if (pane.connection) {
+        clearCacheForConnection(pane.connection.id);
+      }
+
       // Clear reconnection state
       reconnectingRef.current[side] = false;
       lastConnectedHostRef.current[side] = null;
@@ -499,7 +582,7 @@ export const useSftpState = (hosts: Host[], keys: SSHKey[]) => {
         filter: "",
       });
     },
-    [leftPane, rightPane],
+    [leftPane, rightPane, clearCacheForConnection],
   );
 
   // Mock local file data for development (when backend is not available)
@@ -992,11 +1075,39 @@ export const useSftpState = (hosts: Host[], keys: SSHKey[]) => {
 
   // Navigate to path
   const navigateTo = useCallback(
-    async (side: "left" | "right", path: string) => {
+    async (
+      side: "left" | "right",
+      path: string,
+      options?: { force?: boolean },
+    ) => {
       const pane = side === "left" ? leftPane : rightPane;
       const setPane = side === "left" ? setLeftPane : setRightPane;
 
       if (!pane.connection) return;
+
+      const requestId = ++navSeqRef.current[side];
+      const cacheKey = makeCacheKey(pane.connection.id, path);
+      const cached = options?.force
+        ? undefined
+        : dirCacheRef.current.get(cacheKey);
+
+      if (
+        cached &&
+        Date.now() - cached.timestamp < DIR_CACHE_TTL_MS &&
+        cached.files
+      ) {
+        setPane((prev) => ({
+          ...prev,
+          connection: prev.connection
+            ? { ...prev.connection, currentPath: path }
+            : null,
+          files: cached.files,
+          loading: false,
+          error: null,
+          selectedFiles: new Set(),
+        }));
+        return;
+      }
 
       setPane((prev) => ({ ...prev, loading: true, error: null }));
 
@@ -1009,6 +1120,7 @@ export const useSftpState = (hosts: Host[], keys: SSHKey[]) => {
           const sftpId = sftpSessionsRef.current.get(pane.connection.id);
           if (!sftpId) {
             // Session lost - clear connection state
+            clearCacheForConnection(pane.connection.id);
             setPane({
               connection: null,
               files: [],
@@ -1024,16 +1136,10 @@ export const useSftpState = (hosts: Host[], keys: SSHKey[]) => {
           try {
             files = await listRemoteFiles(sftpId, path);
           } catch (err) {
-            // Check if it's a session error
-            const errorMsg =
-              err instanceof Error ? err.message : "Unknown error";
-            if (
-              errorMsg.includes("session") ||
-              errorMsg.includes("not found") ||
-              errorMsg.includes("closed")
-            ) {
+            if (isSessionError(err)) {
               // Clean up stale session reference
               sftpSessionsRef.current.delete(pane.connection.id);
+              clearCacheForConnection(pane.connection.id);
               setPane({
                 connection: null,
                 files: [],
@@ -1045,9 +1151,16 @@ export const useSftpState = (hosts: Host[], keys: SSHKey[]) => {
               });
               return;
             }
-            throw err;
+            throw err as Error;
           }
         }
+
+        if (navSeqRef.current[side] !== requestId) return;
+
+        dirCacheRef.current.set(cacheKey, {
+          files,
+          timestamp: Date.now(),
+        });
 
         setPane((prev) => ({
           ...prev,
@@ -1059,6 +1172,7 @@ export const useSftpState = (hosts: Host[], keys: SSHKey[]) => {
           selectedFiles: new Set(),
         }));
       } catch (err) {
+        if (navSeqRef.current[side] !== requestId) return;
         setPane((prev) => ({
           ...prev,
           error:
@@ -1068,7 +1182,7 @@ export const useSftpState = (hosts: Host[], keys: SSHKey[]) => {
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps -- listLocalFiles is intentionally omitted to prevent infinite loops
-    [leftPane, rightPane],
+    [leftPane, rightPane, makeCacheKey, clearCacheForConnection],
   );
 
   // Refresh current directory
@@ -1076,7 +1190,7 @@ export const useSftpState = (hosts: Host[], keys: SSHKey[]) => {
     async (side: "left" | "right") => {
       const pane = side === "left" ? leftPane : rightPane;
       if (pane.connection) {
-        await navigateTo(side, pane.connection.currentPath);
+        await navigateTo(side, pane.connection.currentPath, { force: true });
       }
     },
     [leftPane, rightPane, navigateTo],

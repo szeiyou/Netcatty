@@ -13,23 +13,45 @@ const os = require("node:os");
 async function listLocalDir(event, payload) {
   const dirPath = payload.path;
   const entries = await fs.promises.readdir(dirPath, { withFileTypes: true });
-  const result = [];
-  
-  for (const entry of entries) {
-    try {
-      const fullPath = path.join(dirPath, entry.name);
-      const stat = await fs.promises.stat(fullPath);
-      result.push({
-        name: entry.name,
-        type: entry.isDirectory() ? "directory" : entry.isSymbolicLink() ? "symlink" : "file",
-        size: `${stat.size} bytes`,
-        lastModified: stat.mtime.toISOString(),
-      });
-    } catch (err) {
-      console.warn(`Could not stat ${entry.name}:`, err.message);
+
+  // Stat entries in parallel with a small concurrency limit.
+  // Serial stats can be very slow on Windows for large dirs.
+  const CONCURRENCY = 32;
+  const result = new Array(entries.length);
+  let cursor = 0;
+
+  const worker = async () => {
+    while (true) {
+      const i = cursor++;
+      if (i >= entries.length) return;
+      const entry = entries[i];
+      try {
+        const fullPath = path.join(dirPath, entry.name);
+        const stat = await fs.promises.stat(fullPath);
+        result[i] = {
+          name: entry.name,
+          type: entry.isDirectory()
+            ? "directory"
+            : entry.isSymbolicLink()
+              ? "symlink"
+              : "file",
+          size: `${stat.size} bytes`,
+          lastModified: stat.mtime.toISOString(),
+        };
+      } catch (err) {
+        console.warn(`Could not stat ${entry.name}:`, err.message);
+        result[i] = null;
+      }
     }
-  }
-  return result;
+  };
+
+  const workers = Array.from(
+    { length: Math.min(CONCURRENCY, entries.length) },
+    () => worker(),
+  );
+  await Promise.all(workers);
+
+  return result.filter(Boolean);
 }
 
 /**
