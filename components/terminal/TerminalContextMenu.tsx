@@ -10,7 +10,8 @@ import {
     Trash2,
     Terminal as TerminalIcon,
 } from 'lucide-react';
-import React from 'react';
+import React, { useCallback } from 'react';
+import { RightClickBehavior } from '../../domain/models';
 import {
     ContextMenu,
     ContextMenuContent,
@@ -24,6 +25,7 @@ export interface TerminalContextMenuProps {
     children: React.ReactNode;
     hasSelection?: boolean;
     hotkeyScheme?: 'disabled' | 'mac' | 'pc';
+    rightClickBehavior?: RightClickBehavior;
     onCopy?: () => void;
     onPaste?: () => void;
     onSelectAll?: () => void;
@@ -31,12 +33,14 @@ export interface TerminalContextMenuProps {
     onSplitHorizontal?: () => void;
     onSplitVertical?: () => void;
     onClose?: () => void;
+    onSelectWord?: () => void;
 }
 
 export const TerminalContextMenu: React.FC<TerminalContextMenuProps> = ({
     children,
     hasSelection = false,
     hotkeyScheme = 'mac',
+    rightClickBehavior = 'context-menu',
     onCopy,
     onPaste,
     onSelectAll,
@@ -44,6 +48,7 @@ export const TerminalContextMenu: React.FC<TerminalContextMenuProps> = ({
     onSplitHorizontal,
     onSplitVertical,
     onClose,
+    onSelectWord,
 }) => {
     const isMac = hotkeyScheme === 'mac';
 
@@ -53,6 +58,29 @@ export const TerminalContextMenu: React.FC<TerminalContextMenuProps> = ({
     const splitHShortcut = isMac ? '⌘D' : 'Ctrl+Shift+D';
     const splitVShortcut = isMac ? '⇧⌘D' : 'Ctrl+Shift+E';
     const clearShortcut = isMac ? '⌘K' : 'Ctrl+L';
+
+    // Handle right-click based on behavior setting
+    const handleRightClick = useCallback((e: React.MouseEvent) => {
+        if (rightClickBehavior === 'paste') {
+            e.preventDefault();
+            e.stopPropagation();
+            onPaste?.();
+        } else if (rightClickBehavior === 'select-word') {
+            e.preventDefault();
+            e.stopPropagation();
+            onSelectWord?.();
+        }
+        // For 'context-menu', let the default behavior happen (menu shows)
+    }, [rightClickBehavior, onPaste, onSelectWord]);
+
+    // If not using context menu behavior, wrap children with a div that intercepts right-click
+    if (rightClickBehavior !== 'context-menu') {
+        return (
+            <div onContextMenu={handleRightClick} className="contents">
+                {children}
+            </div>
+        );
+    }
 
     return (
         <ContextMenu>

@@ -2,6 +2,7 @@ import { Terminal as XTerm } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { SerializeAddon } from "@xterm/addon-serialize";
 import { WebglAddon } from "@xterm/addon-webgl";
+import { WebLinksAddon } from "@xterm/addon-web-links";
 import "@xterm/xterm/css/xterm.css";
 import { Maximize2 } from "lucide-react";
 import React, { memo, useEffect, useMemo, useRef, useState } from "react";
@@ -13,6 +14,7 @@ import {
   Snippet,
   TerminalSession,
   TerminalTheme,
+  TerminalSettings,
   KeyBinding,
 } from "../types";
 import { checkAppShortcut, getAppLevelActions, getTerminalPassthroughActions } from "../application/state/useGlobalHotkeys";
@@ -26,6 +28,7 @@ import { TERMINAL_THEMES } from "../infrastructure/config/terminalThemes";
 import { TerminalConnectionDialog } from "./terminal/TerminalConnectionDialog";
 import { TerminalToolbar } from "./terminal/TerminalToolbar";
 import { TerminalContextMenu } from "./terminal/TerminalContextMenu";
+import { createHighlightProcessor } from "./terminal/keywordHighlight";
 import {
   XTERM_PERFORMANCE_CONFIG,
   type XTermPlatform,
@@ -45,6 +48,7 @@ interface TerminalProps {
   isFocused?: boolean; // Whether this terminal should have keyboard focus (for split views)
   fontSize: number;
   terminalTheme: TerminalTheme;
+  terminalSettings?: TerminalSettings; // Global terminal settings
   sessionId: string;
   startupCommand?: string; // Command to run after connection (for snippet runner)
   // Hotkey configuration
@@ -88,6 +92,7 @@ const TerminalComponent: React.FC<TerminalProps> = ({
   isFocused,
   fontSize,
   terminalTheme,
+  terminalSettings,
   sessionId,
   startupCommand,
   hotkeyScheme = 'disabled',
@@ -115,6 +120,21 @@ const TerminalComponent: React.FC<TerminalProps> = ({
   const hasConnectedRef = useRef(false);
   const hasRunStartupCommandRef = useRef(false); // Track if startup command has been executed
   const commandBufferRef = useRef<string>(""); // Buffer for tracking typed commands
+
+  // Ref to store latest terminalSettings for use in boot function (avoids stale closure)
+  const terminalSettingsRef = useRef(terminalSettings);
+  terminalSettingsRef.current = terminalSettings;
+
+  // Keyword highlight processor - processes terminal output for keyword highlighting
+  const highlightProcessorRef = useRef<(text: string) => string>((t) => t);
+  
+  // Update highlight processor when settings change
+  useEffect(() => {
+    highlightProcessorRef.current = createHighlightProcessor(
+      terminalSettings?.keywordHighlightRules ?? [],
+      terminalSettings?.keywordHighlightEnabled ?? false
+    );
+  }, [terminalSettings?.keywordHighlightEnabled, terminalSettings?.keywordHighlightRules]);
 
   // Refs to store latest hotkey config for use in keyboard handler
   const hotkeySchemeRef = useRef(hotkeyScheme);
@@ -287,10 +307,38 @@ const TerminalComponent: React.FC<TerminalProps> = ({
         // Use host-specific font size if available, otherwise use the global fontSize prop
         const effectiveFontSize = host.fontSize || fontSize;
 
+        // Apply terminal settings with defaults (use ref to get latest values)
+        const settings = terminalSettingsRef.current;
+        const cursorStyle = settings?.cursorShape ?? 'block';
+        const cursorBlink = settings?.cursorBlink ?? true;
+        const scrollback = settings?.scrollback ?? 10000;
+        const fontLigatures = settings?.fontLigatures ?? true;
+        const drawBoldTextInBrightColors = settings?.drawBoldInBrightColors ?? true;
+        const fontWeight = settings?.fontWeight ?? 400;
+        const fontWeightBold = settings?.fontWeightBold ?? 700;
+        // linePadding 0-10 maps to lineHeight 1.0-2.0
+        const lineHeight = 1 + (settings?.linePadding ?? 0) / 10;
+        const minimumContrastRatio = settings?.minimumContrastRatio ?? 1;
+        const scrollOnUserInput = settings?.scrollOnInput ?? true;
+        const altIsMeta = settings?.altAsMeta ?? false;
+        const wordSeparator = settings?.wordSeparators ?? " ()[]{}'\"";
+
         const term = new XTerm({
           ...performanceConfig.options,
           fontSize: effectiveFontSize,
           fontFamily: fontFamily,
+          fontWeight: fontWeight as 100 | 200 | 300 | 400 | 500 | 600 | 700 | 800 | 900 | 'normal' | 'bold',
+          fontWeightBold: fontWeightBold as 100 | 200 | 300 | 400 | 500 | 600 | 700 | 800 | 900 | 'normal' | 'bold',
+          lineHeight,
+          cursorStyle,
+          cursorBlink,
+          scrollback,
+          allowProposedApi: fontLigatures, // Required for font ligatures
+          drawBoldTextInBrightColors,
+          minimumContrastRatio,
+          scrollOnUserInput,
+          altClickMovesCursor: !altIsMeta, // If altAsMeta is true, don't use alt for cursor movement
+          wordSeparator,
           theme: {
             ...terminalTheme.colors,
             selectionBackground: terminalTheme.colors.selection,
@@ -397,6 +445,36 @@ const TerminalComponent: React.FC<TerminalProps> = ({
           scopedWindow.__xtermWebGLLoaded = webglLoaded;
           scopedWindow.__xtermRendererPreference = performanceConfig.preferCanvasRenderer ? "canvas" : "webgl";
 
+          // Load web links addon for clickable URLs
+          const webLinksAddon = new WebLinksAddon((event, uri) => {
+            // Check if the required modifier key is held (read from ref for real-time updates)
+            const currentLinkModifier = terminalSettingsRef.current?.linkModifier ?? 'none';
+            let shouldOpen = false;
+            switch (currentLinkModifier) {
+              case 'none':
+                shouldOpen = true;
+                break;
+              case 'ctrl':
+                shouldOpen = event.ctrlKey;
+                break;
+              case 'alt':
+                shouldOpen = event.altKey;
+                break;
+              case 'meta':
+                shouldOpen = event.metaKey;
+                break;
+            }
+            if (shouldOpen) {
+              // Open URL in default browser
+              if (window.netcatty?.openExternal) {
+                window.netcatty.openExternal(uri);
+              } else {
+                window.open(uri, '_blank');
+              }
+            }
+          });
+          term.loadAddon(webLinksAddon);
+
           logRenderer();
 
           // Attach custom key event handler to intercept app-level shortcuts
@@ -487,6 +565,34 @@ const TerminalComponent: React.FC<TerminalProps> = ({
 
             return true; // Let xterm handle other keys
           });
+
+          // Add middle-click paste support
+          const middleClickPaste = settings?.middleClickPaste ?? true;
+          if (middleClickPaste && containerRef.current) {
+            const handleMiddleClick = async (e: MouseEvent) => {
+              if (e.button === 1) { // Middle mouse button
+                e.preventDefault();
+                try {
+                  const text = await navigator.clipboard.readText();
+                  if (text && sessionRef.current && window.netcatty?.writeToSession) {
+                    window.netcatty.writeToSession(sessionRef.current, text);
+                  }
+                } catch (err) {
+                  console.warn('[Terminal] Failed to paste from clipboard:', err);
+                }
+              }
+            };
+            containerRef.current.addEventListener('auxclick', handleMiddleClick);
+            // Store cleanup function
+            const container = containerRef.current;
+            const cleanup = () => container.removeEventListener('auxclick', handleMiddleClick);
+            // Add to disposal - we'll handle this in the main cleanup
+            const originalDispose = disposeDataRef.current;
+            disposeDataRef.current = () => {
+              cleanup();
+              originalDispose?.();
+            };
+          }
 
           fitAddon.fit();
           term.focus();
@@ -668,20 +774,47 @@ const TerminalComponent: React.FC<TerminalProps> = ({
     }
   };
 
-  // Effect for global fontSize/terminalTheme changes (from Settings)
+  // Effect for global fontSize/terminalTheme/terminalSettings changes (from Settings)
   useEffect(() => {
     if (termRef.current) {
       // Only apply global settings if host doesn't have specific overrides
       const effectiveFontSize = host.fontSize || fontSize;
       termRef.current.options.fontSize = effectiveFontSize;
+      
+      // Use effectiveTheme which respects host-specific theme override
       termRef.current.options.theme = {
-        ...terminalTheme.colors,
-        selectionBackground: terminalTheme.colors.selection,
+        ...effectiveTheme.colors,
+        selectionBackground: effectiveTheme.colors.selection,
       };
-      // Refit after font size change
+      
+      // Apply all terminal settings for real-time updates
+      if (terminalSettings) {
+        // Cursor settings
+        termRef.current.options.cursorStyle = terminalSettings.cursorShape;
+        termRef.current.options.cursorBlink = terminalSettings.cursorBlink;
+        
+        // Buffer settings
+        termRef.current.options.scrollback = terminalSettings.scrollback;
+        
+        // Font settings
+        termRef.current.options.fontWeight = terminalSettings.fontWeight as 100 | 200 | 300 | 400 | 500 | 600 | 700 | 800 | 900;
+        termRef.current.options.fontWeightBold = terminalSettings.fontWeightBold as 100 | 200 | 300 | 400 | 500 | 600 | 700 | 800 | 900;
+        termRef.current.options.lineHeight = 1 + terminalSettings.linePadding / 10;
+        termRef.current.options.drawBoldTextInBrightColors = terminalSettings.drawBoldInBrightColors;
+        
+        // Accessibility
+        termRef.current.options.minimumContrastRatio = terminalSettings.minimumContrastRatio;
+        
+        // Input behavior
+        termRef.current.options.scrollOnUserInput = terminalSettings.scrollOnInput;
+        termRef.current.options.altClickMovesCursor = !terminalSettings.altAsMeta;
+        termRef.current.options.wordSeparator = terminalSettings.wordSeparators;
+      }
+      
+      // Refit after settings change (especially important for lineHeight changes)
       setTimeout(() => safeFit(), 50);
     }
-  }, [fontSize, terminalTheme, host.fontSize]);
+  }, [fontSize, effectiveTheme, terminalSettings, host.fontSize]);
 
   // Effect for host-specific font/theme changes (from ThemeCustomizeModal)
   useEffect(() => {
@@ -695,21 +828,16 @@ const TerminalComponent: React.FC<TerminalProps> = ({
       const fontObj = TERMINAL_FONTS.find(f => f.id === hostFontId) || TERMINAL_FONTS[0];
       termRef.current.options.fontFamily = fontObj.family;
 
-      // Apply host-specific theme if set
-      if (host.theme) {
-        const hostTheme = TERMINAL_THEMES.find(t => t.id === host.theme);
-        if (hostTheme) {
-          termRef.current.options.theme = {
-            ...hostTheme.colors,
-            selectionBackground: hostTheme.colors.selection,
-          };
-        }
-      }
+      // Apply effective theme (host-specific or global)
+      termRef.current.options.theme = {
+        ...effectiveTheme.colors,
+        selectionBackground: effectiveTheme.colors.selection,
+      };
 
       // Refit after changes
       setTimeout(() => safeFit(), 50);
     }
-  }, [host.fontSize, host.fontFamily, host.theme, fontSize]);
+  }, [host.fontSize, host.fontFamily, host.theme, fontSize, effectiveTheme]);
 
   // Separate effect for visibility-triggered fit (less frequent)
   useEffect(() => {
@@ -844,19 +972,27 @@ const TerminalComponent: React.FC<TerminalProps> = ({
     }
   }, [isFocused, isVisible, sessionId]);
 
-  // Track terminal selection for context menu
+  // Track terminal selection for context menu and copyOnSelect
   useEffect(() => {
     const term = termRef.current;
     if (!term) return;
 
     const onSelectionChange = () => {
       const selection = term.getSelection();
-      setHasSelection(!!selection && selection.length > 0);
+      const hasText = !!selection && selection.length > 0;
+      setHasSelection(hasText);
+      
+      // Copy on select if enabled
+      if (hasText && terminalSettings?.copyOnSelect) {
+        navigator.clipboard.writeText(selection).catch(err => {
+          console.warn('Copy on select failed:', err);
+        });
+      }
     };
 
     term.onSelectionChange(onSelectionChange);
     // No need to return cleanup as xterm handles it when disposed
-  }, []);
+  }, [terminalSettings?.copyOnSelect]);
 
   useEffect(() => {
     let resizeTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -970,6 +1106,18 @@ const TerminalComponent: React.FC<TerminalProps> = ({
     }
 
     try {
+      // Build environment variables, including TERM from settings
+      const termEnv: Record<string, string> = {
+        TERM: terminalSettings?.terminalEmulationType ?? 'xterm-256color',
+      };
+      
+      // Add host-specific environment variables
+      if (host.environmentVariables) {
+        for (const { name, value } of host.environmentVariables) {
+          if (name) termEnv[name] = value;
+        }
+      }
+      
       const id = await window.netcatty.startSSHSession({
         sessionId,
         hostname: host.hostname,
@@ -982,14 +1130,8 @@ const TerminalComponent: React.FC<TerminalProps> = ({
         cols: term.cols,
         rows: term.rows,
         charset: host.charset,
-        // Environment variables
-        env: host.environmentVariables?.reduce(
-          (acc, { name, value }) => {
-            if (name) acc[name] = value;
-            return acc;
-          },
-          {} as Record<string, string>,
-        ),
+        // Environment variables including TERM
+        env: termEnv,
         // New: proxy and jump host configuration
         proxy: proxyConfig,
         jumpHosts: jumpHosts.length > 0 ? jumpHosts : undefined,
@@ -1003,7 +1145,8 @@ const TerminalComponent: React.FC<TerminalProps> = ({
       sessionRef.current = id;
 
       disposeDataRef.current = window.netcatty.onSessionData(id, (chunk) => {
-        term.write(chunk);
+        // Apply keyword highlighting before writing to terminal
+        term.write(highlightProcessorRef.current(chunk));
         if (!hasConnectedRef.current) {
           updateStatus("connected");
           setChainProgress(null); // Clear chain progress on connect
@@ -1113,6 +1256,18 @@ const TerminalComponent: React.FC<TerminalProps> = ({
     }
 
     try {
+      // Build environment variables, including TERM from settings
+      const telnetEnv: Record<string, string> = {
+        TERM: terminalSettings?.terminalEmulationType ?? 'xterm-256color',
+      };
+      
+      // Add host-specific environment variables
+      if (host.environmentVariables) {
+        for (const { name, value } of host.environmentVariables) {
+          if (name) telnetEnv[name] = value;
+        }
+      }
+      
       const id = await startTelnetSession({
         sessionId,
         hostname: host.hostname,
@@ -1120,19 +1275,14 @@ const TerminalComponent: React.FC<TerminalProps> = ({
         cols: term.cols,
         rows: term.rows,
         charset: host.charset,
-        env: host.environmentVariables?.reduce(
-          (acc, { name, value }) => {
-            if (name) acc[name] = value;
-            return acc;
-          },
-          {} as Record<string, string>,
-        ),
+        env: telnetEnv,
       });
 
       sessionRef.current = id;
 
       disposeDataRef.current = window.netcatty?.onSessionData(id, (chunk) => {
-        term.write(chunk);
+        // Apply keyword highlighting before writing to terminal
+        term.write(highlightProcessorRef.current(chunk));
         if (!hasConnectedRef.current) {
           updateStatus("connected");
           setTimeout(() => {
@@ -1187,6 +1337,18 @@ const TerminalComponent: React.FC<TerminalProps> = ({
     }
 
     try {
+      // Build environment variables, including TERM from settings
+      const moshEnv: Record<string, string> = {
+        TERM: terminalSettings?.terminalEmulationType ?? 'xterm-256color',
+      };
+      
+      // Add host-specific environment variables
+      if (host.environmentVariables) {
+        for (const { name, value } of host.environmentVariables) {
+          if (name) moshEnv[name] = value;
+        }
+      }
+      
       const id = await startMoshSession({
         sessionId,
         hostname: host.hostname,
@@ -1197,19 +1359,14 @@ const TerminalComponent: React.FC<TerminalProps> = ({
         cols: term.cols,
         rows: term.rows,
         charset: host.charset,
-        env: host.environmentVariables?.reduce(
-          (acc, { name, value }) => {
-            if (name) acc[name] = value;
-            return acc;
-          },
-          {} as Record<string, string>,
-        ),
+        env: moshEnv,
       });
 
       sessionRef.current = id;
 
       disposeDataRef.current = window.netcatty?.onSessionData(id, (chunk) => {
-        term.write(chunk);
+        // Apply keyword highlighting before writing to terminal
+        term.write(highlightProcessorRef.current(chunk));
         if (!hasConnectedRef.current) {
           updateStatus("connected");
           setTimeout(() => {
@@ -1285,10 +1442,14 @@ const TerminalComponent: React.FC<TerminalProps> = ({
         sessionId,
         cols: term.cols,
         rows: term.rows,
+        env: {
+          TERM: terminalSettings?.terminalEmulationType ?? 'xterm-256color',
+        },
       });
       sessionRef.current = id;
       disposeDataRef.current = window.netcatty?.onSessionData(id, (chunk) => {
-        term.write(chunk);
+        // Apply keyword highlighting before writing to terminal
+        term.write(highlightProcessorRef.current(chunk));
         if (!hasConnectedRef.current) {
           updateStatus("connected");
           // Trigger fit after connection to ensure proper terminal size
@@ -1491,6 +1652,16 @@ const TerminalComponent: React.FC<TerminalProps> = ({
     term.clear();
   };
 
+  const handleContextSelectWord = () => {
+    const term = termRef.current;
+    if (!term) return;
+    // xterm.js selectWord selects the word under cursor
+    // Since we don't have a cursor position from right-click, we can select all as fallback
+    // A proper implementation would require tracking the click position
+    term.selectAll();
+    setHasSelection(true);
+  };
+
   const renderControls = (opts?: { showClose?: boolean }) => (
     <TerminalToolbar
       status={status}
@@ -1520,10 +1691,12 @@ const TerminalComponent: React.FC<TerminalProps> = ({
     <TerminalContextMenu
       hasSelection={hasSelection}
       hotkeyScheme={hotkeyScheme}
+      rightClickBehavior={terminalSettings?.rightClickBehavior}
       onCopy={handleContextCopy}
       onPaste={handleContextPaste}
       onSelectAll={handleContextSelectAll}
       onClear={handleContextClear}
+      onSelectWord={handleContextSelectWord}
       onSplitHorizontal={onSplitHorizontal}
       onSplitVertical={onSplitVertical}
       onClose={inWorkspace ? () => onCloseSession?.(sessionId) : undefined}

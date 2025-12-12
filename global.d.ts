@@ -230,6 +230,9 @@ interface NetcattyBridge {
   // Known Hosts
   readKnownHosts?(): Promise<string | null>;
   
+  // Open URL in default browser
+  openExternal?(url: string): Promise<void>;
+  
   // Chain progress listener for jump host connections
   // Callback receives: (currentHop: number, totalHops: number, hostLabel: string, status: string)
   onChainProgress?(cb: (hop: number, total: number, label: string, status: string) => void): () => void;

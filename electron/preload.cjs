@@ -325,6 +325,9 @@ const api = {
   openSettingsWindow: () => ipcRenderer.invoke("netcatty:settings:open"),
   closeSettingsWindow: () => ipcRenderer.invoke("netcatty:settings:close"),
   
+  // Open URL in default browser
+  openExternal: (url) => ipcRenderer.invoke("netcatty:openExternal", url),
+  
   // Port Forwarding API
   startPortForward: async (options) => {
     return ipcRenderer.invoke("netcatty:portforward:start", options);

@@ -108,11 +108,39 @@ export const useSettingsState = () => {
           // ignore parse errors
         }
       }
+      // Sync terminal settings from other windows
+      if (e.key === STORAGE_KEY_TERM_SETTINGS && e.newValue) {
+        try {
+          const newSettings = JSON.parse(e.newValue) as TerminalSettings;
+          setTerminalSettings(prev => ({ ...DEFAULT_TERMINAL_SETTINGS, ...newSettings }));
+        } catch {
+          // ignore parse errors
+        }
+      }
+      // Sync terminal theme from other windows
+      if (e.key === STORAGE_KEY_TERM_THEME && e.newValue) {
+        if (e.newValue !== terminalThemeId) {
+          setTerminalThemeId(e.newValue);
+        }
+      }
+      // Sync terminal font family from other windows
+      if (e.key === STORAGE_KEY_TERM_FONT_FAMILY && e.newValue) {
+        if (e.newValue !== terminalFontFamilyId) {
+          setTerminalFontFamilyId(e.newValue);
+        }
+      }
+      // Sync terminal font size from other windows
+      if (e.key === STORAGE_KEY_TERM_FONT_SIZE && e.newValue) {
+        const newSize = parseInt(e.newValue, 10);
+        if (!isNaN(newSize) && newSize !== terminalFontSize) {
+          setTerminalFontSize(newSize);
+        }
+      }
     };
 
     window.addEventListener('storage', handleStorageChange);
     return () => window.removeEventListener('storage', handleStorageChange);
-  }, [theme, primaryColor, customCSS, hotkeyScheme]);
+  }, [theme, primaryColor, customCSS, hotkeyScheme, terminalThemeId, terminalFontFamilyId, terminalFontSize]);
 
   useEffect(() => {
     localStorageAdapter.writeString(STORAGE_KEY_TERM_THEME, terminalThemeId);

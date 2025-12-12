@@ -3,7 +3,7 @@ import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from '
 import { useActiveTabId } from '../application/state/activeTabStore';
 import { collectSessionIds } from '../domain/workspace';
 import { SplitDirection } from '../domain/workspace';
-import { KeyBinding } from '../domain/models';
+import { KeyBinding, TerminalSettings } from '../domain/models';
 import { cn } from '../lib/utils';
 import { Host, KnownHost, SSHKey, Snippet, TerminalSession, TerminalTheme, Workspace, WorkspaceNode } from '../types';
 import { DistroAvatar } from './DistroAvatar';
@@ -38,6 +38,7 @@ interface TerminalLayerProps {
   knownHosts?: KnownHost[];
   draggingSessionId: string | null;
   terminalTheme: TerminalTheme;
+  terminalSettings?: TerminalSettings;
   fontSize?: number;
   hotkeyScheme?: 'disabled' | 'mac' | 'pc';
   keyBindings?: KeyBinding[];
@@ -66,6 +67,7 @@ const TerminalLayerInner: React.FC<TerminalLayerProps> = ({
   knownHosts = [],
   draggingSessionId,
   terminalTheme,
+  terminalSettings,
   fontSize = 14,
   hotkeyScheme = 'disabled',
   keyBindings = [],
@@ -631,6 +633,7 @@ const TerminalLayerInner: React.FC<TerminalLayerProps> = ({
                 isFocused={isFocusedPane}
                 fontSize={fontSize}
                 terminalTheme={terminalTheme}
+                terminalSettings={terminalSettings}
                 sessionId={session.id}
                 startupCommand={session.startupCommand}
                 hotkeyScheme={hotkeyScheme}
@@ -717,6 +720,7 @@ const terminalLayerAreEqual = (prev: TerminalLayerProps, next: TerminalLayerProp
     prev.workspaces === next.workspaces &&
     prev.draggingSessionId === next.draggingSessionId &&
     prev.terminalTheme === next.terminalTheme &&
+    prev.terminalSettings === next.terminalSettings &&
     prev.fontSize === next.fontSize &&
     prev.onUpdateHost === next.onUpdateHost &&
     prev.onToggleWorkspaceViewMode === next.onToggleWorkspaceViewMode &&

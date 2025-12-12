@@ -8,8 +8,10 @@ import {
     Download,
     Keyboard,
     Loader2,
+    Minus,
     Moon,
     Palette,
+    Plus,
     RotateCcw,
     Sun,
     TerminalSquare,
@@ -21,6 +23,9 @@ import {
     CursorShape,
     RightClickBehavior,
     HotkeyScheme,
+    TerminalEmulationType,
+    LinkModifier,
+    DEFAULT_KEYWORD_HIGHLIGHT_RULES,
     keyEventToString,
 } from "../domain/models";
 import { TERMINAL_THEMES } from "../infrastructure/config/terminalThemes";
@@ -604,21 +609,33 @@ export default function SettingsPage() {
                                 />
                             </SettingRow>
 
-                            <SettingRow label="Font size">
-                                <div className="flex items-center gap-2">
-                                    <Input
-                                        type="number"
-                                        min={MIN_FONT_SIZE}
-                                        max={MAX_FONT_SIZE}
-                                        value={terminalFontSize}
-                                        onChange={(e) => {
-                                            const val = parseInt(e.target.value);
-                                            if (val >= MIN_FONT_SIZE && val <= MAX_FONT_SIZE) {
-                                                setTerminalFontSize(val);
+                            <SettingRow label="Text Size">
+                                <div className="flex items-center gap-1">
+                                    <button
+                                        onClick={() => {
+                                            if (terminalFontSize > MIN_FONT_SIZE) {
+                                                setTerminalFontSize(terminalFontSize - 1);
                                             }
                                         }}
-                                        className="w-20 text-center"
-                                    />
+                                        className="w-8 h-8 flex items-center justify-center rounded-md bg-muted hover:bg-muted/80 transition-colors"
+                                        disabled={terminalFontSize <= MIN_FONT_SIZE}
+                                    >
+                                        <Minus size={14} />
+                                    </button>
+                                    <div className="w-10 h-8 flex items-center justify-center text-sm font-medium">
+                                        {terminalFontSize}
+                                    </div>
+                                    <button
+                                        onClick={() => {
+                                            if (terminalFontSize < MAX_FONT_SIZE) {
+                                                setTerminalFontSize(terminalFontSize + 1);
+                                            }
+                                        }}
+                                        className="w-8 h-8 flex items-center justify-center rounded-md bg-muted hover:bg-muted/80 transition-colors"
+                                        disabled={terminalFontSize >= MAX_FONT_SIZE}
+                                    >
+                                        <Plus size={14} />
+                                    </button>
                                 </div>
                             </SettingRow>
 
@@ -629,6 +646,94 @@ export default function SettingsPage() {
                                 <Toggle
                                     checked={terminalSettings.fontLigatures}
                                     onChange={(v) => updateTerminalSetting("fontLigatures", v)}
+                                />
+                            </SettingRow>
+
+                            <SettingRow
+                                label="Use bright colours for bold text"
+                            >
+                                <Toggle
+                                    checked={terminalSettings.drawBoldInBrightColors}
+                                    onChange={(v) => updateTerminalSetting("drawBoldInBrightColors", v)}
+                                />
+                            </SettingRow>
+
+                            <SettingRow
+                                label="Font weight"
+                                description="Weight for normal text (100-900)"
+                            >
+                                <Select
+                                    value={String(terminalSettings.fontWeight)}
+                                    options={[
+                                        { value: "100", label: "100 - Thin" },
+                                        { value: "200", label: "200 - Extra Light" },
+                                        { value: "300", label: "300 - Light" },
+                                        { value: "400", label: "400 - Normal" },
+                                        { value: "500", label: "500 - Medium" },
+                                        { value: "600", label: "600 - Semi Bold" },
+                                        { value: "700", label: "700 - Bold" },
+                                        { value: "800", label: "800 - Extra Bold" },
+                                        { value: "900", label: "900 - Black" },
+                                    ]}
+                                    onChange={(v) => updateTerminalSetting("fontWeight", parseInt(v))}
+                                    className="w-40"
+                                />
+                            </SettingRow>
+
+                            <SettingRow
+                                label="Bold font weight"
+                                description="Weight for bold text (100-900)"
+                            >
+                                <Select
+                                    value={String(terminalSettings.fontWeightBold)}
+                                    options={[
+                                        { value: "100", label: "100 - Thin" },
+                                        { value: "200", label: "200 - Extra Light" },
+                                        { value: "300", label: "300 - Light" },
+                                        { value: "400", label: "400 - Normal" },
+                                        { value: "500", label: "500 - Medium" },
+                                        { value: "600", label: "600 - Semi Bold" },
+                                        { value: "700", label: "700 - Bold" },
+                                        { value: "800", label: "800 - Extra Bold" },
+                                        { value: "900", label: "900 - Black" },
+                                    ]}
+                                    onChange={(v) => updateTerminalSetting("fontWeightBold", parseInt(v))}
+                                    className="w-40"
+                                />
+                            </SettingRow>
+
+                            <SettingRow
+                                label="Line padding"
+                                description="Additional space between lines (0-10)"
+                            >
+                                <div className="flex items-center gap-2">
+                                    <input
+                                        type="range"
+                                        min={0}
+                                        max={10}
+                                        step={1}
+                                        value={terminalSettings.linePadding}
+                                        onChange={(e) => updateTerminalSetting("linePadding", parseInt(e.target.value))}
+                                        className="w-24 accent-primary"
+                                    />
+                                    <span className="text-sm text-muted-foreground w-6 text-center">
+                                        {terminalSettings.linePadding}
+                                    </span>
+                                </div>
+                            </SettingRow>
+
+                            <SettingRow label="Terminal emulation type">
+                                <Select
+                                    value={terminalSettings.terminalEmulationType}
+                                    options={[
+                                        { value: "xterm-256color", label: "xterm-256color" },
+                                        { value: "xterm-16color", label: "xterm-16color" },
+                                        { value: "xterm", label: "xterm" },
+                                    ]}
+                                    onChange={(v) =>
+                                        updateTerminalSetting("terminalEmulationType", v as TerminalEmulationType)
+                                    }
+                                    className="w-36"
                                 />
                             </SettingRow>
                         </div>
@@ -655,6 +760,42 @@ export default function SettingsPage() {
                                     checked={terminalSettings.cursorBlink}
                                     onChange={(v) => updateTerminalSetting("cursorBlink", v)}
                                 />
+                            </SettingRow>
+                        </div>
+
+                        <SectionHeader title="Keyboard" />
+                        <div className="space-y-0 divide-y divide-border rounded-lg border bg-card px-4">
+                            <SettingRow
+                                label="Use Option as Meta key"
+                                description="Use ⌥ Option (Alt) as the Meta key instead of for special characters"
+                            >
+                                <Toggle
+                                    checked={terminalSettings.altAsMeta}
+                                    onChange={(v) => updateTerminalSetting("altAsMeta", v)}
+                                />
+                            </SettingRow>
+                        </div>
+
+                        <SectionHeader title="Accessibility" />
+                        <div className="space-y-0 divide-y divide-border rounded-lg border bg-card px-4">
+                            <SettingRow
+                                label="Minimum contrast ratio"
+                                description="Adjust colors to meet contrast requirements (1 = disabled, 21 = max)"
+                            >
+                                <div className="flex items-center gap-2">
+                                    <input
+                                        type="range"
+                                        min={1}
+                                        max={21}
+                                        step={1}
+                                        value={terminalSettings.minimumContrastRatio}
+                                        onChange={(e) => updateTerminalSetting("minimumContrastRatio", parseInt(e.target.value))}
+                                        className="w-24 accent-primary"
+                                    />
+                                    <span className="text-sm text-muted-foreground w-6 text-center">
+                                        {terminalSettings.minimumContrastRatio}
+                                    </span>
+                                </div>
                             </SettingRow>
                         </div>
 
@@ -692,23 +833,131 @@ export default function SettingsPage() {
                             </SettingRow>
 
                             <SettingRow
-                                label="Scrollback lines"
-                                description="Number of lines to keep in history"
+                                label="Middle-click paste"
+                                description="Paste clipboard content on middle-click"
+                            >
+                                <Toggle
+                                    checked={terminalSettings.middleClickPaste}
+                                    onChange={(v) => updateTerminalSetting("middleClickPaste", v)}
+                                />
+                            </SettingRow>
+
+                            <SettingRow
+                                label="Scroll on input"
+                                description="Scroll terminal to bottom when typing"
+                            >
+                                <Toggle
+                                    checked={terminalSettings.scrollOnInput}
+                                    onChange={(v) => updateTerminalSetting("scrollOnInput", v)}
+                                />
+                            </SettingRow>
+
+                            <SettingRow
+                                label="Word separators"
+                                description="Characters used to separate words for double-click selection"
                             >
                                 <Input
+                                    value={terminalSettings.wordSeparators}
+                                    onChange={(e) => updateTerminalSetting("wordSeparators", e.target.value)}
+                                    className="w-32 text-center font-mono"
+                                    placeholder=" ()[]{}'&quot;"
+                                />
+                            </SettingRow>
+
+                            <SettingRow
+                                label="Link modifier key"
+                                description="Hold this key to click on links in terminal"
+                            >
+                                <Select
+                                    value={terminalSettings.linkModifier}
+                                    options={[
+                                        { value: "none", label: "None (click directly)" },
+                                        { value: "ctrl", label: "Ctrl" },
+                                        { value: "alt", label: "Alt / Option" },
+                                        { value: "meta", label: "Cmd / Win" },
+                                    ]}
+                                    onChange={(v) => updateTerminalSetting("linkModifier", v as LinkModifier)}
+                                    className="w-40"
+                                />
+                            </SettingRow>
+                        </div>
+
+                        <SectionHeader title="Scrollback" />
+                        <div className="rounded-lg border bg-card p-4">
+                            <p className="text-sm text-muted-foreground mb-3">
+                                Limit number of terminal rows. Set to 0 to maximum limit size.
+                            </p>
+                            <div className="space-y-1">
+                                <Label className="text-xs">Number of rows *</Label>
+                                <Input
                                     type="number"
-                                    min={1000}
+                                    min={0}
                                     max={100000}
                                     value={terminalSettings.scrollback}
                                     onChange={(e) => {
                                         const val = parseInt(e.target.value);
-                                        if (val >= 1000 && val <= 100000) {
+                                        if (!isNaN(val) && val >= 0 && val <= 100000) {
                                             updateTerminalSetting("scrollback", val);
                                         }
                                     }}
-                                    className="w-24 text-center"
+                                    className="w-full"
                                 />
-                            </SettingRow>
+                            </div>
+                        </div>
+
+                        <SectionHeader title="Keyword highlighting" />
+                        <div className="rounded-lg border bg-card p-4">
+                            <div className="flex items-center justify-between mb-4">
+                                <span className="text-sm font-medium">Keyword highlighting</span>
+                                <Toggle
+                                    checked={terminalSettings.keywordHighlightEnabled}
+                                    onChange={(v) => updateTerminalSetting("keywordHighlightEnabled", v)}
+                                />
+                            </div>
+                            {terminalSettings.keywordHighlightEnabled && (
+                                <div className="space-y-2.5">
+                                    {terminalSettings.keywordHighlightRules.map((rule) => (
+                                        <div key={rule.id} className="flex items-center justify-between">
+                                            <span className="text-sm" style={{ color: rule.color }}>
+                                                {rule.label}
+                                            </span>
+                                            <label className="relative">
+                                                <input
+                                                    type="color"
+                                                    value={rule.color}
+                                                    onChange={(e) => {
+                                                        const newRules = terminalSettings.keywordHighlightRules.map(r =>
+                                                            r.id === rule.id ? { ...r, color: e.target.value } : r
+                                                        );
+                                                        updateTerminalSetting("keywordHighlightRules", newRules);
+                                                    }}
+                                                    className="sr-only"
+                                                />
+                                                <span
+                                                    className="block w-10 h-6 rounded-md cursor-pointer border border-border/50 hover:border-border transition-colors"
+                                                    style={{ backgroundColor: rule.color }}
+                                                />
+                                            </label>
+                                        </div>
+                                    ))}
+                                    <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className="w-full mt-3 text-muted-foreground hover:text-foreground"
+                                        onClick={() => {
+                                            // Reset colors to default values
+                                            const resetRules = terminalSettings.keywordHighlightRules.map(rule => {
+                                                const defaultRule = DEFAULT_KEYWORD_HIGHLIGHT_RULES.find(r => r.id === rule.id);
+                                                return defaultRule ? { ...rule, color: defaultRule.color } : rule;
+                                            });
+                                            updateTerminalSetting("keywordHighlightRules", resetRules);
+                                        }}
+                                    >
+                                        <RotateCcw size={14} className="mr-2" />
+                                        Reset to default colors
+                                    </Button>
+                                </div>
+                            )}
                         </div>
                     </SettingsTabContent>
 

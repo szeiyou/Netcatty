@@ -17,3 +17,5 @@ export type { ChainProgress,TerminalConnectionDialogProps } from './TerminalConn
 
 export { TerminalContextMenu } from './TerminalContextMenu';
 export type { TerminalContextMenuProps } from './TerminalContextMenu';
+
+export { createHighlightProcessor, highlightKeywords, compileHighlightRules } from './keywordHighlight';

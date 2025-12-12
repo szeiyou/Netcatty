@@ -173,6 +173,14 @@ const registerBridges = (win) => {
     return true;
   });
 
+  // Open external URL in default browser
+  ipcMain.handle("netcatty:openExternal", async (_event, url) => {
+    const { shell } = electronModule;
+    if (url && typeof url === 'string' && (url.startsWith('http://') || url.startsWith('https://'))) {
+      await shell.openExternal(url);
+    }
+  });
+
   console.log('[Main] All bridges registered successfully');
 };
 

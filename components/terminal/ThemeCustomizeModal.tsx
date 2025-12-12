@@ -9,7 +9,7 @@
  * - Cancel: reverts to the original settings when modal was opened
  */
 
-import React, { useEffect, useMemo, useState, useCallback, useRef } from 'react';
+import React, { useEffect, useMemo, useState, useCallback, useRef, memo } from 'react';
 import { createPortal } from 'react-dom';
 import { Check, Minus, Palette, Plus, Type, X } from 'lucide-react';
 import { TERMINAL_THEMES, TerminalThemeConfig } from '../../infrastructure/config/terminalThemes';
@@ -18,6 +18,82 @@ import { Button } from '../ui/button';
 import { cn } from '../../lib/utils';
 
 type TabType = 'theme' | 'font';
+
+// Memoized theme item component to prevent unnecessary re-renders
+const ThemeItem = memo(({ 
+    theme, 
+    isSelected, 
+    onSelect 
+}: { 
+    theme: TerminalThemeConfig; 
+    isSelected: boolean; 
+    onSelect: (id: string) => void;
+}) => (
+    <button
+        onClick={() => onSelect(theme.id)}
+        className={cn(
+            'w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left transition-all',
+            isSelected
+                ? 'bg-primary/15 ring-1 ring-primary'
+                : 'hover:bg-muted'
+        )}
+    >
+        {/* Color swatch */}
+        <div
+            className="w-8 h-8 rounded-md flex-shrink-0 flex flex-col justify-center items-start pl-1 gap-0.5 border border-border/50"
+            style={{ backgroundColor: theme.colors.background }}
+        >
+            <div className="h-1 w-3 rounded-full" style={{ backgroundColor: theme.colors.green }} />
+            <div className="h-1 w-5 rounded-full" style={{ backgroundColor: theme.colors.blue }} />
+            <div className="h-1 w-2 rounded-full" style={{ backgroundColor: theme.colors.yellow }} />
+        </div>
+        <div className="flex-1 min-w-0">
+            <div className={cn('text-xs font-medium truncate', isSelected ? 'text-primary' : 'text-foreground')}>
+                {theme.name}
+            </div>
+            <div className="text-[10px] text-muted-foreground capitalize">{theme.type}</div>
+        </div>
+        {isSelected && (
+            <Check size={14} className="text-primary flex-shrink-0" />
+        )}
+    </button>
+));
+ThemeItem.displayName = 'ThemeItem';
+
+// Memoized font item component
+const FontItem = memo(({ 
+    font, 
+    isSelected, 
+    onSelect 
+}: { 
+    font: TerminalFont; 
+    isSelected: boolean; 
+    onSelect: (id: string) => void;
+}) => (
+    <button
+        onClick={() => onSelect(font.id)}
+        className={cn(
+            'w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left transition-all',
+            isSelected
+                ? 'bg-primary/15 ring-1 ring-primary'
+                : 'hover:bg-muted'
+        )}
+    >
+        <div className="flex-1 min-w-0">
+            <div
+                className={cn('text-sm truncate', isSelected ? 'text-primary' : 'text-foreground')}
+                style={{ fontFamily: font.family }}
+            >
+                {font.name}
+            </div>
+            <div className="text-[10px] text-muted-foreground truncate">{font.description}</div>
+        </div>
+        {isSelected && (
+            <Check size={14} className="text-primary flex-shrink-0" />
+        )}
+    </button>
+));
+FontItem.displayName = 'FontItem';
 
 interface ThemeCustomizeModalProps {
     open: boolean;
@@ -34,6 +110,147 @@ interface ThemeCustomizeModalProps {
     /** Called when user clicks Save to persist settings */
     onSave?: () => void;
 }
+
+// Memoized preview component to avoid re-rendering on every state change
+const TerminalPreview = memo(({ 
+    theme, 
+    font, 
+    fontSize 
+}: { 
+    theme: TerminalThemeConfig; 
+    font: TerminalFont; 
+    fontSize: number;
+}) => (
+    <div
+        className="flex-1 rounded-xl overflow-hidden border border-border flex flex-col"
+        style={{ backgroundColor: theme.colors.background }}
+    >
+        {/* Fake title bar */}
+        <div
+            className="flex items-center gap-2 px-3 py-2 border-b shrink-0"
+            style={{
+                backgroundColor: theme.colors.background,
+                borderColor: `${theme.colors.foreground}15`
+            }}
+        >
+            <div className="flex gap-1.5">
+                <div className="w-3 h-3 rounded-full bg-red-500/80" />
+                <div className="w-3 h-3 rounded-full bg-yellow-500/80" />
+                <div className="w-3 h-3 rounded-full bg-green-500/80" />
+            </div>
+            <div
+                className="flex-1 text-center text-xs"
+                style={{ color: theme.colors.foreground, opacity: 0.5, fontFamily: font.family }}
+            >
+                user@server — bash
+            </div>
+        </div>
+
+        {/* Terminal content */}
+        <div
+            className="flex-1 p-4 font-mono overflow-auto"
+            style={{
+                color: theme.colors.foreground,
+                fontFamily: font.family,
+                fontSize: `${fontSize}px`,
+                lineHeight: 1.5,
+            }}
+        >
+            <div className="space-y-1">
+                <div>
+                    <span style={{ color: theme.colors.green }}>user@server</span>
+                    <span style={{ color: theme.colors.foreground }}>:</span>
+                    <span style={{ color: theme.colors.blue }}>~</span>
+                    <span style={{ color: theme.colors.foreground }}>$ </span>
+                    <span>neofetch</span>
+                </div>
+                <div style={{ color: theme.colors.cyan }}>
+                    {'       _,met$$$$$gg.          '}
+                </div>
+                <div style={{ color: theme.colors.cyan }}>
+                    {'    ,g$$$$$$$$$$$$$$$P.       '}
+                    <span style={{ color: theme.colors.foreground }}>user</span>
+                    <span style={{ color: theme.colors.yellow }}>@</span>
+                    <span style={{ color: theme.colors.foreground }}>server</span>
+                </div>
+                <div style={{ color: theme.colors.cyan }}>
+                    {'  ,g$$P"     """Y$$.".        '}
+                    <span style={{ color: theme.colors.foreground }}>-----------</span>
+                </div>
+                <div style={{ color: theme.colors.cyan }}>
+                    {' ,$$P\'              `$$$.     '}
+                    <span style={{ color: theme.colors.blue }}>OS</span>
+                    <span style={{ color: theme.colors.foreground }}>: Ubuntu 22.04 LTS</span>
+                </div>
+                <div style={{ color: theme.colors.cyan }}>
+                    {'\',$$P       ,ggs.     `$$b:   '}
+                    <span style={{ color: theme.colors.blue }}>Kernel</span>
+                    <span style={{ color: theme.colors.foreground }}>: 5.15.0-generic</span>
+                </div>
+                <div style={{ color: theme.colors.cyan }}>
+                    {'`d$$\'     ,$P"\'   .    $$$    '}
+                    <span style={{ color: theme.colors.blue }}>Uptime</span>
+                    <span style={{ color: theme.colors.foreground }}>: 42 days, 3 hours</span>
+                </div>
+                <div style={{ color: theme.colors.cyan }}>
+                    {' $$P      d$\'     ,    $$P    '}
+                    <span style={{ color: theme.colors.blue }}>Shell</span>
+                    <span style={{ color: theme.colors.foreground }}>: bash 5.1.16</span>
+                </div>
+                <div style={{ color: theme.colors.cyan }}>
+                    {' $$:      $$.   -    ,d$$\'    '}
+                    <span style={{ color: theme.colors.blue }}>Memory</span>
+                    <span style={{ color: theme.colors.foreground }}>: 4.2G / 16G (26%)</span>
+                </div>
+                <div>&nbsp;</div>
+                <div>
+                    <span style={{ color: theme.colors.green }}>user@server</span>
+                    <span style={{ color: theme.colors.foreground }}>:</span>
+                    <span style={{ color: theme.colors.blue }}>~</span>
+                    <span style={{ color: theme.colors.foreground }}>$ </span>
+                    <span>ls -la</span>
+                </div>
+                <div>
+                    <span style={{ color: theme.colors.blue }}>drwxr-xr-x</span>
+                    <span style={{ color: theme.colors.foreground }}>  5 user group </span>
+                    <span style={{ color: theme.colors.yellow }}>4.0K</span>
+                    <span style={{ color: theme.colors.foreground }}> Dec 12 10:30 </span>
+                    <span style={{ color: theme.colors.blue }}>.config</span>
+                </div>
+                <div>
+                    <span style={{ color: theme.colors.magenta }}>-rwxr-xr-x</span>
+                    <span style={{ color: theme.colors.foreground }}>  1 user group </span>
+                    <span style={{ color: theme.colors.yellow }}>2.1K</span>
+                    <span style={{ color: theme.colors.foreground }}> Dec 11 15:22 </span>
+                    <span style={{ color: theme.colors.green }}>deploy.sh</span>
+                </div>
+                <div>
+                    <span style={{ color: theme.colors.cyan }}>lrwxrwxrwx</span>
+                    <span style={{ color: theme.colors.foreground }}>  1 user group </span>
+                    <span style={{ color: theme.colors.yellow }}>  24</span>
+                    <span style={{ color: theme.colors.foreground }}> Dec 10 09:15 </span>
+                    <span style={{ color: theme.colors.cyan }}>logs</span>
+                    <span style={{ color: theme.colors.foreground }}> -{'>'} </span>
+                    <span style={{ color: theme.colors.foreground }}>/var/log/app</span>
+                </div>
+                <div>&nbsp;</div>
+                <div>
+                    <span style={{ color: theme.colors.green }}>user@server</span>
+                    <span style={{ color: theme.colors.foreground }}>:</span>
+                    <span style={{ color: theme.colors.blue }}>~</span>
+                    <span style={{ color: theme.colors.foreground }}>$ </span>
+                    <span
+                        style={{
+                            backgroundColor: theme.colors.cursor || theme.colors.foreground,
+                            color: theme.colors.background
+                        }}
+                    >▋</span>
+                </div>
+            </div>
+        </div>
+    </div>
+));
+TerminalPreview.displayName = 'TerminalPreview';
 
 export const ThemeCustomizeModal: React.FC<ThemeCustomizeModalProps> = ({
     open,
@@ -137,66 +354,6 @@ export const ThemeCustomizeModal: React.FC<ThemeCustomizeModalProps> = ({
 
     if (!open) return null;
 
-    // Render theme item
-    const renderThemeItem = (theme: TerminalThemeConfig) => (
-        <button
-            key={theme.id}
-            onClick={() => handleThemeSelect(theme.id)}
-            className={cn(
-                'w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left transition-all',
-                selectedTheme === theme.id
-                    ? 'bg-primary/15 ring-1 ring-primary'
-                    : 'hover:bg-muted'
-            )}
-        >
-            {/* Color swatch */}
-            <div
-                className="w-8 h-8 rounded-md flex-shrink-0 flex flex-col justify-center items-start pl-1 gap-0.5 border border-border/50"
-                style={{ backgroundColor: theme.colors.background }}
-            >
-                <div className="h-1 w-3 rounded-full" style={{ backgroundColor: theme.colors.green }} />
-                <div className="h-1 w-5 rounded-full" style={{ backgroundColor: theme.colors.blue }} />
-                <div className="h-1 w-2 rounded-full" style={{ backgroundColor: theme.colors.yellow }} />
-            </div>
-            <div className="flex-1 min-w-0">
-                <div className={cn('text-xs font-medium truncate', selectedTheme === theme.id ? 'text-primary' : 'text-foreground')}>
-                    {theme.name}
-                </div>
-                <div className="text-[10px] text-muted-foreground capitalize">{theme.type}</div>
-            </div>
-            {selectedTheme === theme.id && (
-                <Check size={14} className="text-primary flex-shrink-0" />
-            )}
-        </button>
-    );
-
-    // Render font item
-    const renderFontItem = (font: TerminalFont) => (
-        <button
-            key={font.id}
-            onClick={() => handleFontSelect(font.id)}
-            className={cn(
-                'w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left transition-all',
-                selectedFont === font.id
-                    ? 'bg-primary/15 ring-1 ring-primary'
-                    : 'hover:bg-muted'
-            )}
-        >
-            <div className="flex-1 min-w-0">
-                <div
-                    className={cn('text-sm truncate', selectedFont === font.id ? 'text-primary' : 'text-foreground')}
-                    style={{ fontFamily: font.family }}
-                >
-                    {font.name}
-                </div>
-                <div className="text-[10px] text-muted-foreground truncate">{font.description}</div>
-            </div>
-            {selectedFont === font.id && (
-                <Check size={14} className="text-primary flex-shrink-0" />
-            )}
-        </button>
-    );
-
     const modalContent = (
         <div
             className="fixed inset-0 flex items-center justify-center bg-black/60"
@@ -213,10 +370,7 @@ export const ThemeCustomizeModal: React.FC<ThemeCustomizeModalProps> = ({
                         <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-primary/10">
                             <Palette size={16} className="text-primary" />
                         </div>
-                        <div>
-                            <h2 className="text-sm font-semibold text-foreground">Terminal Appearance</h2>
-                            <p className="text-xs text-muted-foreground">Changes apply in real-time</p>
-                        </div>
+                        <h2 className="text-sm font-semibold text-foreground">Terminal Appearance</h2>
                     </div>
                     <button
                         onClick={handleCancel}
@@ -262,12 +416,26 @@ export const ThemeCustomizeModal: React.FC<ThemeCustomizeModalProps> = ({
                         <div className="flex-1 min-h-0 overflow-y-auto p-2">
                             {activeTab === 'theme' && (
                                 <div className="space-y-1">
-                                    {TERMINAL_THEMES.map(renderThemeItem)}
+                                    {TERMINAL_THEMES.map(theme => (
+                                        <ThemeItem 
+                                            key={theme.id} 
+                                            theme={theme} 
+                                            isSelected={selectedTheme === theme.id}
+                                            onSelect={handleThemeSelect}
+                                        />
+                                    ))}
                                 </div>
                             )}
                             {activeTab === 'font' && (
                                 <div className="space-y-1">
-                                    {TERMINAL_FONTS.map(renderFontItem)}
+                                    {TERMINAL_FONTS.map(font => (
+                                        <FontItem 
+                                            key={font.id} 
+                                            font={font} 
+                                            isSelected={selectedFont === font.id}
+                                            onSelect={handleFontSelect}
+                                        />
+                                    ))}
                                 </div>
                             )}
                         </div>
@@ -303,134 +471,7 @@ export const ThemeCustomizeModal: React.FC<ThemeCustomizeModalProps> = ({
                     {/* Right Panel - Large Preview */}
                     <div className="flex-1 flex flex-col min-w-0 p-4">
                         <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-3 font-semibold">Live Preview</div>
-                        <div
-                            className="flex-1 rounded-xl overflow-hidden border border-border flex flex-col"
-                            style={{ backgroundColor: currentTheme.colors.background }}
-                        >
-                            {/* Fake title bar */}
-                            <div
-                                className="flex items-center gap-2 px-3 py-2 border-b shrink-0"
-                                style={{
-                                    backgroundColor: currentTheme.colors.background,
-                                    borderColor: `${currentTheme.colors.foreground}15`
-                                }}
-                            >
-                                <div className="flex gap-1.5">
-                                    <div className="w-3 h-3 rounded-full bg-red-500/80" />
-                                    <div className="w-3 h-3 rounded-full bg-yellow-500/80" />
-                                    <div className="w-3 h-3 rounded-full bg-green-500/80" />
-                                </div>
-                                <div
-                                    className="flex-1 text-center text-xs"
-                                    style={{ color: currentTheme.colors.foreground, opacity: 0.5, fontFamily: currentFont.family }}
-                                >
-                                    user@server — bash
-                                </div>
-                            </div>
-
-                            {/* Terminal content */}
-                            <div
-                                className="flex-1 p-4 font-mono overflow-auto"
-                                style={{
-                                    color: currentTheme.colors.foreground,
-                                    fontFamily: currentFont.family,
-                                    fontSize: `${fontSize}px`,
-                                    lineHeight: 1.5,
-                                }}
-                            >
-                                <div className="space-y-1">
-                                    <div>
-                                        <span style={{ color: currentTheme.colors.green }}>user@server</span>
-                                        <span style={{ color: currentTheme.colors.foreground }}>:</span>
-                                        <span style={{ color: currentTheme.colors.blue }}>~</span>
-                                        <span style={{ color: currentTheme.colors.foreground }}>$ </span>
-                                        <span>neofetch</span>
-                                    </div>
-                                    <div style={{ color: currentTheme.colors.cyan }}>
-                                        {'       _,met$$$$$gg.          '}
-                                    </div>
-                                    <div style={{ color: currentTheme.colors.cyan }}>
-                                        {'    ,g$$$$$$$$$$$$$$$P.       '}
-                                        <span style={{ color: currentTheme.colors.foreground }}>user</span>
-                                        <span style={{ color: currentTheme.colors.yellow }}>@</span>
-                                        <span style={{ color: currentTheme.colors.foreground }}>server</span>
-                                    </div>
-                                    <div style={{ color: currentTheme.colors.cyan }}>
-                                        {'  ,g$$P"     """Y$$.".        '}
-                                        <span style={{ color: currentTheme.colors.foreground }}>-----------</span>
-                                    </div>
-                                    <div style={{ color: currentTheme.colors.cyan }}>
-                                        {' ,$$P\'              `$$$.     '}
-                                        <span style={{ color: currentTheme.colors.blue }}>OS</span>
-                                        <span style={{ color: currentTheme.colors.foreground }}>: Ubuntu 22.04 LTS</span>
-                                    </div>
-                                    <div style={{ color: currentTheme.colors.cyan }}>
-                                        {'\',$$P       ,ggs.     `$$b:   '}
-                                        <span style={{ color: currentTheme.colors.blue }}>Kernel</span>
-                                        <span style={{ color: currentTheme.colors.foreground }}>: 5.15.0-generic</span>
-                                    </div>
-                                    <div style={{ color: currentTheme.colors.cyan }}>
-                                        {'`d$$\'     ,$P"\'   .    $$$    '}
-                                        <span style={{ color: currentTheme.colors.blue }}>Uptime</span>
-                                        <span style={{ color: currentTheme.colors.foreground }}>: 42 days, 3 hours</span>
-                                    </div>
-                                    <div style={{ color: currentTheme.colors.cyan }}>
-                                        {' $$P      d$\'     ,    $$P    '}
-                                        <span style={{ color: currentTheme.colors.blue }}>Shell</span>
-                                        <span style={{ color: currentTheme.colors.foreground }}>: bash 5.1.16</span>
-                                    </div>
-                                    <div style={{ color: currentTheme.colors.cyan }}>
-                                        {' $$:      $$.   -    ,d$$\'    '}
-                                        <span style={{ color: currentTheme.colors.blue }}>Memory</span>
-                                        <span style={{ color: currentTheme.colors.foreground }}>: 4.2G / 16G (26%)</span>
-                                    </div>
-                                    <div>&nbsp;</div>
-                                    <div>
-                                        <span style={{ color: currentTheme.colors.green }}>user@server</span>
-                                        <span style={{ color: currentTheme.colors.foreground }}>:</span>
-                                        <span style={{ color: currentTheme.colors.blue }}>~</span>
-                                        <span style={{ color: currentTheme.colors.foreground }}>$ </span>
-                                        <span>ls -la</span>
-                                    </div>
-                                    <div>
-                                        <span style={{ color: currentTheme.colors.blue }}>drwxr-xr-x</span>
-                                        <span style={{ color: currentTheme.colors.foreground }}>  5 user group </span>
-                                        <span style={{ color: currentTheme.colors.yellow }}>4.0K</span>
-                                        <span style={{ color: currentTheme.colors.foreground }}> Dec 12 10:30 </span>
-                                        <span style={{ color: currentTheme.colors.blue }}>.config</span>
-                                    </div>
-                                    <div>
-                                        <span style={{ color: currentTheme.colors.magenta }}>-rwxr-xr-x</span>
-                                        <span style={{ color: currentTheme.colors.foreground }}>  1 user group </span>
-                                        <span style={{ color: currentTheme.colors.yellow }}>2.1K</span>
-                                        <span style={{ color: currentTheme.colors.foreground }}> Dec 11 15:22 </span>
-                                        <span style={{ color: currentTheme.colors.green }}>deploy.sh</span>
-                                    </div>
-                                    <div>
-                                        <span style={{ color: currentTheme.colors.cyan }}>lrwxrwxrwx</span>
-                                        <span style={{ color: currentTheme.colors.foreground }}>  1 user group </span>
-                                        <span style={{ color: currentTheme.colors.yellow }}>  24</span>
-                                        <span style={{ color: currentTheme.colors.foreground }}> Dec 10 09:15 </span>
-                                        <span style={{ color: currentTheme.colors.cyan }}>logs</span>
-                                        <span style={{ color: currentTheme.colors.foreground }}> -{'>'} </span>
-                                        <span style={{ color: currentTheme.colors.foreground }}>/var/log/app</span>
-                                    </div>
-                                    <div>&nbsp;</div>
-                                    <div>
-                                        <span style={{ color: currentTheme.colors.green }}>user@server</span>
-                                        <span style={{ color: currentTheme.colors.foreground }}>:</span>
-                                        <span style={{ color: currentTheme.colors.blue }}>~</span>
-                                        <span style={{ color: currentTheme.colors.foreground }}>$ </span>
-                                        <span
-                                            style={{
-                                                backgroundColor: currentTheme.colors.cursor || currentTheme.colors.foreground,
-                                                color: currentTheme.colors.background
-                                            }}
-                                        >▋</span>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
+                        <TerminalPreview theme={currentTheme} font={currentFont} fontSize={fontSize} />
 
                         {/* Info line */}
                         <div className="mt-3 text-xs text-muted-foreground flex items-center justify-between">

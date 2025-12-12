@@ -476,6 +476,7 @@ function App() {
           knownHosts={knownHosts}
           draggingSessionId={draggingSessionId}
           terminalTheme={currentTerminalTheme}
+          terminalSettings={terminalSettings}
           fontSize={terminalFontSize}
           hotkeyScheme={hotkeyScheme}
           keyBindings={keyBindings}

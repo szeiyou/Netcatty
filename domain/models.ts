@@ -311,11 +311,22 @@ export const DEFAULT_KEY_BINDINGS: KeyBinding[] = [
 export type CursorShape = 'block' | 'bar' | 'underline';
 export type RightClickBehavior = 'context-menu' | 'paste' | 'select-word';
 export type LinkModifier = 'none' | 'ctrl' | 'alt' | 'meta';
+export type TerminalEmulationType = 'xterm-256color' | 'xterm-16color' | 'xterm';
+
+// Keyword highlighting configuration
+export interface KeywordHighlightRule {
+  id: string;
+  label: string; // Display name (e.g., "Error", "Warning", "OK")
+  patterns: string[]; // Regex patterns to match
+  color: string; // Highlight color (hex)
+  enabled: boolean;
+}
 
 export interface TerminalSettings {
   // Rendering
   scrollback: number; // Number of lines kept in buffer
   drawBoldInBrightColors: boolean; // Draw bold text in bright colors
+  terminalEmulationType: TerminalEmulationType; // Terminal emulation type (TERM env var)
 
   // Font
   fontLigatures: boolean; // Enable font ligatures
@@ -341,11 +352,25 @@ export interface TerminalSettings {
   middleClickPaste: boolean; // Paste on middle-click
   wordSeparators: string; // Characters for word selection
   linkModifier: LinkModifier; // Modifier key to click links
+
+  // Keyword Highlighting
+  keywordHighlightEnabled: boolean;
+  keywordHighlightRules: KeywordHighlightRule[];
 }
+
+export const DEFAULT_KEYWORD_HIGHLIGHT_RULES: KeywordHighlightRule[] = [
+  { id: 'error', label: 'Error', patterns: ['\\[error\\]', '\\[err\\]', '\\berror\\b', '\\bfail(ed)?\\b', '\\bfatal\\b', '\\bcritical\\b', '\\bexception\\b'], color: '#F87171', enabled: true },
+  { id: 'warning', label: 'Warning', patterns: ['\\[warn(ing)?\\]', '\\bwarn(ing)?\\b', '\\bcaution\\b', '\\bdeprecated\\b'], color: '#FBBF24', enabled: true },
+  { id: 'ok', label: 'OK', patterns: ['\\[ok\\]', '\\bok\\b', '\\bsuccess(ful)?\\b', '\\bpassed\\b', '\\bcompleted\\b', '\\bdone\\b'], color: '#34D399', enabled: true },
+  { id: 'info', label: 'Info', patterns: ['\\[info\\]', '\\[notice\\]', '\\[note\\]', '\\bnotice\\b', '\\bnote\\b'], color: '#3B82F6', enabled: true },
+  { id: 'debug', label: 'Debug', patterns: ['\\[debug\\]', '\\[trace\\]', '\\[verbose\\]', '\\bdebug\\b', '\\btrace\\b', '\\bverbose\\b'], color: '#A78BFA', enabled: true },
+  { id: 'ip-mac', label: 'IP address & MAC', patterns: ['\\b(?:\\d{1,3}\\.){3}\\d{1,3}\\b', '\\b([0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}\\b'], color: '#EC4899', enabled: true },
+];
 
 export const DEFAULT_TERMINAL_SETTINGS: TerminalSettings = {
   scrollback: 10000,
   drawBoldInBrightColors: true,
+  terminalEmulationType: 'xterm-256color',
   fontLigatures: true,
   fontWeight: 400,
   fontWeightBold: 700,
@@ -361,6 +386,8 @@ export const DEFAULT_TERMINAL_SETTINGS: TerminalSettings = {
   middleClickPaste: true,
   wordSeparators: ' ()[]{}\'"',
   linkModifier: 'none',
+  keywordHighlightEnabled: true,
+  keywordHighlightRules: DEFAULT_KEYWORD_HIGHLIGHT_RULES,
 };
 
 export interface TerminalTheme {
