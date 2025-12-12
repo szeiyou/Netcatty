@@ -1,8 +1,8 @@
 /**
  * Terminal Toolbar
- * Displays SFTP, Scripts, Theme buttons and close button in terminal status bar
+ * Displays SFTP, Scripts, Theme, Search buttons and close button in terminal status bar
  */
-import { FolderInput, X, Zap, Palette } from 'lucide-react';
+import { FolderInput, X, Zap, Palette, Search } from 'lucide-react';
 import React, { useState } from 'react';
 import { Snippet, Host } from '../../types';
 import { Button } from '../ui/button';
@@ -21,6 +21,9 @@ export interface TerminalToolbarProps {
     onUpdateHost?: (host: Host) => void;
     showClose?: boolean;
     onClose?: () => void;
+    // Search functionality
+    isSearchOpen?: boolean;
+    onToggleSearch?: () => void;
 }
 
 export const TerminalToolbar: React.FC<TerminalToolbarProps> = ({
@@ -34,6 +37,8 @@ export const TerminalToolbar: React.FC<TerminalToolbarProps> = ({
     onUpdateHost,
     showClose,
     onClose,
+    isSearchOpen,
+    onToggleSearch,
 }) => {
     const [themeModalOpen, setThemeModalOpen] = useState(false);
     const buttonBase = "h-7 px-2 text-[11px] bg-white/5 hover:bg-white/10 text-white shadow-none border-none";
@@ -116,6 +121,16 @@ export const TerminalToolbar: React.FC<TerminalToolbarProps> = ({
                 onClick={() => setThemeModalOpen(true)}
             >
                 <Palette size={12} className="mr-2" /> Settings
+            </Button>
+
+            <Button
+                variant="secondary"
+                size="sm"
+                className={`${buttonBase} px-1.5 ${isSearchOpen ? 'bg-white/20' : ''}`}
+                title="Search terminal (Ctrl+F)"
+                onClick={onToggleSearch}
+            >
+                <Search size={12} />
             </Button>
 
             {showClose && onClose && (

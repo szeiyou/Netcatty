@@ -1,11 +1,12 @@
 import { Terminal as XTerm } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { SerializeAddon } from "@xterm/addon-serialize";
+import { SearchAddon } from "@xterm/addon-search";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import "@xterm/xterm/css/xterm.css";
 import { Maximize2 } from "lucide-react";
-import React, { memo, useEffect, useMemo, useRef, useState } from "react";
+import React, { memo, useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { cn } from "../lib/utils";
 import {
   Host,
@@ -28,6 +29,7 @@ import { TERMINAL_THEMES } from "../infrastructure/config/terminalThemes";
 import { TerminalConnectionDialog } from "./terminal/TerminalConnectionDialog";
 import { TerminalToolbar } from "./terminal/TerminalToolbar";
 import { TerminalContextMenu } from "./terminal/TerminalContextMenu";
+import { TerminalSearchBar } from "./terminal/TerminalSearchBar";
 import { createHighlightProcessor } from "./terminal/keywordHighlight";
 import {
   XTERM_PERFORMANCE_CONFIG,
@@ -114,6 +116,7 @@ const TerminalComponent: React.FC<TerminalProps> = ({
   const termRef = useRef<XTerm | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
   const serializeAddonRef = useRef<SerializeAddon | null>(null);
+  const searchAddonRef = useRef<SearchAddon | null>(null);
   const disposeDataRef = useRef<(() => void) | null>(null);
   const disposeExitRef = useRef<(() => void) | null>(null);
   const sessionRef = useRef<string | null>(null);
@@ -154,6 +157,11 @@ const TerminalComponent: React.FC<TerminalProps> = ({
   const [showSFTP, setShowSFTP] = useState(false);
   const [progressValue, setProgressValue] = useState(15);
   const [hasSelection, setHasSelection] = useState(false);
+
+  // Search state
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [searchMatchCount, setSearchMatchCount] = useState<{ current: number; total: number } | null>(null);
+  const searchTermRef = useRef<string>(''); // Store current search term for findNext/findPrevious
 
   // Chain connection progress state
   const [chainProgress, setChainProgress] = useState<{
@@ -231,6 +239,8 @@ const TerminalComponent: React.FC<TerminalProps> = ({
     fitAddonRef.current = null;
     serializeAddonRef.current?.dispose();
     serializeAddonRef.current = null;
+    searchAddonRef.current?.dispose();
+    searchAddonRef.current = null;
   };
 
   const runDistroDetection = async (key?: SSHKey) => {
@@ -397,6 +407,11 @@ const TerminalComponent: React.FC<TerminalProps> = ({
         term.loadAddon(serializeAddon);
         serializeAddonRef.current = serializeAddon;
 
+        // Load search addon for terminal text search
+        const searchAddon = new SearchAddon();
+        term.loadAddon(searchAddon);
+        searchAddonRef.current = searchAddon;
+
         try {
           term.open(containerRef.current);
 
@@ -484,6 +499,25 @@ const TerminalComponent: React.FC<TerminalProps> = ({
           const terminalActions = getTerminalPassthroughActions();
 
           term.attachCustomKeyEventHandler((e: KeyboardEvent) => {
+            // Handle Ctrl+F / Cmd+F for search regardless of hotkey settings
+            if ((e.ctrlKey || e.metaKey) && e.key === 'f' && e.type === 'keydown') {
+              e.preventDefault();
+              setIsSearchOpen(true);
+              return false;
+            }
+
+            // Handle Escape to close search
+            if (e.key === 'Escape' && e.type === 'keydown') {
+              // Only handle if search is open (check via closure, since state can't be accessed directly)
+              // We'll check if searchAddonRef has an active search
+              if (searchAddonRef.current) {
+                setIsSearchOpen(false);
+                setSearchMatchCount(null);
+                searchAddonRef.current.clearDecorations();
+                searchTermRef.current = '';
+              }
+            }
+
             // Read current values from refs
             const currentScheme = hotkeySchemeRef.current;
             const currentBindings = keyBindingsRef.current;
@@ -554,9 +588,8 @@ const TerminalComponent: React.FC<TerminalProps> = ({
                   break;
                 }
                 case 'searchTerminal': {
-                  // TODO: Open search UI - for now just log
-                  console.log('[Terminal] Search requested');
-                  // Could trigger a search UI component here
+                  // Open search UI
+                  setIsSearchOpen(true);
                   break;
                 }
               }
@@ -1662,6 +1695,106 @@ const TerminalComponent: React.FC<TerminalProps> = ({
     setHasSelection(true);
   };
 
+  // Search handlers
+  const handleToggleSearch = useCallback(() => {
+    setIsSearchOpen((prev) => !prev);
+    // Clear match count when closing
+    if (isSearchOpen) {
+      setSearchMatchCount(null);
+      searchAddonRef.current?.clearDecorations();
+    }
+  }, [isSearchOpen]);
+
+  const handleSearch = useCallback((term: string): boolean => {
+    const searchAddon = searchAddonRef.current;
+    if (!searchAddon || !term) {
+      setSearchMatchCount(null);
+      return false;
+    }
+    
+    // Store the search term for findNext/findPrevious
+    searchTermRef.current = term;
+    
+    // Clear previous decorations
+    searchAddon.clearDecorations();
+    
+    // Perform search (findNext from current position or start)
+    const found = searchAddon.findNext(term, {
+      regex: false,
+      caseSensitive: false,
+      wholeWord: false,
+      decorations: {
+        matchBackground: '#FFFF0044',
+        matchBorder: '#FFFF00',
+        matchOverviewRuler: '#FFFF00',
+        activeMatchBackground: '#FF880088',
+        activeMatchBorder: '#FF8800',
+        activeMatchColorOverviewRuler: '#FF8800',
+      },
+    });
+    
+    // Update match count after search
+    // Note: xterm search addon doesn't expose match count directly
+    // We'll track it by counting via findAll (if available) or estimate
+    if (found) {
+      // For now, we don't have exact count from the addon
+      // We'll show a basic indicator
+      setSearchMatchCount({ current: 1, total: 1 }); // Placeholder
+    } else {
+      setSearchMatchCount({ current: 0, total: 0 });
+    }
+    
+    return found;
+  }, []);
+
+  const handleFindNext = useCallback((): boolean => {
+    const searchAddon = searchAddonRef.current;
+    const term = searchTermRef.current;
+    if (!searchAddon || !term) return false;
+    const found = searchAddon.findNext(term, {
+      regex: false,
+      caseSensitive: false,
+      wholeWord: false,
+      decorations: {
+        matchBackground: '#FFFF0044',
+        matchBorder: '#FFFF00',
+        matchOverviewRuler: '#FFFF00',
+        activeMatchBackground: '#FF880088',
+        activeMatchBorder: '#FF8800',
+        activeMatchColorOverviewRuler: '#FF8800',
+      },
+    });
+    return found;
+  }, []);
+
+  const handleFindPrevious = useCallback((): boolean => {
+    const searchAddon = searchAddonRef.current;
+    const term = searchTermRef.current;
+    if (!searchAddon || !term) return false;
+    const found = searchAddon.findPrevious(term, {
+      regex: false,
+      caseSensitive: false,
+      wholeWord: false,
+      decorations: {
+        matchBackground: '#FFFF0044',
+        matchBorder: '#FFFF00',
+        matchOverviewRuler: '#FFFF00',
+        activeMatchBackground: '#FF880088',
+        activeMatchBorder: '#FF8800',
+        activeMatchColorOverviewRuler: '#FF8800',
+      },
+    });
+    return found;
+  }, []);
+
+  const handleCloseSearch = useCallback(() => {
+    setIsSearchOpen(false);
+    setSearchMatchCount(null);
+    searchAddonRef.current?.clearDecorations();
+    // Refocus terminal after closing search
+    termRef.current?.focus();
+  }, []);
+
   const renderControls = (opts?: { showClose?: boolean }) => (
     <TerminalToolbar
       status={status}
@@ -1674,6 +1807,8 @@ const TerminalComponent: React.FC<TerminalProps> = ({
       onUpdateHost={onUpdateHost}
       showClose={opts?.showClose}
       onClose={() => onCloseSession?.(sessionId)}
+      isSearchOpen={isSearchOpen}
+      onToggleSearch={handleToggleSearch}
     />
   );
 
@@ -1737,6 +1872,19 @@ const TerminalComponent: React.FC<TerminalProps> = ({
               {renderControls({ showClose: inWorkspace })}
             </div>
           </div>
+          {/* Search bar - full width below status bar */}
+          {isSearchOpen && (
+            <div className="pointer-events-auto">
+              <TerminalSearchBar
+                isOpen={isSearchOpen}
+                onClose={handleCloseSearch}
+                onSearch={handleSearch}
+                onFindNext={handleFindNext}
+                onFindPrevious={handleFindPrevious}
+                matchCount={searchMatchCount}
+              />
+            </div>
+          )}
         </div>
 
         <div
@@ -1746,7 +1894,7 @@ const TerminalComponent: React.FC<TerminalProps> = ({
           <div
             ref={containerRef}
             className="absolute inset-x-0 bottom-0"
-            style={{ top: "40px", paddingLeft: 6, backgroundColor: effectiveTheme.colors.background }}
+            style={{ top: isSearchOpen ? "64px" : "40px", paddingLeft: 6, backgroundColor: effectiveTheme.colors.background }}
           />
           {error && (
             <div className="absolute bottom-3 left-3 text-xs text-destructive bg-background/80 border border-destructive/40 rounded px-3 py-2 shadow-lg">
