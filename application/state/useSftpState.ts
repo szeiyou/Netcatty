@@ -298,6 +298,13 @@ export const useSftpState = (hosts: Host[], keys: SSHKey[]) => {
         port: host.port || 22,
         password: host.password,
         privateKey: key?.privateKey,
+        certificate: key?.certificate,
+        publicKey: key?.publicKey,
+        credentialId: key?.credentialId,
+        rpId: key?.rpId,
+        keyId: key?.id,
+        keySource: key?.source,
+        userVerification: key?.source === "biometric" ? "required" : "preferred",
       };
     },
     [keys],

@@ -39,6 +39,7 @@ import { cn } from "../lib/utils";
 import { Host, RemoteFile } from "../types";
 import { DistroAvatar } from "./DistroAvatar";
 import { Button } from "./ui/button";
+import { toast } from "./ui/toast";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -271,7 +272,6 @@ const SFTPModal: React.FC<SFTPModalProps> = ({
   const [files, setFiles] = useState<RemoteFile[]>([]);
   const [loading, setLoading] = useState(false);
   const [dragActive, setDragActive] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set());
   const [uploading, setUploading] = useState(false);
   const [uploadTasks, setUploadTasks] = useState<UploadTask[]>([]);
@@ -347,13 +347,11 @@ const SFTPModal: React.FC<SFTPModalProps> = ({
       ) {
         setFiles(cached.files);
         setSelectedFiles(new Set());
-        setError(null);
         setLoading(false);
         return;
       }
 
       try {
-        setError(null);
         setLoading(true);
         const sftpId = await ensureSftp();
         const list = await listSftp(sftpId, path);
@@ -367,7 +365,10 @@ const SFTPModal: React.FC<SFTPModalProps> = ({
       } catch (e) {
         if (loadSeqRef.current !== requestId) return;
         logger.error("Failed to load files", e);
-        setError(e instanceof Error ? e.message : "Failed to load directory");
+        toast.error(
+          e instanceof Error ? e.message : "Failed to load directory",
+          "SFTP",
+        );
         setFiles([]);
       } finally {
         if (loadSeqRef.current === requestId) {
@@ -446,7 +447,7 @@ const SFTPModal: React.FC<SFTPModalProps> = ({
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
       } catch (e) {
-        setError(e instanceof Error ? e.message : "Download failed");
+        toast.error(e instanceof Error ? e.message : "Download failed", "SFTP");
       } finally {
         setLoading(false);
       }
@@ -625,7 +626,7 @@ const SFTPModal: React.FC<SFTPModalProps> = ({
       await deleteSftp(sftpId, fullPath);
       await loadFiles(currentPath, { force: true });
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Delete failed");
+      toast.error(e instanceof Error ? e.message : "Delete failed", "SFTP");
     }
   };
 
@@ -639,7 +640,10 @@ const SFTPModal: React.FC<SFTPModalProps> = ({
       await mkdirSftp(sftpId, fullPath);
       await loadFiles(currentPath, { force: true });
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to create folder");
+      toast.error(
+        e instanceof Error ? e.message : "Failed to create folder",
+        "SFTP",
+      );
     }
   };
 
@@ -870,7 +874,7 @@ const SFTPModal: React.FC<SFTPModalProps> = ({
       await loadFiles(currentPath, { force: true });
       setSelectedFiles(new Set());
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Delete failed");
+      toast.error(e instanceof Error ? e.message : "Delete failed", "SFTP");
     }
   };
 
@@ -1009,16 +1013,6 @@ const SFTPModal: React.FC<SFTPModalProps> = ({
             />
           </div>
         </div>
-
-        {/* Error display */}
-        {error && (
-          <div className="px-4 py-2 bg-destructive/10 text-destructive text-xs border-b border-destructive/20 flex items-center justify-between">
-            <span>{error}</span>
-            <button className="ml-2 underline" onClick={() => setError(null)}>
-              Dismiss
-            </button>
-          </div>
-        )}
 
         {/* File List */}
         <div

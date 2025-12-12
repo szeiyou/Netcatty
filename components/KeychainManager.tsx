@@ -130,7 +130,10 @@ echo $3 >> "$FILE"`);
   const [draftIdentity, setDraftIdentity] = useState<Partial<Identity>>({});
   const [showPassphrase, setShowPassphrase] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+
+  const showError = useCallback((message: string, title = "Error") => {
+    toast.error(message, title);
+  }, []);
 
   // Filter keys based on active tab and search
   const filteredKeys = useMemo(() => {
@@ -184,7 +187,6 @@ echo $3 >> "$FILE"`);
   // Push a new panel onto the stack
   const pushPanel = useCallback((newPanel: PanelMode) => {
     setPanelStack((prev) => [...prev, newPanel]);
-    setError(null);
   }, []);
 
   // Pop the top panel from the stack (go back)
@@ -194,7 +196,6 @@ echo $3 >> "$FILE"`);
         // Last panel, close everything
         setDraftKey({});
         setDraftIdentity({});
-        setError(null);
         setShowPassphrase(false);
         setExportHost(null);
         setExportAdvancedOpen(false);
@@ -209,7 +210,6 @@ echo $3 >> "$FILE"`);
     setPanelStack([]);
     setDraftKey({});
     setDraftIdentity({});
-    setError(null);
     setShowPassphrase(false);
     setExportHost(null);
     setExportAdvancedOpen(false);
@@ -219,7 +219,6 @@ echo $3 >> "$FILE"`);
   const openKeyView = useCallback((key: SSHKey) => {
     setPanelStack([{ type: "view", key }]);
     setDraftKey({ ...key });
-    setError(null);
   }, []);
 
   // Open panel for exporting key (pushes onto stack)
@@ -237,7 +236,6 @@ echo $3 >> "$FILE"`);
   const openKeyEdit = useCallback((key: SSHKey) => {
     setPanelStack([{ type: "edit", key }]);
     setDraftKey({ ...key });
-    setError(null);
   }, []);
 
   // Copy public key to clipboard
@@ -262,7 +260,6 @@ echo $3 >> "$FILE"`);
       authMethod: "password",
       created: Date.now(),
     });
-    setError(null);
   }, []);
 
   // Open generate panel
@@ -295,7 +292,6 @@ echo $3 >> "$FILE"`);
         category: "key",
         created: Date.now(),
       });
-      setError(null);
     },
     [],
   );
@@ -313,18 +309,16 @@ echo $3 >> "$FILE"`);
       category: "key",
       created: Date.now(),
     });
-    setError(null);
   }, []);
 
   // Handle standard key generation
   const handleGenerateStandard = useCallback(async () => {
     if (!draftKey.label?.trim()) {
-      setError("Please enter a label for the key");
+      showError("Please enter a label for the key", "Validation");
       return;
     }
 
     setIsGenerating(true);
-    setError(null);
 
     try {
       const keyType = (draftKey.type as KeyType) || "ED25519";
@@ -362,21 +356,20 @@ echo $3 >> "$FILE"`);
         onSave(newKey);
         closePanel();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to generate key");
+      showError(err instanceof Error ? err.message : "Failed to generate key", "Key Generation");
     } finally {
       setIsGenerating(false);
     }
-  }, [draftKey, onSave, closePanel, generateKeyPair]);
+  }, [draftKey, onSave, closePanel, generateKeyPair, showError]);
 
   // Handle biometric key generation (Windows Hello)
   const handleGenerateBiometric = useCallback(async () => {
     if (!draftKey.label?.trim()) {
-      setError("Please enter a label for the key");
+      showError("Please enter a label for the key", "Validation");
       return;
     }
 
     setIsGenerating(true);
-    setError(null);
 
     try {
       const result = await createBiometricCredential(draftKey.label.trim());
@@ -401,25 +394,25 @@ echo $3 >> "$FILE"`);
       onSave(newKey);
       closePanel();
     } catch (err) {
-      setError(
+      showError(
         err instanceof Error
           ? err.message
           : "Failed to create biometric credential",
+        "Biometric Setup",
       );
     } finally {
       setIsGenerating(false);
     }
-  }, [draftKey, onSave, closePanel]);
+  }, [draftKey, onSave, closePanel, showError]);
 
   // Handle FIDO2 hardware key registration
   const handleGenerateFido2 = useCallback(async () => {
     if (!draftKey.label?.trim()) {
-      setError("Please enter a label for the security key");
+      showError("Please enter a label for the security key", "Validation");
       return;
     }
 
     setIsGenerating(true);
-    setError(null);
 
     try {
       const result = await createFido2Credential(draftKey.label.trim());
@@ -444,18 +437,19 @@ echo $3 >> "$FILE"`);
       onSave(newKey);
       closePanel();
     } catch (err) {
-      setError(
+      showError(
         err instanceof Error ? err.message : "Failed to register security key",
+        "FIDO2 Setup",
       );
     } finally {
       setIsGenerating(false);
     }
-  }, [draftKey, onSave, closePanel]);
+  }, [draftKey, onSave, closePanel, showError]);
 
   // Handle key import
   const handleImport = useCallback(() => {
     if (!draftKey.label?.trim() || !draftKey.privateKey?.trim()) {
-      setError("Label and private key are required");
+      showError("Label and private key are required", "Validation");
       return;
     }
 
@@ -482,12 +476,12 @@ echo $3 >> "$FILE"`);
 
     onSave(newKey);
     closePanel();
-  }, [draftKey, onSave, closePanel]);
+  }, [draftKey, onSave, closePanel, showError]);
 
   // Handle save identity
   const handleSaveIdentity = useCallback(() => {
     if (!draftIdentity.label?.trim() || !draftIdentity.username?.trim()) {
-      setError("Label and username are required");
+      showError("Label and username are required", "Validation");
       return;
     }
 
@@ -505,7 +499,7 @@ echo $3 >> "$FILE"`);
 
     onSaveIdentity(newIdentity);
     closePanel();
-  }, [draftIdentity, onSaveIdentity, closePanel]);
+  }, [draftIdentity, onSaveIdentity, closePanel, showError]);
 
   // Handle delete
   const handleDelete = useCallback(
@@ -1001,13 +995,6 @@ echo $3 >> "$FILE"`);
           }
         >
           <AsidePanelContent>
-            {/* Error Display */}
-            {error && (
-              <div className="p-3 bg-destructive/10 border border-destructive/30 rounded-lg text-sm text-destructive">
-                {error}
-              </div>
-            )}
-
             {/* Generate Biometric Key */}
             {panel.type === "generate" && panel.keyType === "biometric" && (
               <GenerateBiometricPanel
@@ -1203,7 +1190,6 @@ echo $3 >> "$FILE"`);
                     if (!exportHost || !panel.key.publicKey) return;
 
                     setIsExporting(true);
-                    setError("");
 
                     try {
                       // Check for authentication method - prefer password for key export

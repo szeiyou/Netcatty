@@ -608,7 +608,13 @@ const HostDetailsPanel: React.FC<HostDetailsPanelProps> = ({
             {/* Selected credential display */}
             {form.identityFileId && (
               <div className="flex items-center gap-2 p-2 rounded-md bg-secondary/50 border border-border/60">
-                <Key size={14} className="text-primary" />
+                {form.authMethod === "certificate" ? (
+                  <Shield size={14} className="text-primary" />
+                ) : form.authMethod === "fido2" ? (
+                  <Fingerprint size={14} className="text-primary" />
+                ) : (
+                  <Key size={14} className="text-primary" />
+                )}
                 <span className="text-sm flex-1 truncate">
                   {availableKeys.find((k) => k.id === form.identityFileId)
                     ?.label || "Key"}
@@ -619,24 +625,6 @@ const HostDetailsPanel: React.FC<HostDetailsPanelProps> = ({
                   className="h-6 w-6"
                   onClick={() => {
                     update("identityFileId", undefined);
-                    setSelectedCredentialType(null);
-                  }}
-                >
-                  <X size={12} />
-                </Button>
-              </div>
-            )}
-
-            {/* FIDO2 selected display */}
-            {form.authMethod === "fido2" && !form.identityFileId && (
-              <div className="flex items-center gap-2 p-2 rounded-md bg-secondary/50 border border-border/60">
-                <Fingerprint size={14} className="text-primary" />
-                <span className="text-sm flex-1 truncate">FIDO2</span>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-6 w-6"
-                  onClick={() => {
                     update("authMethod", "password");
                     setSelectedCredentialType(null);
                   }}
@@ -648,7 +636,6 @@ const HostDetailsPanel: React.FC<HostDetailsPanelProps> = ({
 
             {/* Credential type selection with inline popover - hidden when credential is selected */}
             {!form.identityFileId &&
-              form.authMethod !== "fido2" &&
               !selectedCredentialType && (
                 <Popover
                   open={credentialPopoverOpen}
@@ -693,16 +680,16 @@ const HostDetailsPanel: React.FC<HostDetailsPanelProps> = ({
                         <span className="text-sm font-medium">Certificate</span>
                       </button>
 
-                      <button
-                        type="button"
-                        className="w-full flex items-center gap-3 px-3 py-2.5 rounded-md hover:bg-secondary/80 transition-colors text-left"
-                        onClick={() => {
-                          update("authMethod", "fido2");
-                          update("identityFileId", undefined);
-                          setCredentialPopoverOpen(false);
-                          setSelectedCredentialType(null);
-                        }}
-                      >
+	                      <button
+	                        type="button"
+	                        className="w-full flex items-center gap-3 px-3 py-2.5 rounded-md hover:bg-secondary/80 transition-colors text-left"
+	                        onClick={() => {
+	                          update("authMethod", "fido2");
+	                          update("identityFileId", undefined);
+	                          setCredentialPopoverOpen(false);
+	                          setSelectedCredentialType("fido2");
+	                        }}
+	                      >
                         <Fingerprint
                           size={16}
                           className="text-muted-foreground"
@@ -747,10 +734,10 @@ const HostDetailsPanel: React.FC<HostDetailsPanelProps> = ({
             )}
 
             {/* Certificate selection combobox - appears after selecting "Certificate" type */}
-            {selectedCredentialType === "certificate" &&
-              !form.identityFileId && (
-                <div className="flex items-center gap-1">
-                  <Combobox
+	            {selectedCredentialType === "certificate" &&
+	              !form.identityFileId && (
+	                <div className="flex items-center gap-1">
+	                  <Combobox
                     options={keysByCategory.certificate.map((k) => ({
                       value: k.id,
                       label: k.label,
@@ -778,11 +765,51 @@ const HostDetailsPanel: React.FC<HostDetailsPanelProps> = ({
                     onClick={() => setSelectedCredentialType(null)}
                   >
                     <X size={14} />
-                  </Button>
-                </div>
-              )}
-          </div>
-        </Card>
+	                  </Button>
+	                </div>
+	              )}
+
+	            {/* FIDO2 selection combobox - appears after selecting "FIDO2" type */}
+	            {selectedCredentialType === "fido2" && !form.identityFileId && (
+	              <div className="flex items-center gap-1">
+	                <Combobox
+	                  options={keysByCategory.key
+	                    .filter((k) => k.source === "fido2")
+	                    .map((k) => ({
+	                      value: k.id,
+	                      label: k.label,
+	                      icon: (
+	                        <Fingerprint
+	                          size={14}
+	                          className="text-muted-foreground"
+	                        />
+	                      ),
+	                    }))}
+	                  value={form.identityFileId}
+	                  onValueChange={(val) => {
+	                    update("identityFileId", val);
+	                    update("authMethod", "fido2");
+	                    setSelectedCredentialType(null);
+	                  }}
+	                  placeholder="Search FIDO2 keys..."
+	                  emptyText="No FIDO2 keys available"
+	                  icon={
+	                    <Fingerprint size={14} className="text-muted-foreground" />
+	                  }
+	                  className="flex-1"
+	                />
+	                <Button
+	                  variant="ghost"
+	                  size="icon"
+	                  className="h-8 w-8 shrink-0"
+	                  onClick={() => setSelectedCredentialType(null)}
+	                >
+	                  <X size={14} />
+	                </Button>
+	              </div>
+	            )}
+	          </div>
+	        </Card>
 
         <Card className="p-3 space-y-2 bg-card border-border/80">
           <ToggleRow

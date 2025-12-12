@@ -24,6 +24,7 @@ import { useTerminalBackend } from "../application/state/useTerminalBackend";
 import KnownHostConfirmDialog, { HostKeyInfo } from "./KnownHostConfirmDialog";
 import SFTPModal from "./SFTPModal";
 import { Button } from "./ui/button";
+import { toast } from "./ui/toast";
 import { TERMINAL_FONTS } from "../infrastructure/config/fonts";
 import { TERMINAL_THEMES } from "../infrastructure/config/terminalThemes";
 
@@ -155,6 +156,7 @@ const TerminalComponent: React.FC<TerminalProps> = ({
   const [isScriptsOpen, setIsScriptsOpen] = useState(false);
   const [status, setStatus] = useState<TerminalSession["status"]>("connecting");
   const [error, setError] = useState<string | null>(null);
+  const lastToastedErrorRef = useRef<string | null>(null);
   const [showLogs, setShowLogs] = useState(false);
   const [progressLogs, setProgressLogs] = useState<string[]>([]);
   const [timeLeft, setTimeLeft] = useState(CONNECTION_TIMEOUT / 1000);
@@ -184,6 +186,16 @@ const TerminalComponent: React.FC<TerminalProps> = ({
   const [authKeyId, setAuthKeyId] = useState<string | null>(null);
   const [showAuthPassword, setShowAuthPassword] = useState(false);
   const [saveCredentials, setSaveCredentials] = useState(true);
+
+  useEffect(() => {
+    if (!error) {
+      lastToastedErrorRef.current = null;
+      return;
+    }
+    if (lastToastedErrorRef.current === error) return;
+    lastToastedErrorRef.current = error;
+    toast.error(error, "Connection Error");
+  }, [error]);
 
   // Pending connection credentials (set after auth dialog submit)
   const pendingAuthRef = useRef<{
@@ -1137,7 +1149,14 @@ const TerminalComponent: React.FC<TerminalProps> = ({
         port: host.port || 22,
         password: effectivePassword,
         privateKey: key?.privateKey,
+        certificate: key?.certificate,
+        publicKey: key?.publicKey,
+        credentialId: key?.credentialId,
+        rpId: key?.rpId,
         keyId: key?.id,
+        keySource: key?.source,
+        userVerification:
+          key?.source === "biometric" ? "required" : "preferred",
         agentForwarding: host.agentForwarding,
         cols: term.cols,
         rows: term.rows,
@@ -1848,11 +1867,7 @@ const TerminalComponent: React.FC<TerminalProps> = ({
             className="absolute inset-x-0 bottom-0"
             style={{ top: isSearchOpen ? "64px" : "40px", paddingLeft: 6, backgroundColor: effectiveTheme.colors.background }}
           />
-          {error && (
-            <div className="absolute bottom-3 left-3 text-xs text-destructive bg-background/80 border border-destructive/40 rounded px-3 py-2 shadow-lg">
-              {error}
-            </div>
-          )}
+          
 
           {/* Known Host Verification Dialog */}
           {needsHostKeyVerification && pendingHostKeyInfo && (

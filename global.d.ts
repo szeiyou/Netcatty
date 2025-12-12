@@ -36,7 +36,15 @@ interface NetcattySSHOptions {
   port?: number;
   password?: string;
   privateKey?: string;
+  // Optional OpenSSH user certificate (ssh-*-cert-v01@openssh.com ...)
+  certificate?: string;
+  // WebAuthn-backed keys (Windows Hello / Touch ID / FIDO2)
+  publicKey?: string; // OpenSSH public key line (e.g., sk-ecdsa-sha2-nistp256@openssh.com ...)
+  credentialId?: string; // base64url
+  rpId?: string;
+  userVerification?: 'required' | 'preferred' | 'discouraged';
   keyId?: string;
+  keySource?: 'generated' | 'imported' | 'biometric' | 'fido2';
   agentForwarding?: boolean;
   cols?: number;
   rows?: number;

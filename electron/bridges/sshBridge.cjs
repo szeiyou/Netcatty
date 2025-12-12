@@ -5,6 +5,8 @@
 
 const net = require("node:net");
 const { Client: SSHClient, utils: sshUtils } = require("ssh2");
+const { registerHandlers: registerWebAuthnHandlers } = require("./webauthnIpc.cjs");
+const { NetcattyAgent } = require("./netcattyAgent.cjs");
 
 // Session storage - shared reference passed from main
 let sessions = null;
@@ -325,12 +327,46 @@ async function startSSHSession(event, options) {
     };
 
     // Authentication for final target
-    if (options.privateKey) {
+    const hasCertificate = typeof options.certificate === "string" && options.certificate.trim().length > 0;
+    const hasWebAuthn =
+      typeof options.credentialId === "string"
+      && typeof options.rpId === "string"
+      && typeof options.publicKey === "string"
+      && options.publicKey.trim().length > 0;
+
+    let authAgent = null;
+    if (hasWebAuthn) {
+      authAgent = new NetcattyAgent({
+        mode: "webauthn",
+        webContents: event.sender,
+        meta: {
+          label: options.keyId || options.username || "",
+          publicKey: options.publicKey,
+          credentialId: options.credentialId,
+          rpId: options.rpId,
+          userVerification: options.userVerification,
+        },
+      });
+      connectOpts.agent = authAgent;
+    } else if (hasCertificate) {
+      authAgent = new NetcattyAgent({
+        mode: "certificate",
+        webContents: event.sender,
+        meta: {
+          label: options.keyId || options.username || "",
+          certificate: options.certificate,
+          privateKey: options.privateKey,
+          passphrase: options.passphrase,
+        },
+      });
+      connectOpts.agent = authAgent;
+    } else if (options.privateKey) {
       connectOpts.privateKey = options.privateKey;
       if (options.passphrase) {
         connectOpts.passphrase = options.passphrase;
       }
     }
+
     if (options.password) {
       connectOpts.password = options.password;
     }
@@ -338,11 +374,21 @@ async function startSSHSession(event, options) {
     // Agent forwarding
     if (options.agentForwarding) {
       connectOpts.agentForward = true;
-      if (process.platform === "win32") {
-        connectOpts.agent = "\\\\.\\pipe\\openssh-ssh-agent";
-      } else {
-        connectOpts.agent = process.env.SSH_AUTH_SOCK;
+      if (!connectOpts.agent) {
+        if (process.platform === "win32") {
+          connectOpts.agent = "\\\\.\\pipe\\openssh-ssh-agent";
+        } else {
+          connectOpts.agent = process.env.SSH_AUTH_SOCK;
+        }
       }
+    }
+
+    // Prefer agent-based auth when we created an in-process agent (cert/webauthn)
+    if (authAgent) {
+      const order = ["agent"];
+      // Allow password fallback if provided
+      if (connectOpts.password) order.push("password");
+      connectOpts.authHandler = order;
     }
 
     // Handle chain/proxy connections
@@ -593,15 +639,61 @@ async function execCommand(event, payload) {
         }
       });
 
-    conn.connect({
+    const hasCertificate = typeof payload.certificate === "string" && payload.certificate.trim().length > 0;
+    const hasWebAuthn =
+      typeof payload.credentialId === "string"
+      && typeof payload.rpId === "string"
+      && typeof payload.publicKey === "string"
+      && payload.publicKey.trim().length > 0;
+
+    const connectOpts = {
       host: payload.hostname,
       port: payload.port || 22,
       username: payload.username,
-      password: payload.password,
-      privateKey: payload.privateKey,
       readyTimeout: timeoutMs,
       keepaliveInterval: 0,
-    });
+    };
+
+    let authAgent = null;
+    if (hasWebAuthn) {
+      authAgent = new NetcattyAgent({
+        mode: "webauthn",
+        webContents: event.sender,
+        meta: {
+          label: payload.keyId || payload.username || "",
+          publicKey: payload.publicKey,
+          credentialId: payload.credentialId,
+          rpId: payload.rpId,
+          userVerification: payload.userVerification,
+        },
+      });
+      connectOpts.agent = authAgent;
+    } else if (hasCertificate) {
+      authAgent = new NetcattyAgent({
+        mode: "certificate",
+        webContents: event.sender,
+        meta: {
+          label: payload.keyId || payload.username || "",
+          certificate: payload.certificate,
+          privateKey: payload.privateKey,
+          passphrase: payload.passphrase,
+        },
+      });
+      connectOpts.agent = authAgent;
+    } else if (payload.privateKey) {
+      connectOpts.privateKey = payload.privateKey;
+      if (payload.passphrase) connectOpts.passphrase = payload.passphrase;
+    }
+
+    if (payload.password) connectOpts.password = payload.password;
+
+    if (authAgent) {
+      const order = ["agent"];
+      if (connectOpts.password) order.push("password");
+      connectOpts.authHandler = order;
+    }
+
+    conn.connect(connectOpts);
   });
 }
 
@@ -657,6 +749,7 @@ async function generateKeyPair(event, options) {
  * Register IPC handlers for SSH operations
  */
 function registerHandlers(ipcMain) {
+  registerWebAuthnHandlers(ipcMain);
   ipcMain.handle("netcatty:start", startSSHSession);
   ipcMain.handle("netcatty:ssh:exec", execCommand);
   ipcMain.handle("netcatty:key:generate", generateKeyPair);

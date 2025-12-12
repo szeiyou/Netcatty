@@ -7,6 +7,8 @@ const fs = require("node:fs");
 const path = require("node:path");
 const os = require("node:os");
 const SftpClient = require("ssh2-sftp-client");
+const { registerHandlers: registerWebAuthnHandlers } = require("./webauthnIpc.cjs");
+const { NetcattyAgent } = require("./netcattyAgent.cjs");
 
 // SFTP clients storage - shared reference passed from main
 let sftpClients = null;
@@ -32,11 +34,50 @@ async function openSftp(event, options) {
     username: options.username || "root",
   };
   
-  if (options.privateKey) {
+  const hasCertificate = typeof options.certificate === "string" && options.certificate.trim().length > 0;
+  const hasWebAuthn =
+    typeof options.credentialId === "string"
+    && typeof options.rpId === "string"
+    && typeof options.publicKey === "string"
+    && options.publicKey.trim().length > 0;
+
+  let authAgent = null;
+  if (hasWebAuthn) {
+    authAgent = new NetcattyAgent({
+      mode: "webauthn",
+      webContents: event.sender,
+      meta: {
+        label: options.keyId || options.username || "",
+        publicKey: options.publicKey,
+        credentialId: options.credentialId,
+        rpId: options.rpId,
+        userVerification: options.userVerification,
+      },
+    });
+    connectOpts.agent = authAgent;
+  } else if (hasCertificate) {
+    authAgent = new NetcattyAgent({
+      mode: "certificate",
+      webContents: event.sender,
+      meta: {
+        label: options.keyId || options.username || "",
+        certificate: options.certificate,
+        privateKey: options.privateKey,
+        passphrase: options.passphrase,
+      },
+    });
+    connectOpts.agent = authAgent;
+  } else if (options.privateKey) {
     connectOpts.privateKey = options.privateKey;
+    if (options.passphrase) connectOpts.passphrase = options.passphrase;
   }
-  if (options.password) {
-    connectOpts.password = options.password;
+
+  if (options.password) connectOpts.password = options.password;
+
+  if (authAgent) {
+    const order = ["agent"];
+    if (connectOpts.password) order.push("password");
+    connectOpts.authHandler = order;
   }
   
   await client.connect(connectOpts);
@@ -228,6 +269,7 @@ async function chmodSftp(event, payload) {
  * Register IPC handlers for SFTP operations
  */
 function registerHandlers(ipcMain) {
+  registerWebAuthnHandlers(ipcMain);
   ipcMain.handle("netcatty:sftp:open", openSftp);
   ipcMain.handle("netcatty:sftp:list", listSftp);
   ipcMain.handle("netcatty:sftp:read", readSftp);

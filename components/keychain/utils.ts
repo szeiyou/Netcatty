@@ -7,6 +7,193 @@ import React from 'react';
 import { logger } from '../../lib/logger';
 import { KeyType,SSHKey } from '../../types';
 
+const textEncoder = new TextEncoder();
+
+const bytesToBase64 = (bytes: Uint8Array): string => {
+    let binary = '';
+    const chunkSize = 0x8000;
+    for (let i = 0; i < bytes.length; i += chunkSize) {
+        binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+    }
+    return btoa(binary);
+};
+
+const bytesToBase64Url = (bytes: Uint8Array): string => {
+    return bytesToBase64(bytes).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+};
+
+const writeSshString = (value: string | Uint8Array): Uint8Array => {
+    const bytes = typeof value === 'string' ? textEncoder.encode(value) : value;
+    const out = new Uint8Array(4 + bytes.length);
+    const view = new DataView(out.buffer);
+    view.setUint32(0, bytes.length, false);
+    out.set(bytes, 4);
+    return out;
+};
+
+const concatBytes = (...parts: Uint8Array[]): Uint8Array => {
+    const total = parts.reduce((sum, p) => sum + p.length, 0);
+    const out = new Uint8Array(total);
+    let offset = 0;
+    for (const part of parts) {
+        out.set(part, offset);
+        offset += part.length;
+    }
+    return out;
+};
+
+const getRpIdFromLocation = (): string => {
+    const hostname = window.location.hostname;
+    if (!hostname) throw new Error('Unable to determine rpId from window.location');
+    return hostname;
+};
+
+const extractRawP256PublicKey = async (credential: PublicKeyCredential): Promise<Uint8Array> => {
+    const response = credential.response as AuthenticatorAttestationResponse;
+
+    // Prefer the native getter when available (Chromium implements this)
+    const spki = response.getPublicKey?.();
+    if (spki && spki.byteLength > 0) {
+        try {
+            const cryptoKey = await crypto.subtle.importKey(
+                'spki',
+                spki,
+                { name: 'ECDSA', namedCurve: 'P-256' },
+                true,
+                ['verify'],
+            );
+            const raw = await crypto.subtle.exportKey('raw', cryptoKey);
+            return new Uint8Array(raw);
+        } catch (err) {
+            logger.warn('Failed to parse getPublicKey() SPKI, falling back', err);
+        }
+    }
+
+    // Fallback: derive from COSE key inside the attestation object (minimal CBOR)
+    const attestationObject = response.attestationObject;
+    if (!attestationObject || attestationObject.byteLength === 0) {
+        throw new Error('No attestationObject available to extract public key');
+    }
+
+    const decodeCbor = (data: Uint8Array): unknown => {
+        // Minimal CBOR decoder for the subset we need (maps, byte strings, text strings, ints)
+        let offset = 0;
+        const readU8 = () => {
+            if (offset >= data.length) throw new Error('CBOR: out of range');
+            return data[offset++];
+        };
+        const readN = (n: number) => {
+            if (offset + n > data.length) throw new Error('CBOR: out of range');
+            const out = data.subarray(offset, offset + n);
+            offset += n;
+            return out;
+        };
+        const readUint = (ai: number): number => {
+            if (ai < 24) return ai;
+            if (ai === 24) return readU8();
+            if (ai === 25) {
+                const b = readN(2);
+                return (b[0] << 8) | b[1];
+            }
+            if (ai === 26) {
+                const b = readN(4);
+                return ((b[0] << 24) | (b[1] << 16) | (b[2] << 8) | b[3]) >>> 0;
+            }
+            throw new Error('CBOR: unsupported integer size');
+        };
+        const readItem = (): unknown => {
+            const initial = readU8();
+            const major = initial >> 5;
+            const ai = initial & 0x1f;
+
+            if (major === 0) return readUint(ai);
+            if (major === 1) return -1 - readUint(ai);
+            if (major === 2) {
+                const len = readUint(ai);
+                return readN(len);
+            }
+            if (major === 3) {
+                const len = readUint(ai);
+                const strBytes = readN(len);
+                return new TextDecoder().decode(strBytes);
+            }
+            if (major === 4) {
+                const len = readUint(ai);
+                const arr: unknown[] = [];
+                for (let i = 0; i < len; i++) arr.push(readItem());
+                return arr;
+            }
+            if (major === 5) {
+                const len = readUint(ai);
+                const map = new Map<unknown, unknown>();
+                for (let i = 0; i < len; i++) {
+                    const k = readItem();
+                    const v = readItem();
+                    map.set(k, v);
+                }
+                return map;
+            }
+            throw new Error(`CBOR: unsupported major type ${major}`);
+        };
+
+        return readItem();
+    };
+
+    const decoded = decodeCbor(new Uint8Array(attestationObject));
+    if (!(decoded instanceof Map)) throw new Error('CBOR: attestationObject is not a map');
+    const authData = decoded.get('authData');
+    if (!(authData instanceof Uint8Array)) throw new Error('CBOR: missing authData bytes');
+
+    // authData: rpIdHash(32) || flags(1) || signCount(4) || attestedCredData...
+    const auth = authData;
+    if (auth.length < 37) throw new Error('authData too short');
+    const flags = auth[32];
+    // Attested credential data present?
+    if ((flags & 0x40) === 0) throw new Error('authData missing attested credential data');
+
+    let p = 37;
+    // aaguid(16)
+    p += 16;
+    if (p + 2 > auth.length) throw new Error('authData truncated');
+    const credIdLen = (auth[p] << 8) | auth[p + 1];
+    p += 2;
+    p += credIdLen; // credentialId
+    if (p >= auth.length) throw new Error('authData missing credentialPublicKey');
+
+    // credentialPublicKey is a CBOR-encoded COSE_Key
+    const coseBytes = auth.subarray(p);
+    const coseDecoded = decodeCbor(coseBytes);
+    if (!(coseDecoded instanceof Map)) throw new Error('COSE key is not a map');
+    const x = coseDecoded.get(-2);
+    const y = coseDecoded.get(-3);
+    if (!(x instanceof Uint8Array) || !(y instanceof Uint8Array)) {
+        throw new Error('COSE key missing x/y coordinates');
+    }
+    if (x.length !== 32 || y.length !== 32) throw new Error('Unexpected COSE x/y length');
+    const raw = new Uint8Array(65);
+    raw[0] = 0x04;
+    raw.set(x, 1);
+    raw.set(y, 33);
+    return raw;
+};
+
+const buildOpenSshSkEcdsaPublicKey = (rawP256: Uint8Array, application: string, comment: string): string => {
+    // OpenSSH expects uncompressed EC point for nistp256 (65 bytes: 0x04 || X || Y)
+    if (rawP256.length !== 65 || rawP256[0] !== 0x04) {
+        throw new Error('Invalid P-256 public key encoding');
+    }
+    const keyType = 'sk-ecdsa-sha2-nistp256@openssh.com';
+    const blob = concatBytes(
+        writeSshString(keyType),
+        writeSshString('nistp256'),
+        writeSshString(rawP256),
+        writeSshString(application),
+    );
+    const b64 = bytesToBase64(blob);
+    const safeComment = comment.trim() ? comment.trim() : 'netcatty';
+    return `${keyType} ${b64} ${safeComment}`;
+};
+
 /**
  * Generate mock key pair (for fallback when Electron backend is unavailable)
  */
@@ -53,15 +240,7 @@ export const createFido2Credential = async (label: string): Promise<{
             throw new Error('WebAuthn requires a secure context (HTTPS). Please run the app via localhost or HTTPS.');
         }
 
-        // For FIDO2 hardware keys, we use cross-platform authenticator
-        let rpId: string;
-        const hostname = window.location.hostname;
-
-        if (!hostname || hostname === '' || hostname === 'localhost' || hostname === '127.0.0.1') {
-            rpId = 'localhost';
-        } else {
-            rpId = hostname;
-        }
+        const rpId = getRpIdFromLocation();
 
         const userId = new TextEncoder().encode(crypto.randomUUID());
 
@@ -79,7 +258,6 @@ export const createFido2Credential = async (label: string): Promise<{
                 },
                 pubKeyCredParams: [
                     { alg: -7, type: 'public-key' },   // ES256 (ECDSA P-256)
-                    { alg: -257, type: 'public-key' }, // RS256 (RSA)
                 ],
                 authenticatorSelection: {
                     // cross-platform for hardware security keys like YubiKey
@@ -96,13 +274,9 @@ export const createFido2Credential = async (label: string): Promise<{
             return null;
         }
 
-        const response = credential.response as AuthenticatorAttestationResponse;
-        const credentialId = btoa(String.fromCharCode(...new Uint8Array(credential.rawId)));
-        const publicKeyBytes = new Uint8Array(response.getPublicKey?.() || []);
-        const publicKeyBase64 = btoa(String.fromCharCode(...publicKeyBytes));
-
-        // Format as OpenSSH sk-ecdsa key
-        const publicKey = `sk-ecdsa-sha2-nistp256@openssh.com AAAAInNrLWVjZHNhLXNoYTItbmlzdHAyNTZAb3BlbnNzaC5jb20${publicKeyBase64.substring(0, 100)} ${label}@fido2`;
+        const credentialId = bytesToBase64Url(new Uint8Array(credential.rawId));
+        const rawP256 = await extractRawP256PublicKey(credential);
+        const publicKey = buildOpenSshSkEcdsaPublicKey(rawP256, rpId, `${label}@fido2`);
 
         return {
             credentialId,
@@ -141,16 +315,7 @@ export const createBiometricCredential = async (label: string): Promise<{
             throw new Error(`No platform authenticator available. Please ensure ${isMacOS ? 'Touch ID' : 'Windows Hello'} is set up in your system settings.`);
         }
 
-        // For Electron apps, we need to handle the rpId carefully
-        let rpId: string;
-        const hostname = window.location.hostname;
-
-        // In Electron file:// protocol or localhost dev server
-        if (!hostname || hostname === '' || hostname === 'localhost' || hostname === '127.0.0.1') {
-            rpId = 'localhost';
-        } else {
-            rpId = hostname;
-        }
+        const rpId = getRpIdFromLocation();
 
         const userId = new TextEncoder().encode(crypto.randomUUID());
 
@@ -172,7 +337,8 @@ export const createBiometricCredential = async (label: string): Promise<{
                 authenticatorSelection: {
                     authenticatorAttachment: 'platform',
                     residentKey: 'discouraged',
-                    userVerification: 'preferred',
+                    // Prefer enforcing verification to actually require Touch ID / Windows Hello
+                    userVerification: 'required',
                 },
                 timeout: 180000, // 3 minutes
                 attestation: 'none',
@@ -183,17 +349,9 @@ export const createBiometricCredential = async (label: string): Promise<{
             return null;
         }
 
-        const response = credential.response as AuthenticatorAttestationResponse;
-
-        // Convert credential ID to base64
-        const credentialId = btoa(String.fromCharCode(...new Uint8Array(credential.rawId)));
-
-        // Extract public key from attestation
-        const publicKeyBytes = new Uint8Array(response.getPublicKey?.() || []);
-        const publicKeyBase64 = btoa(String.fromCharCode(...publicKeyBytes));
-
-        // Format as OpenSSH sk-ecdsa key
-        const publicKey = `sk-ecdsa-sha2-nistp256@openssh.com AAAAInNrLWVjZHNhLXNoYTItbmlzdHAyNTZAb3BlbnNzaC5jb20${publicKeyBase64.substring(0, 100)} ${label}@netcatty`;
+        const credentialId = bytesToBase64Url(new Uint8Array(credential.rawId));
+        const rawP256 = await extractRawP256PublicKey(credential);
+        const publicKey = buildOpenSshSkEcdsaPublicKey(rawP256, rpId, `${label}@biometric`);
 
         return {
             credentialId,

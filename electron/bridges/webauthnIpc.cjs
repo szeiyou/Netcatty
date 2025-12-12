@@ -1,0 +1,65 @@
+/**
+ * WebAuthn IPC helper
+ *
+ * Allows main-process code (SSH/SFTP bridges) to request a WebAuthn assertion
+ * from the renderer via preload, and await the result.
+ */
+
+let handlersRegistered = false;
+
+// requestId -> { resolve, reject, timeout }
+const pending = new Map();
+
+function registerHandlers(ipcMain) {
+  if (handlersRegistered) return;
+  handlersRegistered = true;
+
+  ipcMain.on("netcatty:webauthn:response", (_event, payload) => {
+    const requestId = payload?.requestId;
+    if (!requestId || typeof requestId !== "string") return;
+
+    const entry = pending.get(requestId);
+    if (!entry) return;
+
+    pending.delete(requestId);
+    clearTimeout(entry.timeout);
+
+    if (payload?.ok) {
+      entry.resolve(payload.result);
+    } else {
+      entry.reject(new Error(payload?.error || "WebAuthn request failed"));
+    }
+  });
+}
+
+function requestWebAuthnAssertion(webContents, params) {
+  const requestId = `webauthn-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+
+  return new Promise((resolve, reject) => {
+    const timeoutMs = Math.max(1000, params?.timeoutMs || 180000);
+    const timeout = setTimeout(() => {
+      pending.delete(requestId);
+      reject(new Error("WebAuthn request timed out"));
+    }, timeoutMs);
+
+    pending.set(requestId, { resolve, reject, timeout });
+
+    try {
+      webContents.send("netcatty:webauthn:request", {
+        requestId,
+        ...params,
+        timeoutMs,
+      });
+    } catch (err) {
+      pending.delete(requestId);
+      clearTimeout(timeout);
+      reject(err);
+    }
+  });
+}
+
+module.exports = {
+  registerHandlers,
+  requestWebAuthnAssertion,
+};
+
