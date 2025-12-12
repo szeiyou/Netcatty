@@ -36,7 +36,7 @@ try {
   electronModule = require("electron");
 }
 
-const { app, BrowserWindow, nativeTheme, Menu } = electronModule || {};
+const { app, BrowserWindow, nativeTheme, Menu, protocol } = electronModule || {};
 if (!app || !BrowserWindow) {
   throw new Error("Failed to load Electron runtime. Ensure the app is launched with the Electron binary.");
 }
@@ -44,6 +44,20 @@ if (!app || !BrowserWindow) {
 const path = require("node:path");
 const os = require("node:os");
 const fs = require("node:fs");
+
+// Register custom protocol as privileged BEFORE app.ready
+// This allows WebAuthn to work without HTTP server overhead
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: 'app',
+    privileges: {
+      secure: true,        // Treat as secure context (required for WebAuthn)
+      standard: true,      // Allow relative URLs
+      supportFetchAPI: true,
+      corsEnabled: true,
+    }
+  }
+]);
 
 // Import bridge modules
 const sshBridge = require("./bridges/sshBridge.cjs");
@@ -92,7 +106,20 @@ app.on("web-contents-created", (_event, contents) => {
 });
 
 // Application configuration
-const devServerUrl = process.env.VITE_DEV_SERVER_URL;
+// On macOS, when launched via `open -a` for WebAuthn support, env vars aren't passed.
+// Check for a temp config file written by launch.cjs
+let devServerUrl = process.env.VITE_DEV_SERVER_URL;
+const devConfigPath = path.join(__dirname, ".dev-config.json");
+if (!devServerUrl && fs.existsSync(devConfigPath)) {
+  try {
+    const config = JSON.parse(fs.readFileSync(devConfigPath, "utf-8"));
+    devServerUrl = config.VITE_DEV_SERVER_URL;
+    console.log("[Main] Loaded dev config from file:", devServerUrl);
+  } catch (e) {
+    console.warn("[Main] Failed to read dev config:", e);
+  }
+}
+
 const isDev = !!devServerUrl;
 const preload = path.join(__dirname, "preload.cjs");
 const isMac = process.platform === "darwin";
@@ -203,6 +230,92 @@ async function createWindow() {
 
 // Application lifecycle
 app.whenReady().then(() => {
+  // Register custom protocol handler for production mode
+  // This serves files from dist/ with proper MIME types and SPA routing
+  if (!isDev) {
+    const net = require('node:net');
+    const { net: electronNet } = electronModule;
+    
+    protocol.handle('app', (request) => {
+      const url = new URL(request.url);
+      let filePath = url.pathname;
+      
+      // Remove leading slash for path joining
+      if (filePath.startsWith('/')) {
+        filePath = filePath.slice(1);
+      }
+      
+      // Default to index.html for root
+      if (!filePath || filePath === '') {
+        filePath = 'index.html';
+      }
+      
+      const distPath = path.join(electronDir, '../dist');
+      let fullPath = path.join(distPath, filePath);
+      
+      // Security: ensure path is within dist directory
+      if (!fullPath.startsWith(distPath)) {
+        return new Response('Forbidden', { status: 403 });
+      }
+      
+      // SPA fallback: if file doesn't exist and no extension, serve index.html
+      if (!fs.existsSync(fullPath)) {
+        const ext = path.extname(filePath);
+        if (!ext || ext === '') {
+          fullPath = path.join(distPath, 'index.html');
+        }
+      }
+      
+      // Check if file exists
+      if (!fs.existsSync(fullPath)) {
+        return new Response('Not Found', { status: 404 });
+      }
+      
+      // Determine MIME type
+      const ext = path.extname(fullPath).toLowerCase();
+      const mimeTypes = {
+        '.html': 'text/html',
+        '.js': 'text/javascript',
+        '.mjs': 'text/javascript',
+        '.css': 'text/css',
+        '.json': 'application/json',
+        '.png': 'image/png',
+        '.jpg': 'image/jpeg',
+        '.jpeg': 'image/jpeg',
+        '.gif': 'image/gif',
+        '.svg': 'image/svg+xml',
+        '.ico': 'image/x-icon',
+        '.woff': 'font/woff',
+        '.woff2': 'font/woff2',
+        '.ttf': 'font/ttf',
+        '.eot': 'application/vnd.ms-fontobject',
+        '.wav': 'audio/wav',
+        '.mp3': 'audio/mpeg',
+        '.mp4': 'video/mp4',
+        '.webm': 'video/webm',
+        '.wasm': 'application/wasm',
+      };
+      const contentType = mimeTypes[ext] || 'application/octet-stream';
+      
+      // Read and return file
+      try {
+        const content = fs.readFileSync(fullPath);
+        return new Response(content, {
+          status: 200,
+          headers: {
+            'Content-Type': contentType,
+            'Content-Length': content.length.toString(),
+          },
+        });
+      } catch (err) {
+        console.error('[Protocol] Error reading file:', fullPath, err);
+        return new Response('Internal Server Error', { status: 500 });
+      }
+    });
+    
+    console.log('[Main] Custom app:// protocol registered');
+  }
+
   // Set dock icon on macOS
   if (isMac && appIcon && app.dock?.setIcon) {
     try {
@@ -229,7 +342,6 @@ app.whenReady().then(() => {
 
 // Cleanup on all windows closed
 app.on("window-all-closed", () => {
-  windowManager.closeProductionServer();
   if (process.platform !== "darwin") {
     app.quit();
   }

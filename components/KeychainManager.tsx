@@ -362,7 +362,8 @@ echo $3 >> "$FILE"`);
     }
   }, [draftKey, onSave, closePanel, generateKeyPair, showError]);
 
-  // Handle biometric key generation (Windows Hello)
+  // Handle biometric key generation (Windows Hello / Touch ID)
+  // Uses IPC to create credential via a localhost popup window for WebAuthn security
   const handleGenerateBiometric = useCallback(async () => {
     if (!draftKey.label?.trim()) {
       showError("Please enter a label for the key", "Validation");
@@ -372,6 +373,7 @@ echo $3 >> "$FILE"`);
     setIsGenerating(true);
 
     try {
+      // Use WebAuthn directly - works with app:// custom protocol (secure context)
       const result = await createBiometricCredential(draftKey.label.trim());
 
       if (!result) {

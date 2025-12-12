@@ -8,7 +8,7 @@ export default defineConfig(() => {
       base: "./",
       server: {
         port: 5173,
-        host: '127.0.0.1',
+        host: 'localhost',
         headers: {
           // Required for SharedArrayBuffer and WASM in some browsers
           'Cross-Origin-Opener-Policy': 'same-origin',
@@ -16,17 +16,12 @@ export default defineConfig(() => {
         },
       },
       build: {
-        chunkSizeWarningLimit: 1500,
+        chunkSizeWarningLimit: 3000,
         target: 'esnext', // Required for top-level await in WASM modules
         rollupOptions: {
           output: {
-            manualChunks(id) {
-              if (!id.includes('node_modules')) return;
-              if (id.includes('@xterm') || id.includes('xterm')) return 'xterm';
-              if (id.includes('@radix-ui')) return 'radix';
-              if (id.includes('react')) return 'react';
-              return 'vendor';
-            },
+            // Disable code splitting for Electron compatibility with file:// protocol
+            manualChunks: undefined,
           },
         },
       },

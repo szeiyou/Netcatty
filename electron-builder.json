@@ -1,0 +1,58 @@
+{
+  "$schema": "https://raw.githubusercontent.com/electron-userland/electron-builder/master/packages/app-builder-lib/scheme.json",
+  "appId": "com.netcatty.app",
+  "productName": "Netcatty",
+  "directories": {
+    "output": "release"
+  },
+  "files": [
+    "dist/**/*",
+    "electron/**/*",
+    "!electron/.dev-config.json",
+    "public/**/*",
+    "node_modules/**/*"
+  ],
+  "asarUnpack": [
+    "node_modules/node-pty/**/*",
+    "node_modules/ssh2/**/*",
+    "node_modules/cpu-features/**/*"
+  ],
+  "mac": {
+    "target": [
+      {
+        "target": "dir",
+        "arch": ["arm64"]
+      }
+    ],
+    "category": "public.app-category.developer-tools",
+    "hardenedRuntime": true,
+    "gatekeeperAssess": false,
+    "entitlements": "electron/entitlements.mac.plist",
+    "entitlementsInherit": "electron/entitlements.mac.plist",
+    "extendInfo": {
+      "NSBluetoothAlwaysUsageDescription": "Netcatty needs Bluetooth access for FIDO2 security keys",
+      "NSBluetoothPeripheralUsageDescription": "Netcatty needs Bluetooth access for FIDO2 security keys",
+      "NSCameraUsageDescription": "Netcatty may use the camera for video calls",
+      "NSMicrophoneUsageDescription": "Netcatty may use the microphone for audio",
+      "NSFaceIDUsageDescription": "Netcatty uses Face ID for secure authentication",
+      "NSLocalNetworkUsageDescription": "Netcatty needs local network access for SSH connections"
+    }
+  },
+  "win": {
+    "target": [
+      {
+        "target": "dir",
+        "arch": ["x64"]
+      }
+    ]
+  },
+  "linux": {
+    "target": [
+      {
+        "target": "dir",
+        "arch": ["x64"]
+      }
+    ],
+    "category": "Development"
+  }
+}

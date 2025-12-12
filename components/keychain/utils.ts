@@ -44,7 +44,21 @@ const concatBytes = (...parts: Uint8Array[]): Uint8Array => {
 
 const getRpIdFromLocation = (): string => {
     const hostname = window.location.hostname;
-    if (!hostname) throw new Error('Unable to determine rpId from window.location');
+    // In Electron with file:// protocol, hostname is empty
+    // Use 'localhost' as default for WebAuthn compatibility
+    if (!hostname || hostname === '') {
+        return 'localhost';
+    }
+    // WebAuthn requires a valid RP ID. IP addresses like 127.0.0.1 are not valid RP IDs.
+    // Convert loopback addresses to 'localhost' for WebAuthn compatibility.
+    if (
+        hostname === '127.0.0.1' ||
+        hostname === '0.0.0.0' ||
+        hostname === '::1' ||
+        hostname === '[::1]'
+    ) {
+        return 'localhost';
+    }
     return hostname;
 };
 
@@ -308,42 +322,98 @@ export const createBiometricCredential = async (label: string): Promise<{
             throw new Error('WebAuthn requires a secure context (HTTPS). This feature is not available in the current environment.');
         }
 
-        // Check if platform authenticator is available (Windows Hello, Touch ID, etc.)
-        const available = await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
-        if (!available) {
-            const isMacOS = navigator.platform.toLowerCase().includes('mac') || navigator.userAgent.toLowerCase().includes('mac');
-            throw new Error(`No platform authenticator available. Please ensure ${isMacOS ? 'Touch ID' : 'Windows Hello'} is set up in your system settings.`);
-        }
+        // IMPORTANT: Do not await anything before navigator.credentials.create().
+        // WebAuthn requires a user gesture; awaiting here can drop the transient activation
+        // and cause NotAllowedError without showing the Touch ID prompt.
+        const platformAvailablePromise: Promise<boolean | undefined> =
+            PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable()
+                .catch((e) => {
+                    logger.warn('Platform authenticator availability check failed:', e);
+                    return undefined;
+                });
 
         const rpId = getRpIdFromLocation();
 
+        logger.info('Starting biometric credential creation', {
+            rpId,
+            origin: window.location.origin,
+            isSecureContext: window.isSecureContext,
+            label,
+        });
+
         const userId = new TextEncoder().encode(crypto.randomUUID());
 
-        const credential = await navigator.credentials.create({
-            publicKey: {
-                challenge: crypto.getRandomValues(new Uint8Array(32)),
-                rp: {
-                    name: 'Netcatty SSH Manager',
-                    id: rpId,
+        let credential: PublicKeyCredential | null = null;
+        try {
+            credential = await navigator.credentials.create({
+                publicKey: {
+                    challenge: crypto.getRandomValues(new Uint8Array(32)),
+                    rp: {
+                        name: 'Netcatty SSH Manager',
+                        id: rpId,
+                    },
+                    user: {
+                        id: userId,
+                        name: label,
+                        displayName: label,
+                    },
+                    pubKeyCredParams: [
+                        { alg: -7, type: 'public-key' },  // ES256 (ECDSA P-256)
+                    ],
+                    authenticatorSelection: {
+                        authenticatorAttachment: 'platform',
+                        residentKey: 'discouraged',
+                        // Prefer enforcing verification to actually require Touch ID / Windows Hello
+                        userVerification: 'required',
+                    },
+                    timeout: 180000, // 3 minutes
+                    attestation: 'none',
                 },
-                user: {
-                    id: userId,
-                    name: label,
-                    displayName: label,
-                },
-                pubKeyCredParams: [
-                    { alg: -7, type: 'public-key' },  // ES256 (ECDSA P-256)
-                ],
-                authenticatorSelection: {
-                    authenticatorAttachment: 'platform',
-                    residentKey: 'discouraged',
-                    // Prefer enforcing verification to actually require Touch ID / Windows Hello
-                    userVerification: 'required',
-                },
-                timeout: 180000, // 3 minutes
-                attestation: 'none',
-            },
-        }) as PublicKeyCredential;
+            }) as PublicKeyCredential;
+        } catch (error) {
+            const platformAvailable = await platformAvailablePromise;
+            const isMacOS =
+                navigator.platform.toLowerCase().includes('mac') ||
+                navigator.userAgent.toLowerCase().includes('mac');
+            const deviceName = isMacOS ? 'Touch ID' : 'Windows Hello';
+            const errName =
+                error && typeof error === 'object' && 'name' in error
+                    ? String((error as { name?: unknown }).name)
+                    : '';
+
+            const errMessage =
+                error && typeof error === 'object' && 'message' in error
+                    ? String((error as { message?: unknown }).message)
+                    : '';
+
+            logger.error('Biometric credential creation failed:', {
+                error,
+                errName,
+                errMessage,
+                platformAvailable,
+                rpId,
+                isSecureContext: window.isSecureContext,
+                origin: window.location.origin,
+            });
+
+            if (errName === 'NotAllowedError') {
+                throw new Error(
+                    `${deviceName} request was cancelled or timed out. If your laptop lid is closed (clamshell mode) or the sensor is unavailable, open the lid or try FIDO2.`,
+                );
+            }
+            if (errName === 'NotSupportedError') {
+                throw new Error(
+                    `No platform authenticator available. Please ensure ${deviceName} is set up in your system settings.`,
+                );
+            }
+            if (errName === 'SecurityError') {
+                throw new Error(
+                    'WebAuthn blocked by security policy. Ensure the app runs in a secure context and the RP ID is valid for this origin.',
+                );
+            }
+
+            throw error;
+        }
 
         if (!credential) {
             return null;
