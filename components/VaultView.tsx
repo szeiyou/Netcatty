@@ -715,7 +715,7 @@ const VaultViewInner: React.FC<VaultViewProps> = ({
               <Button
                 size="sm"
                 variant="secondary"
-                className="h-10 px-3"
+                className="h-10 px-3 app-no-drag"
                 onClick={onCreateLocalTerminal}
               >
                 <TerminalSquare size={14} className="mr-2" /> Terminal
