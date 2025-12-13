@@ -1142,6 +1142,17 @@ const TerminalComponent: React.FC<TerminalProps> = ({
         }
       }
 
+      // DEBUG: Log key info for troubleshooting
+      console.log('[Terminal] Starting SSH session with key info:', {
+        keyId: key?.id,
+        keyLabel: key?.label,
+        keySource: key?.source,
+        hasCredentialId: !!key?.credentialId,
+        hasRpId: !!key?.rpId,
+        hasPublicKey: !!key?.publicKey,
+        hasPrivateKey: !!key?.privateKey,
+      });
+
       const id = await terminalBackend.startSSHSession({
         sessionId,
         hostname: host.hostname,

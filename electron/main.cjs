@@ -45,6 +45,8 @@ const path = require("node:path");
 const os = require("node:os");
 const fs = require("node:fs");
 
+const DEEPLINK_SCHEME = "netcatty";
+
 // Register custom protocol as privileged BEFORE app.ready
 // This allows WebAuthn to work without HTTP server overhead
 protocol.registerSchemesAsPrivileged([
@@ -131,6 +133,43 @@ const preload = path.join(__dirname, "preload.cjs");
 const isMac = process.platform === "darwin";
 const appIcon = path.join(__dirname, "../public/icon.png");
 const electronDir = __dirname;
+
+function focusMainWindow() {
+  try {
+    const wins = BrowserWindow.getAllWindows();
+    const win = wins && wins.length ? wins[0] : null;
+    if (!win) return false;
+
+    try {
+      if (win.isMinimized && win.isMinimized()) win.restore();
+    } catch {}
+    try {
+      win.show();
+    } catch {}
+    try {
+      win.focus();
+    } catch {}
+    try {
+      app.focus({ steal: true });
+    } catch {}
+
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function getDeepLinkFromArgv(argv) {
+  const args = Array.isArray(argv) ? argv : [];
+  return args.find((a) => typeof a === "string" && a.startsWith(`${DEEPLINK_SCHEME}://`));
+}
+
+function handleDeepLink(url) {
+  if (!url || typeof url !== "string") return;
+  // Currently used to bring the app back to foreground after browser WebAuthn completes.
+  // Future: parse URL and navigate in renderer if needed.
+  focusMainWindow();
+}
 
 // Shared state
 const sessions = new Map();
@@ -237,6 +276,24 @@ async function createWindow() {
 
 // Application lifecycle
 app.whenReady().then(() => {
+  // Deep link protocol (netcatty://...) to return from browser helper pages.
+  // Note: protocol registration works best in packaged builds; in dev it may require manual registration.
+  try {
+    if (process.defaultApp) {
+      // Electron dev: pass the app entry to allow OS to re-launch correctly.
+      const appPath = path.resolve(process.argv[1] || "");
+      if (appPath) {
+        app.setAsDefaultProtocolClient(DEEPLINK_SCHEME, process.execPath, [appPath]);
+      } else {
+        app.setAsDefaultProtocolClient(DEEPLINK_SCHEME);
+      }
+    } else {
+      app.setAsDefaultProtocolClient(DEEPLINK_SCHEME);
+    }
+  } catch (err) {
+    console.warn("[Main] Failed to register deep link protocol:", err?.message || err);
+  }
+
   // Register custom protocol handler for production mode
   // This serves files from dist/ with proper MIME types and SPA routing
   if (!isDev) {
@@ -339,6 +396,12 @@ app.whenReady().then(() => {
   // Create the main window
   createWindow();
 
+  // Handle deep link passed at startup (Windows/Linux) after we have a window.
+  const initialDeepLink = getDeepLinkFromArgv(process.argv);
+  if (initialDeepLink) {
+    handleDeepLink(initialDeepLink);
+  }
+
   // Re-create window on macOS dock click
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {
@@ -346,6 +409,28 @@ app.whenReady().then(() => {
     }
   });
 });
+
+// macOS deep links arrive here when app is already running
+app.on("open-url", (event, url) => {
+  try {
+    event.preventDefault();
+  } catch {}
+  handleDeepLink(url);
+});
+
+// Ensure deep links focus the existing instance on Windows/Linux
+try {
+  const gotLock = app.requestSingleInstanceLock();
+  if (!gotLock) {
+    app.quit();
+  } else {
+    app.on("second-instance", (_event, argv) => {
+      const url = getDeepLinkFromArgv(argv);
+      if (url) handleDeepLink(url);
+      focusMainWindow();
+    });
+  }
+} catch {}
 
 // Cleanup on all windows closed
 app.on("window-all-closed", () => {

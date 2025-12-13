@@ -3,7 +3,6 @@ import { normalizeDistroId, sanitizeHost } from "../../domain/host";
 import {
   Host,
   KeyCategory,
-  KeySource,
   KnownHost,
   ShellHistoryEntry,
   Snippet,
@@ -36,6 +35,22 @@ type ExportableVaultData = {
 const migrateKey = (
   key: Partial<SSHKey> & { id: string; label: string },
 ): SSHKey => {
+  // Infer source from key characteristics if not explicitly set
+  let source = key.source;
+  if (!source) {
+    // If key has credentialId and rpId, it's a biometric or fido2 key
+    if (key.credentialId && key.rpId) {
+      // If it has no privateKey, it's likely biometric (Touch ID / Windows Hello)
+      // FIDO2 keys also have no privateKey but are external hardware keys
+      // Default to biometric for platform authenticators
+      source = "biometric";
+    } else if (key.privateKey) {
+      source = "imported";
+    } else {
+      source = "generated";
+    }
+  }
+  
   return {
     id: key.id,
     label: key.label,
@@ -45,8 +60,7 @@ const migrateKey = (
     certificate: key.certificate,
     passphrase: key.passphrase,
     savePassphrase: key.savePassphrase,
-    source:
-      key.source || ((key.privateKey ? "imported" : "generated") as KeySource),
+    source,
     category:
       key.category ||
       ((key.certificate ? "certificate" : "key") as KeyCategory),

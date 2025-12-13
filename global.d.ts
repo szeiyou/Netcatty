@@ -1,5 +1,6 @@
 import type { RemoteFile } from "./types";
 
+declare global {
 // Proxy configuration for SSH connections
 interface NetcattyProxyConfig {
   type: 'http' | 'socks5';
@@ -286,10 +287,10 @@ interface NetcattyBridge {
   onChainProgress?(cb: (hop: number, total: number, label: string, status: string) => void): () => void;
 }
 
-declare global {
-  interface Window {
-    netcatty?: NetcattyBridge;
-  }
+interface Window {
+  netcatty?: NetcattyBridge;
+}
+
 }
 
 export { };

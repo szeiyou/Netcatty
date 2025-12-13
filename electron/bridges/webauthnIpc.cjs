@@ -6,6 +6,16 @@
  */
 
 const { getAssertionInBrowser } = require("./webauthnBrowserBridge.cjs");
+const fs = require("node:fs");
+const path = require("node:path");
+
+// Simple file logger for debugging WebAuthn issues
+const logFile = path.join(require("os").tmpdir(), "netcatty-webauthn.log");
+const log = (msg, data) => {
+  const line = `[${new Date().toISOString()}] ${msg} ${data ? JSON.stringify(data) : ""}\n`;
+  try { fs.appendFileSync(logFile, line); } catch {}
+  console.log("[WebAuthn]", msg, data || "");
+};
 
 let handlersRegistered = false;
 
@@ -37,7 +47,15 @@ function registerHandlers(ipcMain) {
 function requestWebAuthnAssertion(webContents, params) {
   // macOS: Electron's embedded WebAuthn prompt can hang (no Touch ID UI). For biometric keys,
   // use the system browser helper flow instead.
+  log("requestWebAuthnAssertion called", {
+    platform: process.platform,
+    keySource: params?.keySource,
+    rpId: params?.rpId,
+    hasCredentialId: !!params?.credentialId,
+  });
+  
   if (process.platform === "darwin" && params?.keySource === "biometric") {
+    log("Using browser helper for biometric key on macOS");
     const timeoutMs = Math.max(1000, params?.timeoutMs || 180000);
     return getAssertionInBrowser({
       rpId: params?.rpId,
@@ -46,6 +64,7 @@ function requestWebAuthnAssertion(webContents, params) {
       userVerification: params?.userVerification || "preferred",
       timeoutMs,
     }).then((result) => {
+      log("Browser helper assertion succeeded");
       if (!result) throw new Error("WebAuthn assertion was cancelled");
       return {
         origin: result.origin,
@@ -54,8 +73,13 @@ function requestWebAuthnAssertion(webContents, params) {
         signature: result.signature,
         userHandle: result.userHandle,
       };
+    }).catch((err) => {
+      log("Browser helper assertion failed", { error: err?.message });
+      throw err;
     });
   }
+  
+  log("Using embedded WebAuthn (not biometric on macOS)");
 
   const requestId = `webauthn-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 

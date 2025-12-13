@@ -27,6 +27,38 @@ function resolveElectronModule() {
   }
 }
 
+function focusNetcattyApp() {
+  try {
+    const electronModule = resolveElectronModule();
+    const { app, BrowserWindow } = electronModule || {};
+    if (!BrowserWindow) return;
+
+    const wins = BrowserWindow.getAllWindows ? BrowserWindow.getAllWindows() : [];
+    const win = wins && wins.length ? wins[0] : null;
+    if (win && !win.isDestroyed?.()) {
+      try {
+        if (win.isMinimized && win.isMinimized()) win.restore();
+      } catch {}
+      try {
+        win.show();
+      } catch {}
+      try {
+        win.focus();
+      } catch {}
+    }
+
+    try {
+      app?.focus?.({ steal: true });
+    } catch {}
+  } catch {}
+}
+
+async function openDeepLink(url) {
+  const { shell } = resolveElectronModule();
+  if (!shell?.openExternal) return;
+  await shell.openExternal(url);
+}
+
 function bufToUtf8(req) {
   return new Promise((resolve, reject) => {
     const chunks = [];
@@ -65,33 +97,238 @@ function getHelperHtml() {
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Netcatty WebAuthn Helper</title>
     <style>
-      :root { color-scheme: light dark; }
-      body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 24px; }
-      .card { max-width: 720px; margin: 0 auto; padding: 18px 18px 14px; border: 1px solid rgba(120,120,120,.35); border-radius: 12px; }
-      h1 { font-size: 18px; margin: 0 0 10px; }
-      p { margin: 8px 0; line-height: 1.45; }
-      code { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 12px; }
-      button { padding: 10px 14px; border-radius: 10px; border: 1px solid rgba(120,120,120,.45); cursor: pointer; }
-      button.primary { background: #2563eb; color: white; border-color: #2563eb; }
-      button:disabled { opacity: .6; cursor: not-allowed; }
-      .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-top: 12px; }
-      .muted { opacity: .75; }
-      .status { margin-top: 10px; white-space: pre-wrap; }
+      :root {
+        color-scheme: light dark;
+        --bg: #f6f7fb;
+        --bg2: #eef2ff;
+        --text: #0f172a;
+        --muted: rgba(15, 23, 42, 0.65);
+        --card: rgba(255, 255, 255, 0.78);
+        --border: rgba(2, 6, 23, 0.14);
+        --shadow: 0 18px 50px rgba(2, 6, 23, 0.14);
+        --primary: #2563eb;
+        --primary2: #1d4ed8;
+        --ring: rgba(37, 99, 235, 0.35);
+        --success: #16a34a;
+        --danger: #dc2626;
+        --warn: #d97706;
+        --code: rgba(2, 6, 23, 0.08);
+      }
+
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #070a12;
+          --bg2: #0b1220;
+          --text: rgba(255, 255, 255, 0.92);
+          --muted: rgba(255, 255, 255, 0.65);
+          --card: rgba(11, 18, 32, 0.78);
+          --border: rgba(255, 255, 255, 0.14);
+          --shadow: 0 18px 50px rgba(0, 0, 0, 0.55);
+          --ring: rgba(96, 165, 250, 0.32);
+          --code: rgba(255, 255, 255, 0.08);
+        }
+      }
+
+      * { box-sizing: border-box; }
+      html, body { height: 100%; }
+      body {
+        margin: 0;
+        font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+        color: var(--text);
+        background:
+          radial-gradient(900px 500px at 20% 10%, var(--bg2), transparent 55%),
+          radial-gradient(800px 420px at 90% 30%, rgba(37, 99, 235, 0.16), transparent 55%),
+          linear-gradient(180deg, var(--bg), var(--bg));
+      }
+
+      .container {
+        max-width: 760px;
+        margin: 0 auto;
+        padding: 28px 18px 40px;
+        min-height: 100%;
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 10px 2px;
+      }
+
+      .mark {
+        width: 40px;
+        height: 40px;
+        border-radius: 12px;
+        display: grid;
+        place-items: center;
+        background: transparent;
+        border: none;
+      }
+
+      .brand-name { font-weight: 750; letter-spacing: -0.02em; }
+      .brand-sub { font-size: 12px; color: var(--muted); margin-top: 1px; }
+
+      .card {
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 16px;
+        box-shadow: var(--shadow);
+        padding: 18px 18px 14px;
+      }
+
+      .title-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+      h1 { font-size: 18px; margin: 0; letter-spacing: -0.02em; }
+      p { margin: 10px 0; line-height: 1.5; }
+      .muted { color: var(--muted); }
+
+      .pill {
+        font-size: 12px;
+        padding: 6px 10px;
+        border-radius: 999px;
+        border: 1px solid var(--border);
+        background: rgba(2, 6, 23, 0.04);
+        white-space: nowrap;
+      }
+      @media (prefers-color-scheme: dark) {
+        .pill { background: rgba(255, 255, 255, 0.06); }
+      }
+
+      .kv {
+        margin-top: 12px;
+        display: grid;
+        gap: 10px;
+        padding: 12px;
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        background: rgba(2, 6, 23, 0.03);
+      }
+      @media (prefers-color-scheme: dark) {
+        .kv { background: rgba(255, 255, 255, 0.05); }
+      }
+      .kv-row { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; }
+      .kv-key { font-size: 12px; color: var(--muted); }
+      code {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+        font-size: 12px;
+        padding: 3px 6px;
+        border-radius: 8px;
+        background: var(--code);
+        border: 1px solid var(--border);
+        overflow-wrap: anywhere;
+      }
+
+      .actions {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+        align-items: center;
+        margin-top: 14px;
+      }
+
+      .btn {
+        appearance: none;
+        border: 1px solid var(--border);
+        background: rgba(2, 6, 23, 0.02);
+        color: var(--text);
+        padding: 10px 14px;
+        border-radius: 12px;
+        cursor: pointer;
+        font-weight: 650;
+        letter-spacing: -0.01em;
+        transition: transform 120ms ease, background 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
+      }
+
+      .btn.primary {
+        background: linear-gradient(180deg, var(--primary), var(--primary2));
+        border-color: rgba(37, 99, 235, 0.55);
+        color: white;
+      }
+
+      .btn:hover { transform: translateY(-1px); }
+      .btn:active { transform: translateY(0px); }
+      .btn:disabled { opacity: 0.62; cursor: not-allowed; transform: none; }
+      .btn:focus-visible { outline: none; box-shadow: 0 0 0 4px var(--ring); }
+
+      .status {
+        margin-top: 12px;
+        white-space: pre-wrap;
+        border-radius: 12px;
+        padding: 10px 12px;
+        border: 1px dashed var(--border);
+        background: rgba(2, 6, 23, 0.02);
+        min-height: 44px;
+      }
+
+      .status.info { border-style: dashed; }
+      .status.success { border-style: solid; border-color: rgba(22, 163, 74, 0.55); background: rgba(22, 163, 74, 0.10); }
+      .status.error { border-style: solid; border-color: rgba(220, 38, 38, 0.55); background: rgba(220, 38, 38, 0.10); }
+      .status.warn { border-style: solid; border-color: rgba(217, 119, 6, 0.55); background: rgba(217, 119, 6, 0.10); }
+
+      .foot { margin-top: 10px; font-size: 12px; }
+      .sr { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
     </style>
   </head>
   <body>
-    <div class="card">
-      <h1 id="title">WebAuthn</h1>
-      <p class="muted">
-        This page was opened by Netcatty to complete a WebAuthn operation using your browser UI.
-      </p>
-      <p><strong>RP ID:</strong> <code id="rpId"></code></p>
-      <div class="row">
-        <button id="run" class="primary">Continue</button>
-        <button id="close">Close</button>
+    <main class="container">
+      <div class="brand" aria-label="Netcatty WebAuthn Helper">
+        <div class="mark" aria-hidden="true">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="40" height="40" aria-hidden="true">
+            <rect x="4" y="4" width="56" height="56" rx="12" fill="#2463EB"/>
+            <rect x="14" y="17" width="36" height="24" rx="4" fill="white"/>
+            <rect x="14" y="17" width="36" height="5" rx="4" fill="#E5ECFF"/>
+            <circle cx="18" cy="19.5" r="1" fill="#2463EB"/>
+            <circle cx="22" cy="19.5" r="1" fill="#2463EB" opacity="0.7"/>
+            <circle cx="26" cy="19.5" r="1" fill="#2463EB" opacity="0.5"/>
+            <path d="M20 32 L24 30 L20 28" stroke="#2463EB" fill="none" stroke-width="1.6"/>
+            <path d="M28 34 H34" stroke="#2463EB" stroke-width="1.6"/>
+            <path d="M24 17 L26 12 L28 17Z" fill="white"/>
+            <path d="M36 17 L38 12 L40 17Z" fill="white"/>
+            <path d="M40 37 C44 40,46 42,46 46 C46 49,44 51,41 51" stroke="white" fill="none" stroke-width="3.2"/>
+            <rect x="38" y="48" width="6" height="5" rx="1" fill="white" stroke="#2463EB"/>
+          </svg>
+        </div>
+        <div>
+          <div class="brand-name">Netcatty</div>
+          <div class="brand-sub">WebAuthn helper page</div>
+        </div>
       </div>
-      <div id="status" class="status muted"></div>
-    </div>
+
+      <section class="card">
+        <div class="title-row">
+          <h1 id="title">WebAuthn</h1>
+          <span id="pill" class="pill">Local</span>
+        </div>
+
+        <p id="desc" class="muted">
+          This page was opened by Netcatty to complete a WebAuthn operation using your browser UI.
+        </p>
+
+        <div class="kv" role="group" aria-label="Request details">
+          <div class="kv-row">
+            <div class="kv-key">RP ID</div>
+            <code id="rpId"></code>
+          </div>
+          <div class="kv-row">
+            <div class="kv-key">Tip</div>
+            <div id="tip" class="muted">Keep this tab focused until the prompt completes.</div>
+          </div>
+        </div>
+
+        <div class="actions">
+          <button id="run" class="btn primary" type="button">Continue</button>
+          <button id="back" class="btn" type="button" style="display:none">Return to Netcatty</button>
+          <button id="close" class="btn" type="button">Close</button>
+        </div>
+
+        <div id="status" class="status info" role="status" aria-live="polite"></div>
+        <p class="foot muted">After completing the prompt, return to Netcatty.</p>
+      </section>
+    </main>
 
     <script>
       (() => {
@@ -108,15 +345,40 @@ function getHelperHtml() {
         const challengeB64 = qs.get("challenge") || "";
 
         const titleEl = document.getElementById("title");
+        const pillEl = document.getElementById("pill");
+        const descEl = document.getElementById("desc");
         const rpEl = document.getElementById("rpId");
+        const tipEl = document.getElementById("tip");
         const statusEl = document.getElementById("status");
         const runBtn = document.getElementById("run");
+        const backBtn = document.getElementById("back");
         const closeBtn = document.getElementById("close");
 
-        titleEl.textContent = mode === "get" ? "Authenticate (WebAuthn)" : "Create Credential (WebAuthn)";
-        rpEl.textContent = rpId;
+        const isGet = mode === "get";
+        const isCreate = mode === "create";
 
-        const setStatus = (msg) => { statusEl.textContent = String(msg || ""); };
+        titleEl.textContent = isGet ? "Authenticate" : "Create credential";
+        pillEl.textContent = isGet ? "Sign-in" : (isCreate ? "Register" : "WebAuthn");
+        rpEl.textContent = rpId;
+        tipEl.textContent = isGet
+          ? "Complete Touch ID / biometrics when prompted."
+          : "Create a new credential with Touch ID / biometrics.";
+
+        descEl.textContent =
+          "This page runs locally on your device and is opened by Netcatty to ensure the WebAuthn prompt is shown reliably.";
+
+        const setStatus = (msg, variant) => {
+          statusEl.textContent = String(msg || "");
+          statusEl.className = "status " + (variant || "info");
+        };
+
+        const openNetcatty = () => {
+          // Best-effort: browsers may block automatic navigation to custom schemes without user gesture.
+          const url = "netcatty://webauthn?mode=" + encodeURIComponent(mode || "");
+          try {
+            window.location.href = url;
+          } catch {}
+        };
 
         const bufToBase64Url = (buf) => {
           const bytes = new Uint8Array(buf);
@@ -158,7 +420,10 @@ function getHelperHtml() {
 
           if (!token) throw new Error("Missing token.");
 
-          setStatus("Requesting WebAuthn...\\nIf nothing appears, ensure Touch ID/Passkeys are enabled.");
+          setStatus(
+            "Requesting WebAuthn...\\nIf nothing appears, make sure Touch ID / Passkeys are enabled and try again.",
+            "info",
+          );
           runBtn.disabled = true;
 
           if (mode === "create") {
@@ -206,7 +471,10 @@ function getHelperHtml() {
               },
             });
 
-            setStatus("Success. You can close this tab.");
+            setStatus("Done. You can close this tab and return to Netcatty.", "success");
+            if (backBtn) backBtn.style.display = "";
+            // Try to jump back automatically; if blocked, the button remains.
+            openNetcatty();
             return;
           }
 
@@ -250,7 +518,9 @@ function getHelperHtml() {
               },
             });
 
-            setStatus("Success. You can close this tab.");
+            setStatus("Done. You can close this tab and return to Netcatty.", "success");
+            if (backBtn) backBtn.style.display = "";
+            openNetcatty();
             return;
           }
 
@@ -263,7 +533,9 @@ function getHelperHtml() {
           } catch (e) {
             const name = e && typeof e === "object" && "name" in e ? String(e.name) : "";
             const msg = e && typeof e === "object" && "message" in e ? String(e.message) : String(e);
-            setStatus((name ? name + ": " : "") + msg);
+            const full = (name ? name + ": " : "") + msg;
+            const variant = name === "NotAllowedError" ? "warn" : "error";
+            setStatus(full, variant);
             runBtn.disabled = false;
             // For most failures, notify Electron so it can stop waiting.
             // If the failure is due to missing user activation, let the user click again.
@@ -276,6 +548,7 @@ function getHelperHtml() {
         };
 
         runBtn.addEventListener("click", () => void runWithUi());
+        if (backBtn) backBtn.addEventListener("click", () => openNetcatty());
         closeBtn.addEventListener("click", () => window.close());
 
         // Best-effort auto-run: if it fails due to user activation, the button remains available.
@@ -287,8 +560,12 @@ function getHelperHtml() {
 }
 
 async function ensureServer() {
-  if (baseUrl) return baseUrl;
+  if (baseUrl) {
+    console.log("[WebAuthn] Server already running at:", baseUrl);
+    return baseUrl;
+  }
 
+  console.log("[WebAuthn] Starting helper server...");
   server = http.createServer(async (req, res) => {
     try {
       const url = new URL(req.url || "/", "http://localhost");
@@ -329,6 +606,11 @@ async function ensureServer() {
 
         if (payload?.ok) {
           entry.resolve(payload.result || null);
+          // Best-effort: bring the app back to the front after a successful WebAuthn prompt.
+          focusNetcattyApp();
+          try {
+            await openDeepLink("netcatty://webauthn?status=ok");
+          } catch {}
         } else {
           entry.reject(new Error(payload?.error || "WebAuthn request failed"));
         }
@@ -352,6 +634,7 @@ async function ensureServer() {
   if (!port) throw new Error("Failed to bind WebAuthn helper server");
 
   baseUrl = `http://localhost:${port}`;
+  console.log("[WebAuthn] Helper server started at:", baseUrl);
   return baseUrl;
 }
 
@@ -361,7 +644,14 @@ function makeToken() {
 
 async function openInBrowser(url) {
   const { shell } = resolveElectronModule();
-  await shell.openExternal(url);
+  console.log("[WebAuthn] Opening browser with URL:", url);
+  try {
+    await shell.openExternal(url);
+    console.log("[WebAuthn] Browser opened successfully");
+  } catch (err) {
+    console.error("[WebAuthn] Failed to open browser:", err);
+    throw err;
+  }
 }
 
 async function createCredentialInBrowser(options) {
@@ -402,6 +692,14 @@ async function createCredentialInBrowser(options) {
 }
 
 async function getAssertionInBrowser(options) {
+  console.log("[WebAuthn] getAssertionInBrowser called with options:", {
+    rpId: options?.rpId,
+    hasCredentialId: !!options?.credentialId,
+    hasChallenge: !!options?.challenge,
+    userVerification: options?.userVerification,
+    timeoutMs: options?.timeoutMs,
+  });
+  
   const {
     rpId,
     credentialId,
@@ -426,7 +724,9 @@ async function getAssertionInBrowser(options) {
   url.searchParams.set("uv", userVerification);
   url.searchParams.set("timeoutMs", String(Math.max(1000, Number(timeoutMs) || 180000)));
 
+  console.log("[WebAuthn] About to open browser for assertion...");
   await openInBrowser(url.toString());
+  console.log("[WebAuthn] Browser opened, waiting for response...");
 
   return new Promise((resolve, reject) => {
     const timeout = setTimeout(() => {
@@ -470,4 +770,3 @@ module.exports = {
   getAssertionInBrowser,
   shutdown,
 };
-

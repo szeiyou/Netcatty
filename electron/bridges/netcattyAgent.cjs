@@ -8,10 +8,20 @@
  */
 
 const crypto = require("node:crypto");
+const fs = require("node:fs");
+const path = require("node:path");
 const { BaseAgent } = require("ssh2/lib/agent.js");
 const { parseKey } = require("ssh2/lib/protocol/keyParser.js");
 const { convertSignature } = require("ssh2/lib/protocol/utils.js");
 const { requestWebAuthnAssertion } = require("./webauthnIpc.cjs");
+
+// Simple file logger for debugging
+const logFile = path.join(require("os").tmpdir(), "netcatty-agent.log");
+const log = (msg, data) => {
+  const line = `[${new Date().toISOString()}] ${msg} ${data ? JSON.stringify(data) : ""}\n`;
+  try { fs.appendFileSync(logFile, line); } catch {}
+  console.log("[Agent]", msg, data || "");
+};
 
 const DUMMY_ED25519_PUB =
   "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEB netcatty-agent-dummy";
@@ -117,6 +127,29 @@ function parseEcdsaDerSignature(der) {
   return { r, s };
 }
 
+// Build a basic sk-ecdsa signature for FIDO2/U2F (OpenSSH 8.2 compatible)
+// Format: string ecdsa_signature, byte flags, uint32 counter
+function buildFido2SkEcdsaSignatureBlob({ authenticatorData, signatureDer }) {
+  if (!Buffer.isBuffer(authenticatorData) || authenticatorData.length < 37) {
+    throw new Error("Invalid authenticatorData");
+  }
+
+  const flags = authenticatorData[32];
+  const counter = readUInt32BE(authenticatorData, 33);
+
+  const { r, s } = parseEcdsaDerSignature(signatureDer);
+  const ecdsaInner = Buffer.concat([sshMpint(r), sshMpint(s)]);
+  const ecdsaSig = sshString(ecdsaInner);
+
+  return Buffer.concat([
+    ecdsaSig,
+    Buffer.from([flags]),
+    writeUInt32BE(counter),
+  ]);
+}
+
+// Build a WebAuthn sk-ecdsa signature (OpenSSH 8.9+ compatible)
+// Format: string ecdsa_signature, byte flags, uint32 counter, string origin, string clientDataJSON, string extensions
 function buildWebAuthnSkEcdsaSignatureBlob({ origin, authenticatorData, clientDataJSON, signatureDer }) {
   if (!Buffer.isBuffer(authenticatorData) || authenticatorData.length < 37) {
     throw new Error("Invalid authenticatorData");
@@ -134,6 +167,7 @@ function buildWebAuthnSkEcdsaSignatureBlob({ origin, authenticatorData, clientDa
     ecdsaSig,
     Buffer.from([flags]),
     writeUInt32BE(counter),
+    // OpenSSH's WebAuthn signature format includes the origin string used for the WebAuthn operation.
     sshString(origin || ""),
     sshString(clientDataJSON),
     sshString(extensions),
@@ -184,9 +218,11 @@ class NetcattyAgent extends BaseAgent {
     } else if (this._mode === "webauthn") {
       const { publicKey, label } = opts.meta || {};
       if (!publicKey) throw new Error("Missing publicKey");
-      const { blob: pubKeyBlob } = parseOpenSshKeyLine(publicKey);
+      const { type: pubKeyType, blob: pubKeyBlob } = parseOpenSshKeyLine(publicKey);
+      // Keep the original key type for identity (publickey check).
+      // The server matches sk-ecdsa-sha2-nistp256@openssh.com in authorized_keys.
       this._key = buildWebAuthnIdentityKey({
-        algoType: "webauthn-sk-ecdsa-sha2-nistp256@openssh.com",
+        algoType: pubKeyType,
         pubKeyBlob,
         comment: label || "",
       });
@@ -196,10 +232,12 @@ class NetcattyAgent extends BaseAgent {
   }
 
   getIdentities(cb) {
+    log("getIdentities called", { mode: this._mode });
     cb(null, [this._key]);
   }
 
   sign(_pubKey, data, options, cb) {
+    log("sign called", { mode: this._mode, dataLength: data?.length });
     if (typeof options === "function") {
       cb = options;
       options = undefined;
@@ -230,6 +268,7 @@ class NetcattyAgent extends BaseAgent {
       }
 
       if (this._mode === "webauthn") {
+        log("WebAuthn sign started", { keySource: this._meta?.keySource });
         const { credentialId, rpId, userVerification } = this._meta || {};
         if (!credentialId) throw new Error("Missing credentialId for WebAuthn auth");
         if (!rpId) throw new Error("Missing rpId for WebAuthn auth");
@@ -237,6 +276,7 @@ class NetcattyAgent extends BaseAgent {
           throw new Error("WebContents unavailable for WebAuthn signing");
         }
 
+        log("Calling requestWebAuthnAssertion", { rpId, hasCredentialId: !!credentialId });
         const challenge = crypto.createHash("sha256").update(data).digest();
         const assertion = await requestWebAuthnAssertion(this._webContents, {
           credentialId,
@@ -245,16 +285,16 @@ class NetcattyAgent extends BaseAgent {
           userVerification: userVerification || "preferred",
           keySource: this._meta?.keySource,
         });
+        log("WebAuthn assertion received", { hasAssertion: !!assertion });
 
-        const origin = assertion?.origin || "";
         const authenticatorData = base64UrlToBuffer(assertion?.authenticatorData || "");
-        const clientDataJSON = base64UrlToBuffer(assertion?.clientDataJSON || "");
         const signatureDer = base64UrlToBuffer(assertion?.signature || "");
 
-        return buildWebAuthnSkEcdsaSignatureBlob({
-          origin,
+        // Use FIDO2 signature format (compatible with OpenSSH 8.2+)
+        // The WebAuthn API returns the same cryptographic signature as FIDO2,
+        // we just need to format it correctly without the WebAuthn-specific fields.
+        return buildFido2SkEcdsaSignatureBlob({
           authenticatorData,
-          clientDataJSON,
           signatureDer,
         });
       }

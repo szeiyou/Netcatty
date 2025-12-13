@@ -341,6 +341,10 @@ export const createBiometricCredential = async (
             throw new Error('WebAuthn requires a secure context (HTTPS). This feature is not available in the current environment.');
         }
 
+        const isMacOS_ =
+            navigator.platform.toLowerCase().includes('mac') ||
+            navigator.userAgent.toLowerCase().includes('mac');
+
         // IMPORTANT: Do not await anything before navigator.credentials.create().
         // WebAuthn requires a user gesture; awaiting here can drop the transient activation
         // and cause NotAllowedError without showing the Touch ID prompt.
@@ -407,6 +411,17 @@ export const createBiometricCredential = async (
                 rpId,
             };
         };
+
+        // macOS: Electron's embedded WebAuthn prompt for platform authenticators can hang with no UI.
+        // Prefer the browser helper flow by default when available.
+        if (isMacOS_ && typeof createCredentialInBrowser === 'function') {
+            onBrowserFallback?.();
+            const fallbackResult = await tryBrowserFallback();
+            if (fallbackResult) return fallbackResult;
+            throw new Error(
+                'WebAuthn browser helper is unavailable. Try a packaged build (electron-builder) and ensure Touch ID is enabled in System Settings.',
+            );
+        }
 
         // Best-effort focus/gesture diagnostics. WebAuthn UI can hang if the window isn't focused
         // or if the transient user activation is lost.
@@ -490,9 +505,6 @@ export const createBiometricCredential = async (
             }) as PublicKeyCredential;
         } catch (error) {
             const platformAvailable = await platformAvailablePromise;
-            const isMacOS_ =
-                navigator.platform.toLowerCase().includes('mac') ||
-                navigator.userAgent.toLowerCase().includes('mac');
             const deviceName = isMacOS_ ? 'Touch ID' : 'Windows Hello';
             const errName =
                 error && typeof error === 'object' && 'name' in error

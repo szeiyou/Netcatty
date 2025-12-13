@@ -4,9 +4,19 @@
  */
 
 const net = require("node:net");
+const fs = require("node:fs");
+const path = require("node:path");
 const { Client: SSHClient, utils: sshUtils } = require("ssh2");
 const { registerHandlers: registerWebAuthnHandlers } = require("./webauthnIpc.cjs");
 const { NetcattyAgent } = require("./netcattyAgent.cjs");
+
+// Simple file logger for debugging
+const logFile = path.join(require("os").tmpdir(), "netcatty-ssh.log");
+const log = (msg, data) => {
+  const line = `[${new Date().toISOString()}] ${msg} ${data ? JSON.stringify(data) : ""}\n`;
+  try { fs.appendFileSync(logFile, line); } catch {}
+  console.log("[SSH]", msg, data || "");
+};
 
 // Session storage - shared reference passed from main
 let sessions = null;
@@ -314,7 +324,9 @@ async function startSSHSession(event, options) {
       host: options.hostname,
       port: options.port || 22,
       username: options.username || "root",
-      readyTimeout: 20000, // Reduced from 60s for faster failure detection
+      // `readyTimeout` covers the entire connection + authentication flow in ssh2.
+      // WebAuthn (Touch ID / browser helper) can be user-interactive and take longer than a typical key auth.
+      readyTimeout: 20000, // Fast failure for non-interactive auth
       keepaliveInterval: 10000,
       keepaliveCountMax: 3,
       algorithms: {
@@ -323,6 +335,10 @@ async function startSSHSession(event, options) {
         // Prioritize faster key exchange
         kex: ['curve25519-sha256', 'curve25519-sha256@libssh.org', 'ecdh-sha2-nistp256', 'ecdh-sha2-nistp384', 'diffie-hellman-group14-sha256'],
         compress: ['none'],
+      },
+      // Enable debug logging for SSH connection troubleshooting
+      debug: (msg) => {
+        log("SSH DEBUG", msg);
       },
     };
 
@@ -334,8 +350,28 @@ async function startSSHSession(event, options) {
       && typeof options.publicKey === "string"
       && options.publicKey.trim().length > 0;
 
+    console.log("[SSH] Auth configuration:", {
+      hasCertificate,
+      hasWebAuthn,
+      keySource: options.keySource,
+      hasCredentialId: !!options.credentialId,
+      hasRpId: !!options.rpId,
+      hasPublicKey: !!options.publicKey,
+    });
+    
+    log("Auth configuration", {
+      hasCertificate,
+      hasWebAuthn,
+      keySource: options.keySource,
+      hasCredentialId: !!options.credentialId,
+      hasRpId: !!options.rpId,
+      hasPublicKey: !!options.publicKey,
+    });
+
     let authAgent = null;
     if (hasWebAuthn) {
+      // Give users time to complete Touch ID / Passkey prompts (browser helper can take time).
+      connectOpts.readyTimeout = 240000;
       authAgent = new NetcattyAgent({
         mode: "webauthn",
         webContents: event.sender,
