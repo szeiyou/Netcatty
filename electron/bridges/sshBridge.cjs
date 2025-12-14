@@ -202,13 +202,55 @@ async function connectThroughChain(event, options, jumpHosts, targetHost, target
         },
       };
       
-      // Auth - support both key and password for fallback
-      if (jump.privateKey) {
+      // Auth - support agent (webauthn/certificate), key, and password fallback
+      const hasCertificate =
+        typeof jump.certificate === "string" && jump.certificate.trim().length > 0;
+      const hasWebAuthn =
+        typeof jump.credentialId === "string"
+        && typeof jump.rpId === "string"
+        && typeof jump.publicKey === "string"
+        && jump.publicKey.trim().length > 0;
+
+      let authAgent = null;
+      if (hasWebAuthn) {
+        // Give users time to complete Touch ID / Passkey prompts
+        connOpts.readyTimeout = 240000;
+        authAgent = new NetcattyAgent({
+          mode: "webauthn",
+          webContents: event.sender,
+          meta: {
+            label: jump.keyId || jump.username || "",
+            publicKey: jump.publicKey,
+            credentialId: jump.credentialId,
+            rpId: jump.rpId,
+            userVerification: jump.userVerification,
+            keySource: jump.keySource,
+          },
+        });
+        connOpts.agent = authAgent;
+      } else if (hasCertificate) {
+        authAgent = new NetcattyAgent({
+          mode: "certificate",
+          webContents: event.sender,
+          meta: {
+            label: jump.keyId || jump.username || "",
+            certificate: jump.certificate,
+            privateKey: jump.privateKey,
+            passphrase: jump.passphrase,
+          },
+        });
+        connOpts.agent = authAgent;
+      } else if (jump.privateKey) {
         connOpts.privateKey = jump.privateKey;
         if (jump.passphrase) connOpts.passphrase = jump.passphrase;
       }
-      if (jump.password) {
-        connOpts.password = jump.password;
+
+      if (jump.password) connOpts.password = jump.password;
+
+      if (authAgent) {
+        const order = ["agent"];
+        if (connOpts.password) order.push("password");
+        connOpts.authHandler = order;
       }
       
       // If first hop and proxy is configured, connect through proxy

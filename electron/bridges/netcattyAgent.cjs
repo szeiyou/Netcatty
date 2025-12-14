@@ -210,6 +210,7 @@ class NetcattyAgent extends BaseAgent {
     this._webContents = opts.webContents;
     this._key = null;
     this._meta = opts.meta;
+    this._advertisedType = null;
 
     if (this._mode === "certificate") {
       const { certificate, label } = opts.meta || {};
@@ -220,6 +221,7 @@ class NetcattyAgent extends BaseAgent {
         certBlob,
         comment: label || "",
       });
+      this._advertisedType = certType;
     } else if (this._mode === "webauthn") {
       const { publicKey, label } = opts.meta || {};
       if (!publicKey) throw new Error("Missing publicKey");
@@ -235,6 +237,7 @@ class NetcattyAgent extends BaseAgent {
         pubKeyBlob,
         comment: label || "",
       });
+      this._advertisedType = WEBAUTHN_SK_ECDSA_ALGO;
     } else {
       throw new Error(`Unknown agent mode: ${opts.mode}`);
     }
@@ -246,7 +249,12 @@ class NetcattyAgent extends BaseAgent {
   }
 
   sign(_pubKey, data, options, cb) {
-    log("sign called", { mode: this._mode, dataLength: data?.length });
+    log("sign called", { 
+      mode: this._mode, 
+      dataLength: data?.length,
+      advertisedType: this._advertisedType,
+      options: options,
+    });
     if (typeof options === "function") {
       cb = options;
       options = undefined;
@@ -263,16 +271,33 @@ class NetcattyAgent extends BaseAgent {
         const key = Array.isArray(parsed) ? parsed[0] : parsed;
 
         const baseType = normalizeBaseTypeForConversion(key.type);
-        const hash = options && options.hash ? options.hash : undefined;
+        let hash = options && options.hash ? options.hash : undefined;
+
+        // ssh2 does not currently infer hash algorithms for certificate types.
+        // For RSA cert algorithms, select the hash based on the *advertised* algorithm
+        // (e.g. rsa-sha2-256-cert-v01@openssh.com), not the private key type (ssh-rsa).
+        if (!hash) {
+          const advertisedBaseType = normalizeBaseTypeForConversion(
+            this._advertisedType || this._key?.type
+          );
+          if (advertisedBaseType === "rsa-sha2-256") hash = "sha256";
+          else if (advertisedBaseType === "rsa-sha2-512") hash = "sha512";
+          else if (advertisedBaseType === "ssh-rsa") hash = "sha1";
+        }
+
         let sig = key.sign(data, hash);
         if (sig instanceof Error) throw sig;
 
-        // For ECDSA/DSS, convertSignature expects base (non-cert) key types.
-        if (baseType === "ssh-dss" || /^ecdsa-sha2-nistp\d+$/i.test(baseType)) {
-          sig = convertSignature(sig, baseType);
-          if (!sig) throw new Error("Failed to convert signature");
-        }
+        log("certificate sign result", {
+          privateKeyType: key.type,
+          baseType,
+          advertisedType: this._advertisedType,
+          hash,
+          sigLength: sig?.length,
+        });
 
+        // Return raw signature - ssh2SkPatch will handle format conversion
+        // for ECDSA/DSS types and proper signature field construction.
         return Buffer.from(sig);
       }
 

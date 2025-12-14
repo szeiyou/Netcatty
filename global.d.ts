@@ -17,6 +17,15 @@ interface NetcattyJumpHost {
   username: string;
   password?: string;
   privateKey?: string;
+  certificate?: string;
+  passphrase?: string;
+  // WebAuthn-backed keys (optional)
+  publicKey?: string;
+  credentialId?: string;
+  rpId?: string;
+  userVerification?: 'required' | 'preferred' | 'discouraged';
+  keyId?: string;
+  keySource?: 'generated' | 'imported' | 'biometric' | 'fido2';
   label?: string; // Display label for UI
 }
 

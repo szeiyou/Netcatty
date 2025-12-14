@@ -1,5 +1,7 @@
 /**
- * Patch ssh2's Protocol.authPK to support OpenSSH Security Key (sk-*) signature layouts.
+ * Patch ssh2's Protocol.authPK to support:
+ * 1. OpenSSH Security Key (sk-*) signature layouts
+ * 2. OpenSSH Certificate authentication with correct signature algorithm
  *
  * ssh2 assumes the SSH "signature" field is always:
  *   string sig_alg, string sig_blob
@@ -8,13 +10,29 @@
  * inner signature string, e.g.:
  *   string sig_alg, string ecdsa_sig, byte flags, uint32 counter, ...
  *
- * Without this patch, sshd will reject with "parse packet: invalid format".
+ * For certificate authentication, the signature algorithm in the signature
+ * field must be the BASE key type (e.g., "ssh-ed25519"), not the certificate
+ * type (e.g., "ssh-ed25519-cert-v01@openssh.com"). ssh2's original authPK
+ * incorrectly uses the certificate type, causing USERAUTH_FAILURE.
+ *
+ * Without this patch, sshd will reject with "parse packet: invalid format"
+ * or signature verification failure.
  */
 
 const Protocol = require("ssh2/lib/protocol/Protocol.js");
 const { parseKey } = require("ssh2/lib/protocol/keyParser.js");
 const { MESSAGE } = require("ssh2/lib/protocol/constants.js");
-const { sendPacket, writeUInt32BE } = require("ssh2/lib/protocol/utils.js");
+const { sendPacket, writeUInt32BE, convertSignature } = require("ssh2/lib/protocol/utils.js");
+
+// Simple logger for debugging
+const fs = require("node:fs");
+const path = require("node:path");
+const logFile = path.join(require("os").tmpdir(), "netcatty-ssh2patch.log");
+const log = (msg, data) => {
+  const line = `[${new Date().toISOString()}] ${msg} ${data ? JSON.stringify(data) : ""}\n`;
+  try { fs.appendFileSync(logFile, line); } catch {}
+  console.log("[ssh2Patch]", msg, data || "");
+};
 
 const PATCH_GUARD = "__netcattySsh2SkAuthPkPatchApplied";
 if (!globalThis[PATCH_GUARD]) {
@@ -28,6 +46,15 @@ if (!globalThis[PATCH_GUARD]) {
     "webauthn-sk-ecdsa-sha2-nistp256@openssh.com",
   ]);
 
+  // Certificate type regex - matches *-cert-v01@openssh.com
+  const CERT_TYPE_REGEX = /-cert-v0[01]@openssh\.com$/i;
+
+  // Convert certificate type to base key type for signature algorithm
+  // e.g., "ssh-ed25519-cert-v01@openssh.com" -> "ssh-ed25519"
+  function certTypeToBaseType(certType) {
+    return certType.replace(CERT_TYPE_REGEX, "");
+  }
+
   Protocol.prototype.authPK = function authPK(username, pubKey, keyAlgo, cbSign) {
     if (this._server) throw new Error("Client-only method called in server mode");
 
@@ -36,7 +63,7 @@ if (!globalThis[PATCH_GUARD]) {
       keyAlgo = undefined;
     }
 
-    // Preserve original behavior for the "check" packet or non-SK algorithms.
+    // Preserve original behavior for the "check" packet
     if (!cbSign) return originalAuthPK.call(this, username, pubKey, keyAlgo);
 
     const parsedKey = parseKey(pubKey);
@@ -46,9 +73,24 @@ if (!globalThis[PATCH_GUARD]) {
     const pubKeyBlob = parsedKey.getPublicSSH();
     if (!keyAlgo) keyAlgo = keyType;
 
-    if (!SK_SIG_ALGOS.has(keyAlgo)) {
+    const isCertificate = CERT_TYPE_REGEX.test(keyAlgo);
+    const isSkAlgo = SK_SIG_ALGOS.has(keyAlgo);
+
+    log("authPK called", {
+      keyAlgo,
+      keyType,
+      isCertificate,
+      isSkAlgo,
+    });
+
+    // Use original implementation for non-SK, non-certificate algorithms
+    if (!isSkAlgo && !isCertificate) {
       return originalAuthPK.call(this, username, parsedKey, keyAlgo, cbSign);
     }
+
+    // For certificates, the signature algorithm must be the base key type
+    const sigAlgo = isCertificate ? certTypeToBaseType(keyAlgo) : keyAlgo;
+    const sigAlgoLen = Buffer.byteLength(sigAlgo);
 
     const userLen = Buffer.byteLength(username);
     const algoLen = Buffer.byteLength(keyAlgo);
@@ -96,10 +138,30 @@ if (!globalThis[PATCH_GUARD]) {
       //   string sig_alg || <tail>
       // where <tail> begins with string(ecdsa_signature) and includes extra fields
       // (flags/counter/origin/clientData/extensions).
+      //
+      // For certificate authentication:
+      //   string sig_alg (BASE key type, not cert type) || string sig_blob
       if (!Buffer.isBuffer(signatureTail)) signatureTail = Buffer.from(signatureTail);
 
-      const tailLen = signatureTail.length;
-      const sigPayloadLen = 4 + algoLen + tailLen;
+      let sigBlob = signatureTail;
+      
+      // For certificate (non-SK) types, we need to convert the signature format
+      // and use the base key type's signature format
+      if (isCertificate && !isSkAlgo) {
+        // Convert signature for ECDSA/DSS types
+        const baseType = sigAlgo;
+        if (baseType === "ssh-dss" || /^ecdsa-sha2-nistp\d+$/i.test(baseType)) {
+          const converted = convertSignature(signatureTail, baseType);
+          if (converted) sigBlob = converted;
+        }
+      }
+
+      const sigBlobLen = sigBlob.length;
+      // For SK algorithms, signatureTail contains the full signature tail (ecdsa_sig + flags + counter + ...)
+      // For certificates, sigBlob is just the signature bytes
+      const sigPayloadLen = isSkAlgo 
+        ? 4 + sigAlgoLen + sigBlobLen  // SK: string(sig_alg) || tail
+        : 4 + sigAlgoLen + 4 + sigBlobLen;  // Cert: string(sig_alg) || string(sig_blob)
 
       const payloadLen =
         1 + 4 + userLen
@@ -135,10 +197,28 @@ if (!globalThis[PATCH_GUARD]) {
       // signature: string(sig_payload)
       writeUInt32BE(packet, sigPayloadLen, p += pubKeyLen);
 
-      // sig_payload: string(sig_alg) || signatureTail
-      writeUInt32BE(packet, algoLen, p += 4);
-      packet.utf8Write(keyAlgo, p += 4, algoLen);
-      packet.set(signatureTail, p += algoLen);
+      // sig_payload: string(sig_alg) || signature data
+      // Use sigAlgo (base type for certs) instead of keyAlgo (cert type)
+      log("Building signature field", {
+        keyAlgo,
+        sigAlgo,
+        sigAlgoLen,
+        sigBlobLen,
+        isSkAlgo,
+        isCertificate,
+      });
+
+      writeUInt32BE(packet, sigAlgoLen, p += 4);
+      packet.utf8Write(sigAlgo, p += 4, sigAlgoLen);
+      
+      if (isSkAlgo) {
+        // SK: signature tail directly follows sig_alg
+        packet.set(sigBlob, p += sigAlgoLen);
+      } else {
+        // Standard/Cert: string(sig_blob) - length-prefixed signature bytes
+        writeUInt32BE(packet, sigBlobLen, p += sigAlgoLen);
+        packet.set(sigBlob, p += 4);
+      }
 
       this._authsQueue.push("publickey");
       this._debug && this._debug("Outbound: Sending USERAUTH_REQUEST (publickey)");

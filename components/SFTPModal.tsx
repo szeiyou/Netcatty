@@ -229,6 +229,15 @@ interface SFTPModalProps {
     port?: number;
     password?: string;
     privateKey?: string;
+    certificate?: string;
+    passphrase?: string;
+    // WebAuthn-backed keys (optional)
+    publicKey?: string;
+    credentialId?: string;
+    rpId?: string;
+    userVerification?: 'required' | 'preferred' | 'discouraged';
+    keyId?: string;
+    keySource?: 'generated' | 'imported' | 'biometric' | 'fido2';
   };
   open: boolean;
   onClose: () => void;
@@ -319,6 +328,14 @@ const SFTPModal: React.FC<SFTPModalProps> = ({
       port: credentials.port || 22,
       password: credentials.password,
       privateKey: credentials.privateKey,
+      certificate: credentials.certificate,
+      passphrase: credentials.passphrase,
+      publicKey: credentials.publicKey,
+      credentialId: credentials.credentialId,
+      rpId: credentials.rpId,
+      userVerification: credentials.userVerification,
+      keyId: credentials.keyId,
+      keySource: credentials.keySource,
     });
     sftpIdRef.current = sftpId;
     return sftpId;
@@ -329,6 +346,14 @@ const SFTPModal: React.FC<SFTPModalProps> = ({
     credentials.port,
     credentials.password,
     credentials.privateKey,
+    credentials.certificate,
+    credentials.passphrase,
+    credentials.publicKey,
+    credentials.credentialId,
+    credentials.rpId,
+    credentials.userVerification,
+    credentials.keyId,
+    credentials.keySource,
     openSftp,
   ]);
 

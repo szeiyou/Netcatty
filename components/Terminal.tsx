@@ -194,10 +194,14 @@ const TerminalComponent: React.FC<TerminalProps> = ({
   const [needsAuth, setNeedsAuth] = useState(false);
   const [authRetryMessage, setAuthRetryMessage] = useState<string | null>(null); // Error message for auth retry
   const [authUsername, setAuthUsername] = useState(host.username || "root");
-  const [authMethod, setAuthMethod] = useState<"password" | "key">("password");
+  const [authMethod, setAuthMethod] = useState<
+    "password" | "key" | "certificate"
+  >("password");
   const [authPassword, setAuthPassword] = useState("");
   const [authKeyId, setAuthKeyId] = useState<string | null>(null);
+  const [authPassphrase, setAuthPassphrase] = useState("");
   const [showAuthPassword, setShowAuthPassword] = useState(false);
+  const [showAuthPassphrase, setShowAuthPassphrase] = useState(false);
   const [saveCredentials, setSaveCredentials] = useState(true);
 
   useEffect(() => {
@@ -212,9 +216,11 @@ const TerminalComponent: React.FC<TerminalProps> = ({
 
   // Pending connection credentials (set after auth dialog submit)
   const pendingAuthRef = useRef<{
+    authMethod: "password" | "key";
     username: string;
     password?: string;
     keyId?: string;
+    passphrase?: string;
   } | null>(null);
 
   // Known host verification state
@@ -1078,6 +1084,7 @@ const TerminalComponent: React.FC<TerminalProps> = ({
     // Always include password if available for fallback authentication
     const effectivePassword = pendingAuth?.password || host.password;
     const effectiveKeyId = pendingAuth?.keyId || host.identityFileId;
+    const effectivePassphrase = pendingAuth?.passphrase;
 
     const key = effectiveKeyId
       ? keys.find((k) => k.id === effectiveKeyId)
@@ -1105,6 +1112,15 @@ const TerminalComponent: React.FC<TerminalProps> = ({
         username: jumpHost.username || "root",
         password: jumpHost.password, // Always include for fallback
         privateKey: jumpKey?.privateKey,
+        certificate: jumpKey?.certificate,
+        passphrase: jumpKey?.passphrase,
+        publicKey: jumpKey?.publicKey,
+        credentialId: jumpKey?.credentialId,
+        rpId: jumpKey?.rpId,
+        keyId: jumpKey?.id,
+        keySource: jumpKey?.source,
+        userVerification:
+          jumpKey?.source === "biometric" ? "required" : "preferred",
         label: jumpHost.label,
       };
     });
@@ -1186,6 +1202,7 @@ const TerminalComponent: React.FC<TerminalProps> = ({
         keySource: key?.source,
         userVerification:
           key?.source === "biometric" ? "required" : "preferred",
+        passphrase: effectivePassphrase || key?.passphrase,
         agentForwarding: host.agentForwarding,
         cols: term.cols,
         rows: term.rows,
@@ -1616,9 +1633,11 @@ const TerminalComponent: React.FC<TerminalProps> = ({
 
     // Set pending auth credentials
     pendingAuthRef.current = {
+      authMethod,
       username: authUsername,
       password: authMethod === "password" ? authPassword : undefined,
       keyId: authMethod === "key" ? (authKeyId ?? undefined) : undefined,
+      passphrase: authMethod === "key" ? authPassphrase || undefined : undefined,
     };
 
     // Save credentials to host if requested
@@ -1628,8 +1647,7 @@ const TerminalComponent: React.FC<TerminalProps> = ({
         username: authUsername,
         authMethod: authMethod,
         password: authMethod === "password" ? authPassword : undefined,
-        identityFileId:
-          authMethod === "key" ? (authKeyId ?? undefined) : undefined,
+        identityFileId: authMethod === "key" ? (authKeyId ?? undefined) : undefined,
       };
       onUpdateHost(updatedHost);
     }
@@ -1948,6 +1966,10 @@ const TerminalComponent: React.FC<TerminalProps> = ({
                 setAuthPassword,
                 authKeyId,
                 setAuthKeyId,
+                authPassphrase,
+                setAuthPassphrase,
+                showAuthPassphrase,
+                setShowAuthPassphrase,
                 showAuthPassword,
                 setShowAuthPassword,
                 authRetryMessage,
@@ -1980,6 +2002,31 @@ const TerminalComponent: React.FC<TerminalProps> = ({
             password: host.password, // Always include for fallback
             privateKey: host.identityFileId
               ? keys.find((k) => k.id === host.identityFileId)?.privateKey
+              : undefined,
+            certificate: host.identityFileId
+              ? keys.find((k) => k.id === host.identityFileId)?.certificate
+              : undefined,
+            passphrase: host.identityFileId
+              ? keys.find((k) => k.id === host.identityFileId)?.passphrase
+              : undefined,
+            publicKey: host.identityFileId
+              ? keys.find((k) => k.id === host.identityFileId)?.publicKey
+              : undefined,
+            credentialId: host.identityFileId
+              ? keys.find((k) => k.id === host.identityFileId)?.credentialId
+              : undefined,
+            rpId: host.identityFileId
+              ? keys.find((k) => k.id === host.identityFileId)?.rpId
+              : undefined,
+            keyId: host.identityFileId,
+            keySource: host.identityFileId
+              ? keys.find((k) => k.id === host.identityFileId)?.source
+              : undefined,
+            userVerification: host.identityFileId
+              ? keys.find((k) => k.id === host.identityFileId)?.source ===
+                "biometric"
+                ? "required"
+                : "preferred"
               : undefined,
           }}
           open={showSFTP && status === "connected"}
