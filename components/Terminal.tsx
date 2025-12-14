@@ -1864,8 +1864,8 @@ const TerminalComponent: React.FC<TerminalProps> = ({
                   size="sm"
                   className={cn(
                     "h-6 w-6 p-0 hover:bg-white/10",
-                    isBroadcastEnabled 
-                      ? "text-emerald-400 hover:text-emerald-300" 
+                    isBroadcastEnabled
+                      ? "text-emerald-400 hover:text-emerald-300"
                       : "text-white/70 hover:text-white"
                   )}
                   onClick={onToggleBroadcast}

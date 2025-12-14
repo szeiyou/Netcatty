@@ -151,12 +151,12 @@ const TerminalLayerInner: React.FC<TerminalLayerProps> = ({
   // Handle broadcast input - write to all other sessions in the same workspace
   const handleBroadcastInput = useCallback((data: string, sourceSessionId: string) => {
     if (!activeWorkspace) return;
-    
+
     // Get all session IDs in this workspace
     const workspaceSessionIds = sessions
       .filter(s => s.workspaceId === activeWorkspace.id && s.id !== sourceSessionId)
       .map(s => s.id);
-    
+
     // Write to all other sessions
     for (const targetSessionId of workspaceSessionIds) {
       terminalBackend.writeToSession(targetSessionId, data);
