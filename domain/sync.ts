@@ -379,7 +379,6 @@ export const SYNC_CONSTANTS = {
   // OAuth
   GITHUB_CLIENT_ID: 'Ov23liuLdkw1H393rtT4', // Public client ID for Device Flow
   GOOGLE_CLIENT_ID: '840441747394-n58o8ibgivgd3frqsn0bo5revf4viq2a.apps.googleusercontent.com',
-  GOOGLE_CLIENT_SECRET: 'REMOVED_OAUTH_CLIENT_SECRET', // TODO: Replace with your Desktop app client secret
   ONEDRIVE_CLIENT_ID: 'your-onedrive-client-id',
   
   // API endpoints
