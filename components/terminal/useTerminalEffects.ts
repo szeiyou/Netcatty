@@ -32,6 +32,7 @@ import {
   shouldArmTerminalInterruptDisplayGateForProtocol,
 } from './runtime/terminalOutputPipeline';
 import { scheduleTerminalThemeUpdate, applyTerminalThemeSync, cancelTerminalThemeUpdate } from './terminalThemeScheduler';
+import { useAppBackgroundActive } from '../../application/state/appBackgroundStore';
 import { injectTerminalPaneAppearanceVars } from '../../infrastructure/theme/terminalAppearanceVars';
 import {
   isTerminalAlternateScreenActive,
@@ -1050,7 +1051,10 @@ export function useTerminalEffects(ctx: TerminalEffectsContext) {
   }, [status]);
 
 
-  const effectiveThemeKey = `${effectiveTheme.id}:${effectiveTheme.colors.background}:${effectiveTheme.colors.foreground}:${effectiveTheme.colors.foregroundIntense ?? ""}:${effectiveTheme.colors.cursor}`;
+  // Toggling the app background image switches xterm between opaque and
+  // transparent cell backgrounds, so it must re-apply the theme.
+  const appBackgroundActive = useAppBackgroundActive();
+  const effectiveThemeKey = `${effectiveTheme.id}:${effectiveTheme.colors.background}:${effectiveTheme.colors.foreground}:${effectiveTheme.colors.foregroundIntense ?? ""}:${effectiveTheme.colors.cursor}:${appBackgroundActive ? "bg" : ""}`;
 
   // Sync xterm theme before browser paint; apply synchronously on visible panes.
   useLayoutEffect(() => {

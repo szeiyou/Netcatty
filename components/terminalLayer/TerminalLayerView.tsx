@@ -7,14 +7,17 @@ import { TerminalLayerWorkspaceSection } from './TerminalLayerWorkspaceSection';
 import { terminalLayerViewCtxEqual } from './terminalLayerViewMemo';
 import { useTerminalHostTreeLayoutWidth } from '../../application/state/terminalHostTreeStore';
 import { resolveTerminalLayerSurfaceStyle } from '../terminalPaneVisibility';
+import { useAppBackgroundActive } from '../../application/state/appBackgroundStore';
 
 type TerminalLayerViewContext = Record<string, any>;
 
 function TerminalLayerViewInner({ ctx }: { ctx: TerminalLayerViewContext }) {
   const hostTreeLayoutWidth = useTerminalHostTreeLayoutWidth();
+  const appBackgroundActive = useAppBackgroundActive();
   const surfaceStyle = resolveTerminalLayerSurfaceStyle(
     ctx.isTerminalLayerVisible,
     ctx.hibernateHiddenTabs,
+    appBackgroundActive,
   );
 
   return (

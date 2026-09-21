@@ -115,10 +115,10 @@ export function applyTopTabsChromeThemeVars(theme: TerminalTheme): void {
     setStylePropertyIfChanged(tabsRoot, '--secondary', secondary);
     setStylePropertyIfChanged(tabsRoot, '--border', border);
     setStylePropertyIfChanged(tabsRoot, '--muted-foreground', mutedFg);
-    setStylePropertyIfChanged(tabsRoot, '--top-tabs-bg', 'hsl(var(--secondary))');
+    setStylePropertyIfChanged(tabsRoot, '--top-tabs-bg', 'hsl(var(--secondary) / var(--nc-app-surface-alpha, 1))');
     setStylePropertyIfChanged(tabsRoot, '--top-tabs-fg', 'hsl(var(--foreground))');
     setStylePropertyIfChanged(tabsRoot, '--top-tabs-muted', 'hsl(var(--muted-foreground))');
-    setStylePropertyIfChanged(tabsRoot, '--top-tabs-active-bg', 'hsl(var(--background))');
+    setStylePropertyIfChanged(tabsRoot, '--top-tabs-active-bg', 'hsl(var(--background) / var(--nc-app-surface-alpha, 1))');
     setStylePropertyIfChanged(tabsRoot, '--top-tabs-accent', 'hsl(var(--accent))');
   }
   topTabsChromeThemeVarsApplied = true;

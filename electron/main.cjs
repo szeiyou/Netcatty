@@ -20,6 +20,7 @@ if (process.env.ELECTRON_RUN_AS_NODE) {
 
 // Load crash log bridge early so process-level error handlers can use it
 const crashLogBridge = require("./bridges/crashLogBridge.cjs");
+const appBackgroundBridge = require("./bridges/appBackgroundBridge.cjs");
 const {
   createProcessErrorController,
   installProcessErrorHandlers,
@@ -125,6 +126,10 @@ try {
         corsEnabled: true,
         stream: true,
       },
+    },
+    {
+      scheme: appBackgroundBridge.SCHEME,
+      privileges: appBackgroundBridge.PRIVILEGES,
     },
     {
       scheme: PLUGIN_PROTOCOL_SCHEME,
@@ -1317,6 +1322,8 @@ if (!gotLock) {
   // Application lifecycle
   app.whenReady().then(async () => {
     registerAppProtocol();
+    appBackgroundBridge.init({ electronModule });
+    appBackgroundBridge.registerProtocol(protocol);
     const initialSshDeepLinkPreference = applyInitialSshDeepLinkPreference({
       enabled: sshDeepLinkEnabled,
       applyPreference: (enabled) => applySshProtocolClientPreference({ app, enabled, isDev }),

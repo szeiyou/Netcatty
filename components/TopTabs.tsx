@@ -1017,7 +1017,7 @@ const TopTabsInner: React.FC<TopTabsProps> = ({
       style={{
         ...dragRegionNoSelect,
         order: tabsAtBottom ? 2 : undefined,
-        backgroundColor: 'var(--top-tabs-bg, hsl(var(--secondary)))',
+        backgroundColor: 'var(--top-tabs-bg, var(--color-secondary))',
         color: 'var(--top-tabs-fg, hsl(var(--foreground)))',
       }}
       onDoubleClick={handleTitleBarDoubleClick}

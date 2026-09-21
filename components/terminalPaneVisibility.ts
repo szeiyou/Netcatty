@@ -89,11 +89,16 @@ export function resolveInactiveTerminalPaneStyle<T extends TerminalPaneStyle>(
 export function resolveTerminalLayerSurfaceStyle(
   isActive: boolean,
   hibernateHiddenTabs: boolean,
-): { visibility: "visible" | "hidden"; pointerEvents: "auto" | "none"; zIndex: number } {
+  appBackgroundActive = false,
+): { visibility: "visible" | "hidden"; pointerEvents: "auto" | "none"; zIndex: number; opacity?: number } {
   return {
     visibility: isActive || !hibernateHiddenTabs ? "visible" : "hidden",
     pointerEvents: isActive ? "auto" : "none",
     zIndex: isActive ? 10 : 0,
+    // Other app surfaces are translucent over the background image, so a
+    // still-rendered terminal layer behind them would show through. Keep it
+    // rendering (same reasons as above) but make it invisible.
+    ...(!isActive && appBackgroundActive ? { opacity: 0 } : {}),
   };
 }
 

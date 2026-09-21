@@ -22,7 +22,7 @@ test('host tree toolbar keeps the close button outside the compact action row', 
   assert.match(source, /dataSection="terminal-host-tree-toolbar-actions"/);
   assert.match(source, /data-section="terminal-host-tree-toolbar-close"/);
   assert.match(source, /data-section="terminal-host-tree-toolbar"/);
-  assert.match(source, /backgroundColor: theme\.termBg/);
+  assert.match(source, /backgroundColor: appNestedSurfaceColor\(theme\.termBg\)/);
   assert.doesNotMatch(source, /terminal-host-tree-toolbar-actions-fade/);
 });
 
