@@ -529,6 +529,50 @@ html[data-theme-transition] *::after {
   color: hsl(var(--foreground));
 }
 
+/* ============================================
+   App background image (components/AppBackgroundLayer.tsx)
+   ============================================
+   While a background image is active, <html data-app-background> carries
+   --nc-app-surface-alpha. Theme surfaces become translucent so the image
+   (painted by a fixed z-index:-1 layer) shows through; --color-* resolve on
+   <html> exactly like the @theme defaults above. Nested surfaces that use
+   appNestedSurfaceColor() go fully transparent to avoid alpha stacking. */
+html[data-app-background] {
+  --nc-app-nested-surface-alpha: 0;
+  --color-background: hsl(var(--background) / var(--nc-app-surface-alpha, 1));
+  --color-card: hsl(var(--card) / var(--nc-app-surface-alpha, 1));
+  --color-secondary: hsl(var(--secondary) / var(--nc-app-surface-alpha, 1));
+  --color-muted: hsl(var(--muted) / var(--nc-app-surface-alpha, 1));
+}
+
+html[data-app-background] body {
+  background-color: transparent;
+}
+
+/* Full-area base layers: panes/panels inside them already paint the tinted
+   surface, so a second translucent layer would only dim the image. */
+html[data-app-background] [data-section="terminal-workspace"] {
+  background-color: transparent;
+}
+
+/* Floating layers (dialogs, menus, popovers, tooltips) stay opaque so their
+   content never mixes with whatever sits underneath them. */
+html[data-app-background] :is(
+  [role="dialog"],
+  [role="alertdialog"],
+  [role="menu"],
+  [role="listbox"],
+  [role="tooltip"],
+  [data-radix-popper-content-wrapper]
+) {
+  --nc-app-surface-alpha: 1;
+  --nc-app-nested-surface-alpha: 1;
+  --color-background: hsl(var(--background));
+  --color-card: hsl(var(--card));
+  --color-secondary: hsl(var(--secondary));
+  --color-muted: hsl(var(--muted));
+}
+
 .netcatty-shell {
   position: relative;
   background: linear-gradient(180deg, hsl(var(--background)) 0%, hsl(var(--background)) 60%, hsl(var(--background) / 0.9) 100%);

@@ -1,5 +1,7 @@
-import type { Terminal } from '@xterm/xterm';
+import type { ITheme, Terminal } from '@xterm/xterm';
 import type { TerminalTheme } from '../../domain/models';
+import { resolveTransparentTerminalBackground } from '../../domain/appBackground';
+import { isAppBackgroundActiveNow } from '../../application/state/appBackgroundStore';
 import { forceSyncRenderAfterResize } from './terminalHelpers';
 
 type PendingUpdate = {
@@ -14,14 +16,33 @@ function themeFingerprint(theme: TerminalTheme): string {
   return `${theme.id}:${theme.colors.background}:${theme.colors.foreground}:${theme.colors.cursor}`;
 }
 
-function applyThemeToTerminal(term: Terminal, theme: TerminalTheme): void {
-  term.options.theme = {
+/**
+ * xterm theme for a terminal theme. With `transparentBackground` (app
+ * background image active) the default cell background is fully transparent
+ * and the pane container paints the tinted surface instead.
+ */
+export function buildXTermTheme(theme: TerminalTheme, transparentBackground: boolean): ITheme {
+  return {
     ...theme.colors,
+    background: transparentBackground
+      ? resolveTransparentTerminalBackground(theme.colors.background)
+      : theme.colors.background,
     selectionBackground: theme.colors.selection,
-    scrollbarSliderBackground: theme.colors.foreground + '33',
-    scrollbarSliderHoverBackground: theme.colors.foreground + '66',
-    scrollbarSliderActiveBackground: theme.colors.foreground + '80',
+    // Scrollbar theming (xterm 6.0) — derive from foreground color
+    scrollbarSliderBackground: theme.colors.foreground + '33', // 20% opacity
+    scrollbarSliderHoverBackground: theme.colors.foreground + '66', // 40% opacity
+    scrollbarSliderActiveBackground: theme.colors.foreground + '80', // 50% opacity
   };
+}
+
+function applyThemeToTerminal(term: Terminal, theme: TerminalTheme): void {
+  const transparentBackground = isAppBackgroundActiveNow();
+  // WebGL and DOM renderers both pick up allowTransparency at runtime (the
+  // WebGL addon rebuilds its glyph atlas on any option change).
+  if (term.options.allowTransparency !== transparentBackground) {
+    term.options.allowTransparency = transparentBackground;
+  }
+  term.options.theme = buildXTermTheme(theme, transparentBackground);
   forceSyncRenderAfterResize(term);
 }
 

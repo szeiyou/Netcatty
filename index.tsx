@@ -13,6 +13,7 @@ import '@fontsource/jetbrains-mono/500.css';
 import '@fontsource/jetbrains-mono/600.css';
 import App from './App';
 import { AppLockGate } from './components/AppLockGate';
+import { AppBackgroundLayer } from './components/AppBackgroundLayer';
 
 const LazySettingsPage = lazy(() => import('./components/SettingsPage'));
 const LazyTrayPanel = lazy(() => import('./components/TrayPanel'));
@@ -176,6 +177,7 @@ const renderApp = () => {
   if (route === 'settings') {
     root.render(
       <StrictMode>
+        <AppBackgroundLayer />
         <AppLockGate settingsOptions={settingsOptions}>
           {({ settings, appLock }) => (
             <Suspense fallback={<SettingsWindowFallback />}>
@@ -225,6 +227,7 @@ const renderApp = () => {
   } else {
     root.render(
       <StrictMode>
+        <AppBackgroundLayer />
         <AppLockGate settingsOptions={settingsOptions}>
           {({ settings, appLock }) => <App settings={settings} appLock={appLock} />}
         </AppLockGate>

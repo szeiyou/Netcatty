@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import type { Host } from '../../types';
+import { appSurfaceColor } from '../../domain/appBackground.ts';
 
 const sidebarSource = readFileSync(new URL('./TerminalHostTreeSidebar.tsx', import.meta.url), 'utf8');
 
@@ -166,7 +167,8 @@ test('host tree sidebar colors can be overridden by immediate preview styles', (
     theme,
   });
 
-  assert.equal(style.backgroundColor, theme.termBg);
+  // Wrapped so the app background image can show through; resolves to termBg when it is off.
+  assert.equal(style.backgroundColor, appSurfaceColor(theme.termBg));
   assert.equal(style.color, theme.termFg);
   assert.equal(style.borderRight, `1px solid ${theme.separator}`);
 });

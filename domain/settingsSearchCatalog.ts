@@ -109,6 +109,21 @@ export const SETTINGS_SEARCH_CATALOG: readonly SettingsSearchEntry[] = [
     keywords: ["transparency", "透明"],
   },
   {
+    id: "appearance-background-image",
+    tab: "appearance",
+    labelKey: "settings.appearance.background.image",
+    descriptionKey: "settings.appearance.background.image.desc",
+    sectionKey: "settings.appearance.background",
+    keywords: ["background", "wallpaper", "image", "背景", "壁纸", "图片"],
+  },
+  {
+    id: "appearance-background-enabled",
+    tab: "appearance",
+    labelKey: "settings.appearance.background.enabled",
+    sectionKey: "settings.appearance.background",
+    keywords: ["background", "wallpaper", "背景"],
+  },
+  {
     id: "appearance-theme",
     tab: "appearance",
     labelKey: "settings.appearance.theme",

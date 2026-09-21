@@ -269,6 +269,12 @@ test("inactive terminal pane is hidden only when hibernate is enabled", () => {
   assert.equal(inactiveStyle.zIndex, 0);
 });
 
+test("inactive terminal layer is invisible while the app background image is active", () => {
+  assert.equal(resolveTerminalLayerSurfaceStyle(false, false, true).opacity, 0);
+  assert.equal(resolveTerminalLayerSurfaceStyle(false, false, true).visibility, "visible");
+  assert.equal(resolveTerminalLayerSurfaceStyle(true, false, true).opacity, undefined);
+});
+
 test("terminal layer stays rendered behind other app surfaces unless hibernate is enabled", () => {
   assert.deepEqual(resolveTerminalLayerSurfaceStyle(false, false), {
     visibility: "visible",

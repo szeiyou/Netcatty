@@ -34,6 +34,13 @@ declare global {
     stageUploadFile?(file: File, transferId: string): Promise<string>;
     cancelStagedUploadFile?(transferId: string): Promise<{ success: boolean }>;
 
+    // App background image (copied into userData, served via netcatty-bg://)
+    pickAppBackgroundImage?(): Promise<
+      | { ok: true; imageId: string }
+      | { ok: false; error: 'canceled' | 'unsupported-type' | 'not-found' | 'too-large' | 'unavailable'; maxBytes?: number }
+    >;
+    removeAppBackgroundImage?(imageId: string): Promise<{ ok: boolean; error?: string }>;
+
     // Crash Logs
     getCrashLogs?(): Promise<Array<{ fileName: string; date: string; size: number; entryCount: number }>>;
     readCrashLog?(fileName: string): Promise<Array<{

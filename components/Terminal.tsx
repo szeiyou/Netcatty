@@ -1,3 +1,4 @@
+import { appSurfaceColor } from "../domain/appBackground";
 import { clearTerminalBroadcastUserInput, markTerminalBroadcastUserInput } from "./terminal/runtime/terminalPacedBroadcast";
 import { publishTerminalCommandCompletion } from "../application/state/terminalCommandCompletion";
 import { createTerminalReflowReadingPosition } from "./terminal/terminalReflowReadingPosition";
@@ -4207,6 +4208,8 @@ const TerminalComponent: React.FC<TerminalProps> = ({
     const { background, foreground, cursor } = effectiveTheme.colors;
     return {
       ['--terminal-ui-bg' as never]: background,
+      // Pane surface; translucent only while the app background image is active.
+      ['--terminal-ui-surface' as never]: appSurfaceColor(background),
       ['--terminal-ui-fg' as never]: foreground,
       ['--terminal-ui-border' as never]: `color-mix(in srgb, ${foreground} 8%, ${background} 92%)`,
       ['--terminal-ui-toolbar-btn' as never]: `color-mix(in srgb, ${background} 88%, ${foreground} 12%)`,

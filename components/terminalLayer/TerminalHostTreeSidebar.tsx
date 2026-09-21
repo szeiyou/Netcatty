@@ -58,6 +58,7 @@ import {
   TerminalHostTreeToolbar,
   type HostTreeToolbarPanel,
 } from './TerminalHostTreeToolbar';
+import { appSurfaceColor } from '../../domain/appBackground';
 
 const SIDEBAR_MIN_WIDTH = TERMINAL_HOST_TREE_MIN_WIDTH;
 const SIDEBAR_DEFAULT_WIDTH = TERMINAL_HOST_TREE_DEFAULT_WIDTH;
@@ -175,7 +176,7 @@ export function getTerminalHostTreeSidebarPanelStyle({
     width: displayWidth,
     opacity: 1,
     transition: panelTransition,
-    backgroundColor: theme.termBg,
+    backgroundColor: appSurfaceColor(theme.termBg),
     color: theme.termFg,
     borderRight: isVisible ? `1px solid ${theme.separator}` : '1px solid transparent',
   };

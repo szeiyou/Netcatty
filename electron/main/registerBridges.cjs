@@ -502,6 +502,7 @@ function createBridgeRegistrar(context) {
     aiBridge.registerHandlers(ipcMain);
     httpNetworkProxyBridge.registerHandlers(ipcMain, electronModule);
     crashLogBridge.registerHandlers(ipcMain);
+    require("../bridges/appBackgroundBridge.cjs").registerHandlers(ipcMain);
     vaultBackupBridge.registerHandlers(ipcMain, electronModule);
     appLockController?.registerHandlers?.(ipcMain);
   

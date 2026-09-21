@@ -23,6 +23,7 @@ import {
   ToolbarOverflowMenu,
 } from '../ui/toolbar-item-layout';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip';
+import { appNestedSurfaceColor } from '../../domain/appBackground';
 
 export type HostTreeToolbarPanel = 'search' | 'tags' | null;
 
@@ -452,7 +453,7 @@ export const TerminalHostTreeToolbar: React.FC<TerminalHostTreeToolbarProps> = (
       <div
         className="flex h-9 shrink-0 min-w-0 items-center gap-0.5 px-1.5 py-1"
         style={{
-          backgroundColor: theme.termBg,
+          backgroundColor: appNestedSurfaceColor(theme.termBg),
           borderBottom: `1px solid ${theme.separator}`,
         }}
         data-section="terminal-host-tree-toolbar"
@@ -510,11 +511,11 @@ export const TerminalHostTreeToolbar: React.FC<TerminalHostTreeToolbarProps> = (
           expandedPanel === 'search' ? 'max-h-9 opacity-100' : 'max-h-0 opacity-0',
         )}
         style={{
-          backgroundColor: theme.termBg,
+          backgroundColor: appNestedSurfaceColor(theme.termBg),
           borderBottom: expandedPanel === 'search' ? `1px solid ${theme.separator}` : undefined,
         }}
       >
-        <div className="h-9 flex items-center gap-0.5 px-1.5" style={{ backgroundColor: theme.termBg }}>
+        <div className="h-9 flex items-center gap-0.5 px-1.5" style={{ backgroundColor: appNestedSurfaceColor(theme.termBg) }}>
           <div className="relative flex-1 min-w-0">
             <Search
               size={12}
@@ -559,13 +560,13 @@ export const TerminalHostTreeToolbar: React.FC<TerminalHostTreeToolbarProps> = (
           expandedPanel === 'tags' ? 'max-h-40 opacity-100' : 'max-h-0 opacity-0',
         )}
         style={{
-          backgroundColor: theme.termBg,
+          backgroundColor: appNestedSurfaceColor(theme.termBg),
           borderBottom: expandedPanel === 'tags' ? `1px solid ${theme.separator}` : undefined,
         }}
       >
         <div
           className="max-h-40 overflow-y-auto overflow-x-hidden py-1 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
-          style={{ backgroundColor: theme.termBg }}
+          style={{ backgroundColor: appNestedSurfaceColor(theme.termBg) }}
         >
           {allTags.length === 0 ? (
             <div className="px-3 py-3 text-center text-xs" style={{ color: theme.mutedFg }}>

@@ -26,6 +26,7 @@ import { ContextMenu, ContextMenuTrigger } from '../ui/context-menu';
 import { Input } from '../ui/input';
 import { ScrollArea } from '../ui/scroll-area';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip';
+import { appSurfaceColor } from '../../domain/appBackground';
 
 interface TerminalFocusSidebarProps {
   activeWorkspace: Workspace;
@@ -569,9 +570,9 @@ const TerminalFocusSidebarInner: React.FC<TerminalFocusSidebarProps> = ({
       )}
       style={{
         width: focusSidebarWidth,
-        backgroundColor: focusSidebarHostDropActive
+        backgroundColor: appSurfaceColor(focusSidebarHostDropActive
           ? `color-mix(in srgb, ${theme.termFg} 8%, ${theme.termBg})`
-          : theme.termBg,
+          : theme.termBg),
         color: theme.termFg,
         boxShadow: focusSidebarHostDropActive
           ? `inset 0 0 0 1px color-mix(in srgb, ${theme.termFg} 28%, transparent)`

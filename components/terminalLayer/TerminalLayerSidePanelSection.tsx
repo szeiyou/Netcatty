@@ -53,6 +53,7 @@ import {
 import { terminalLayerSidePanelStableCtxEqual } from './terminalLayerViewMemo';
 import { SidePanelMountedContent } from './terminalLayerSidePanelSlots';
 import { getPaneMagnificationShortcutLabel } from '../../domain/paneMagnification';
+import { appNestedSurfaceColor, appSurfaceColor } from '../../domain/appBackground';
 
 const MemoizedSidePanelMountedContent = memo(
   SidePanelMountedContent,
@@ -1036,7 +1037,7 @@ function TerminalLayerSidePanelInner({ ctx }: { ctx: SidePanelContext }) {
           // Keep native form controls (AI/Codex composer textarea) in sync when a
           // light terminal theme remaps --background under dark app chrome.
           colorScheme: resolvedSidePanelTerminalTheme.type,
-          backgroundColor: sidePanelTheme.termBg,
+          backgroundColor: appSurfaceColor(sidePanelTheme.termBg),
           color: sidePanelTheme.termFg,
           ...(isSidePanelOpenForCurrentTab && sidePanelPosition === 'left'
             ? { borderRight: `1px solid ${sidePanelTheme.separator}` }
@@ -1069,7 +1070,7 @@ function TerminalLayerSidePanelInner({ ctx }: { ctx: SidePanelContext }) {
             className="flex h-9 items-center px-1.5 py-1 flex-shrink-0 gap-1 w-full"
             dataSection="terminal-side-panel-tabs"
             style={{
-              backgroundColor: sidePanelTheme.termBg,
+              backgroundColor: appNestedSurfaceColor(sidePanelTheme.termBg),
               borderBottom: `1px solid ${sidePanelTheme.separator}`,
             }}
           >

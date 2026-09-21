@@ -32,6 +32,8 @@ import {
   type XTermPlatform,
   resolveXTermPerformanceConfig,
 } from "../../../infrastructure/config/xtermPerformance";
+import { isAppBackgroundActiveNow } from "../../../application/state/appBackgroundStore";
+import { buildXTermTheme } from "../terminalThemeScheduler";
 import {
   scrollTerminalToBottomAfterInputIfEnabled,
   shouldEnableNativeUserInputAutoScroll,
@@ -490,6 +492,7 @@ export const createXTermRuntime = (ctx: CreateXTermRuntimeContext): XTermRuntime
       ? bridge?.getWindowsPtyInfo?.() ?? { backend: "conpty" as const }
       : undefined;
 
+  const appBackgroundActive = isAppBackgroundActiveNow();
   const performanceConfig = resolveXTermPerformanceConfig({
     platform,
     deviceMemoryGb,
@@ -622,14 +625,10 @@ export const createXTermRuntime = (ctx: CreateXTermRuntimeContext): XTermRuntime
     },
     ...terminalAltKeyOptions(altIsMeta),
     wordSeparator,
-    theme: {
-      ...ctx.terminalTheme.colors,
-      selectionBackground: ctx.terminalTheme.colors.selection,
-      // Scrollbar theming (xterm 6.0) — derive from foreground color
-      scrollbarSliderBackground: ctx.terminalTheme.colors.foreground + '33', // 20% opacity
-      scrollbarSliderHoverBackground: ctx.terminalTheme.colors.foreground + '66', // 40% opacity
-      scrollbarSliderActiveBackground: ctx.terminalTheme.colors.foreground + '80', // 50% opacity
-    },
+    // Transparent cells only while an app background image is active; the
+    // default stays opaque because transparency costs WebGL throughput.
+    allowTransparency: appBackgroundActive,
+    theme: buildXTermTheme(ctx.terminalTheme, appBackgroundActive),
   });
   installSearchDecorationTracker(term);
   // Sogou on Windows commits pending preedit text when Shift toggles

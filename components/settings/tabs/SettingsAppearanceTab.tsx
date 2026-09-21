@@ -24,6 +24,7 @@ import { cn } from "../../../lib/utils";
 import { SectionHeader, SettingsAnchor, SettingsTabContent, SettingRow, Toggle, Select } from "../settings-ui";
 import { FontSelect } from "../FontSelect";
 import { TerminalFontSelect } from "../TerminalFontSelect";
+import { AppBackgroundSettingsSection } from "./AppBackgroundSettingsSection";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../../ui/tooltip";
 import {
   Dialog,
@@ -311,6 +312,8 @@ function SettingsAppearanceTab(props: {
           </div>
         </SettingRow>
       </div>
+
+      <AppBackgroundSettingsSection />
 
       <SectionHeader title={t("settings.appearance.uiTheme")} />
       <div className="space-y-0 divide-y divide-border rounded-lg border bg-card px-4">

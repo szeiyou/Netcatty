@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import React, { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { ChevronsLeft, GripVertical, Minimize2, Network, PanelLeft, X as XIcon } from 'lucide-react';
+import { appNestedSurfaceColor } from '../../domain/appBackground';
 import { isTerminalSensitiveInputActive } from './runtime/terminalSensitiveInputRegistry';
 import { isSessionReconnectDisabled } from '../top-tabs/SessionTabContextMenuContent';
 
@@ -617,7 +618,7 @@ function TerminalViewInner({ ctx, isPaneMagnified = false }: { ctx: TerminalView
         )}
         style={{
           ...terminalPreviewVars,
-          backgroundColor: 'var(--terminal-ui-bg)',
+          backgroundColor: 'var(--terminal-ui-surface, var(--terminal-ui-bg))',
         }}
         onDragEnter={handleDragEnter}
         onDragOver={handleDragOver}
@@ -1032,7 +1033,7 @@ function TerminalViewInner({ ctx, isPaneMagnified = false }: { ctx: TerminalView
             "flex-1 min-h-0 min-w-0 relative overflow-hidden",
             showHostInfoBar && "pt-8",
           )}
-          style={{ backgroundColor: 'var(--terminal-ui-bg)' }}
+          style={{ backgroundColor: appNestedSurfaceColor('var(--terminal-ui-bg)') }}
         >
           {showNetworkDeviceTip && (
             <div
@@ -1074,7 +1075,7 @@ function TerminalViewInner({ ctx, isPaneMagnified = false }: { ctx: TerminalView
               right: terminalRightInset,
               bottom: terminalBottomInset,
               paddingLeft: 6,
-              backgroundColor: 'var(--terminal-ui-bg)',
+              backgroundColor: appNestedSurfaceColor('var(--terminal-ui-bg)'),
             }}
           />
           <TerminalTimestampGutter

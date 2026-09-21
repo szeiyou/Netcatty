@@ -1534,6 +1534,12 @@ function createPreloadApi(ctx) {
   getManualSessionLogStatus: (payload) =>
     ipcRenderer.invoke("netcatty:sessionLog:manualStatus", payload),
 
+  // App background image
+  pickAppBackgroundImage: () =>
+    ipcRenderer.invoke("netcatty:appBackground:pickImage"),
+  removeAppBackgroundImage: (imageId) =>
+    ipcRenderer.invoke("netcatty:appBackground:removeImage", { imageId }),
+
   // Crash Logs
   getCrashLogs: () =>
     ipcRenderer.invoke("netcatty:crashLogs:list"),
