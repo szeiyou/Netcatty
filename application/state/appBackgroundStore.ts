@@ -2,6 +2,7 @@ import { useSyncExternalStore } from 'react';
 
 import {
   DEFAULT_APP_BACKGROUND_SETTINGS,
+  appBackgroundFitsFor,
   isAppBackgroundActive,
   normalizeAppBackgroundSettings,
   type AppBackgroundSettings,
@@ -125,9 +126,10 @@ export function useAppBackgroundActive(): boolean {
 }
 
 export type PickAppBackgroundImageResult =
-  | { status: 'imported' }
+  /** `animated`: an animated image, costly to show; a video is cheaper. */
+  | { status: 'imported'; animated: boolean }
   | { status: 'canceled' }
-  | { status: 'error'; error: 'unsupported-type' | 'not-found' | 'too-large' | 'unavailable'; maxBytes?: number };
+  | { status: 'error'; error: 'unsupported-type' | 'not-found' | 'unavailable' };
 
 /** Remove an imported image file unless it is still the configured one. */
 function discardImage(imageId: string | null): void {
@@ -138,8 +140,8 @@ function discardImage(imageId: string | null): void {
 }
 
 /**
- * Let the user pick an image (native dialog in the main process), make it the
- * app background and enable it. The previously configured image file is
+ * Let the user pick an image or video (native dialog in the main process),
+ * make it the app background and enable it. The previously configured image file is
  * removed from userData.
  */
 export async function pickAppBackgroundImage(): Promise<PickAppBackgroundImageResult> {
@@ -148,12 +150,17 @@ export async function pickAppBackgroundImage(): Promise<PickAppBackgroundImageRe
   const result = await pick();
   if ('error' in result) {
     if (result.error === 'canceled') return { status: 'canceled' };
-    return { status: 'error', error: result.error, maxBytes: result.maxBytes };
+    return { status: 'error', error: result.error };
   }
-  const previousImageId = getAppBackgroundSettings().imageId;
-  updateAppBackgroundSettings({ imageId: result.imageId, enabled: true });
+  const { imageId: previousImageId, fit } = getAppBackgroundSettings();
+  updateAppBackgroundSettings({
+    imageId: result.imageId,
+    enabled: true,
+    // Videos cannot tile; keep the fit only if it still applies.
+    fit: appBackgroundFitsFor(result.imageId).includes(fit) ? fit : 'cover',
+  });
   discardImage(previousImageId);
-  return { status: 'imported' };
+  return { status: 'imported', animated: result.animated === true };
 }
 
 export function clearAppBackgroundImage(): void {

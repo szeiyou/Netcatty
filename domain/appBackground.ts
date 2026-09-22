@@ -1,11 +1,12 @@
 /**
  * App-wide background image settings.
  *
- * The image itself lives in the main process userData directory
- * (`app-backgrounds/`), imported by appBackgroundBridge. The renderer
- * only stores the opaque `imageId` and loads it through the
- * `netcatty-bg://` protocol, so this setting is device-local and never
- * carries a raw filesystem path.
+ * The background is an image or a looping muted video (mp4/webm); `imageId`
+ * names either, and its extension tells them apart. The file itself lives
+ * in the main process userData directory (`app-backgrounds/`), imported by
+ * appBackgroundBridge. The renderer only stores the opaque `imageId` and
+ * loads it through the `netcatty-bg://` protocol, so this setting is
+ * device-local and never carries a raw filesystem path.
  */
 
 export type AppBackgroundFit = 'cover' | 'contain' | 'tile' | 'center';
@@ -27,7 +28,8 @@ export const APP_BACKGROUND_SURFACE_OPACITY_MAX = 1;
 export const APP_BACKGROUND_BLUR_MAX = 40;
 
 /** Content-hash file name produced by appBackgroundBridge.importImage. */
-const IMAGE_ID_PATTERN = /^[a-f0-9]{16,64}\.(png|jpg|jpeg|webp|gif|bmp|avif)$/;
+const IMAGE_ID_PATTERN = /^[a-f0-9]{16,64}\.(png|jpg|jpeg|webp|gif|bmp|avif|mp4|webm)$/;
+const VIDEO_ID_PATTERN = /\.(mp4|webm)$/;
 
 export const DEFAULT_APP_BACKGROUND_SETTINGS: AppBackgroundSettings = Object.freeze({
   enabled: false,
@@ -39,6 +41,18 @@ export const DEFAULT_APP_BACKGROUND_SETTINGS: AppBackgroundSettings = Object.fre
 
 export function isValidAppBackgroundImageId(value: unknown): value is string {
   return typeof value === 'string' && IMAGE_ID_PATTERN.test(value);
+}
+
+/** Whether the background file is a video (played by a <video> element). */
+export function isAppBackgroundVideo(imageId: string | null): boolean {
+  return imageId !== null && VIDEO_ID_PATTERN.test(imageId);
+}
+
+/** Fit modes that apply to a background file; videos cannot tile. */
+export function appBackgroundFitsFor(imageId: string | null): readonly AppBackgroundFit[] {
+  return isAppBackgroundVideo(imageId)
+    ? APP_BACKGROUND_FITS.filter((fit) => fit !== 'tile')
+    : APP_BACKGROUND_FITS;
 }
 
 const clamp = (value: unknown, min: number, max: number, fallback: number): number => {
@@ -90,6 +104,27 @@ export function resolveAppBackgroundImageStyle(fit: AppBackgroundFit): {
     case 'cover':
     default:
       return { backgroundSize: 'cover', backgroundRepeat: 'no-repeat', backgroundPosition: 'center' };
+  }
+}
+
+/**
+ * `object-fit` / `object-position` for a background drawn by an <img> or
+ * <video> element. Tiling has no object-fit equivalent (tiled images use
+ * the CSS background path; videos cannot tile), so it falls back to cover.
+ */
+export function resolveAppBackgroundMediaStyle(fit: AppBackgroundFit): {
+  objectFit: 'cover' | 'contain' | 'none';
+  objectPosition: string;
+} {
+  switch (fit) {
+    case 'contain':
+      return { objectFit: 'contain', objectPosition: 'center' };
+    case 'center':
+      return { objectFit: 'none', objectPosition: 'center' };
+    case 'tile':
+    case 'cover':
+    default:
+      return { objectFit: 'cover', objectPosition: 'center' };
   }
 }
 

@@ -547,12 +547,12 @@ export const zhTWCoreMessages: Messages = {
   'settings.appearance.windowOpacity': '視窗透明度',
   'settings.appearance.windowOpacity.desc': '調節整個應用程式視窗的透明度，方便疊在其他內容上方。較低時終端文字也會變淡；部分 Linux 桌面環境可能不支援。',
   'settings.appearance.background': '背景圖',
-  'settings.appearance.background.image': '圖片',
-  'settings.appearance.background.image.desc': '在整個應用程式背後顯示一張圖片。圖片會複製到 Netcatty 資料目錄，僅保存在本機，不參與同步。',
-  'settings.appearance.background.choose': '選擇圖片…',
+  'settings.appearance.background.image': '圖片或影片',
+  'settings.appearance.background.image.desc': '在整個應用程式背後顯示一張圖片或一段循環影片（MP4/WebM）。檔案會複製到 Netcatty 資料目錄，僅保存在本機，不參與同步。',
+  'settings.appearance.background.choose': '選擇檔案…',
   'settings.appearance.background.change': '更換…',
   'settings.appearance.background.remove': '移除',
-  'settings.appearance.background.enabled': '顯示背景圖',
+  'settings.appearance.background.enabled': '顯示背景',
   'settings.appearance.background.fit': '填充方式',
   'settings.appearance.background.fit.cover': '填滿',
   'settings.appearance.background.fit.contain': '符合',
@@ -561,9 +561,9 @@ export const zhTWCoreMessages: Messages = {
   'settings.appearance.background.surfaceOpacity': '介面不透明度',
   'settings.appearance.background.surfaceOpacity.desc': '面板與終端疊在圖片上的不透明程度。數值越低圖片越明顯，但文字對比度會下降。',
   'settings.appearance.background.blur': '模糊',
-  'settings.appearance.background.error.tooLarge': '圖片過大（最大 {size} MB）。',
-  'settings.appearance.background.error.unsupported': '不支援的圖片格式，請使用 PNG、JPEG、WebP、GIF、BMP 或 AVIF。',
-  'settings.appearance.background.error.generic': '匯入背景圖失敗。',
+  'settings.appearance.background.error.unsupported': '不支援的檔案格式，請使用 PNG、JPEG、WebP、GIF、BMP、AVIF、MP4 或 WebM。',
+  'settings.appearance.background.error.generic': '匯入背景圖失敗。',
+  'settings.appearance.background.animatedWarning': '動態圖片每一格都要由 CPU 解碼，可能導致終端機卡頓。動態背景建議轉成 MP4 或 WebM 影片，由顯示卡解碼。',
   'settings.appearance.appIcon': '應用程式圖示',
   'settings.appearance.appIcon.desc': '選擇 Dock/工作列圖示風格，切換應用程式時更容易找到 Netcatty。執行時生效，安裝檔內的圖示不會改變。',
   'settings.appearance.appIcon.original': '原始',

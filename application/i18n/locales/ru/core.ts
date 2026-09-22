@@ -510,12 +510,12 @@ export const ruCoreMessages: Messages = {
   'settings.appearance.windowOpacity': 'Прозрачность окна',
   'settings.appearance.windowOpacity.desc': 'Настройте прозрачность всего окна приложения. При низких значениях текст терминала тоже бледнеет. В некоторых средах Linux это может не поддерживаться.',
   'settings.appearance.background': 'Фоновое изображение',
-  'settings.appearance.background.image': 'Изображение',
-  'settings.appearance.background.image.desc': 'Показывать изображение позади всего приложения. Файл копируется в папку данных Netcatty и хранится только на этом устройстве (не синхронизируется).',
+  'settings.appearance.background.image': 'Изображение или видео',
+  'settings.appearance.background.image.desc': 'Показывать изображение или зацикленное видео (MP4/WebM) позади всего приложения. Файл копируется в папку данных Netcatty и хранится только на этом устройстве (не синхронизируется).',
   'settings.appearance.background.choose': 'Выбрать…',
   'settings.appearance.background.change': 'Сменить…',
   'settings.appearance.background.remove': 'Удалить',
-  'settings.appearance.background.enabled': 'Показывать фоновое изображение',
+  'settings.appearance.background.enabled': 'Показывать фон',
   'settings.appearance.background.fit': 'Размещение',
   'settings.appearance.background.fit.cover': 'Заполнить',
   'settings.appearance.background.fit.contain': 'Вписать',
@@ -524,9 +524,9 @@ export const ruCoreMessages: Messages = {
   'settings.appearance.background.surfaceOpacity': 'Непрозрачность интерфейса',
   'settings.appearance.background.surfaceOpacity.desc': 'Насколько непрозрачны панели и терминалы поверх изображения. Меньшие значения лучше показывают изображение, но снижают контраст текста.',
   'settings.appearance.background.blur': 'Размытие',
-  'settings.appearance.background.error.tooLarge': 'Изображение слишком большое (макс. {size} МБ).',
-  'settings.appearance.background.error.unsupported': 'Неподдерживаемый формат. Используйте PNG, JPEG, WebP, GIF, BMP или AVIF.',
-  'settings.appearance.background.error.generic': 'Не удалось импортировать фоновое изображение.',
+  'settings.appearance.background.error.unsupported': 'Неподдерживаемый формат. Используйте PNG, JPEG, WebP, GIF, BMP, AVIF, MP4 или WebM.',
+  'settings.appearance.background.error.generic': 'Не удалось импортировать фоновое изображение.',
+  'settings.appearance.background.animatedWarning': 'Анимированные изображения декодируются процессором в каждом кадре и могут замедлять терминал. Для анимированного фона преобразуйте его в видео MP4 или WebM — его декодирует видеокарта.',
   'settings.appearance.appIcon': 'Значок приложения',
   'settings.appearance.appIcon.desc': 'Выберите стиль значка для Dock/панели задач, чтобы Netcatty было проще найти при переключении приложений. Применяется во время работы; значок установленного пакета не меняется.',
   'settings.appearance.appIcon.original': 'Оригинал',

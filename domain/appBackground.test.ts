@@ -3,13 +3,16 @@ import test from 'node:test';
 
 import {
   DEFAULT_APP_BACKGROUND_SETTINGS,
+  appBackgroundFitsFor,
   appNestedSurfaceColor,
   appSurfaceColor,
   isAppBackgroundActive,
+  isAppBackgroundVideo,
   isValidAppBackgroundImageId,
   normalizeAppBackgroundSettings,
   resolveAppBackgroundImageStyle,
   resolveAppBackgroundImageUrl,
+  resolveAppBackgroundMediaStyle,
   resolveTransparentTerminalBackground,
 } from './appBackground.ts';
 
@@ -80,4 +83,27 @@ test('transparent terminal background keeps rgb channels for inverse video', () 
   assert.equal(resolveTransparentTerminalBackground('#1e1e2eff'), '#1e1e2e00');
   assert.equal(resolveTransparentTerminalBackground('#abc'), '#aabbcc00');
   assert.equal(resolveTransparentTerminalBackground('rgb(1, 2, 3)'), 'rgb(1, 2, 3)');
+});
+
+test('video ids are valid and detected by extension', () => {
+  const video = '0123456789abcdef0123456789abcdef.webm';
+  assert.equal(isValidAppBackgroundImageId(video), true);
+  assert.equal(isValidAppBackgroundImageId('0123456789abcdef0123456789abcdef.mp4'), true);
+  assert.equal(isValidAppBackgroundImageId('0123456789abcdef0123456789abcdef.mov'), false);
+  assert.equal(isAppBackgroundVideo(video), true);
+  assert.equal(isAppBackgroundVideo(IMAGE_ID), false);
+  assert.equal(isAppBackgroundVideo(null), false);
+  assert.equal(normalizeAppBackgroundSettings({ imageId: video }).imageId, video);
+});
+
+test('videos cannot tile', () => {
+  assert.deepEqual([...appBackgroundFitsFor(IMAGE_ID)], ['cover', 'contain', 'tile', 'center']);
+  assert.deepEqual([...appBackgroundFitsFor('0123456789abcdef0123456789abcdef.mp4')], ['cover', 'contain', 'center']);
+});
+
+test('media fit modes map to object-fit', () => {
+  assert.equal(resolveAppBackgroundMediaStyle('cover').objectFit, 'cover');
+  assert.equal(resolveAppBackgroundMediaStyle('contain').objectFit, 'contain');
+  assert.equal(resolveAppBackgroundMediaStyle('center').objectFit, 'none');
+  assert.equal(resolveAppBackgroundMediaStyle('tile').objectFit, 'cover');
 });
