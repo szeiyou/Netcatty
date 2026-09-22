@@ -11,14 +11,14 @@ import {
 import {
   APP_BACKGROUND_BLUR_MAX,
   APP_BACKGROUND_SURFACE_OPACITY_MIN,
+  appBackgroundFitsFor,
+  isAppBackgroundVideo,
   resolveAppBackgroundImageUrl,
   type AppBackgroundFit,
 } from "../../../domain/appBackground";
 import { Button } from "../../ui/button";
 import { toast } from "../../ui/toast";
 import { SectionHeader, SettingRow, Select, Toggle } from "../settings-ui";
-
-const FIT_OPTIONS: AppBackgroundFit[] = ["cover", "contain", "tile", "center"];
 
 export const AppBackgroundSettingsSection: React.FC = () => {
   const { t } = useI18n();
@@ -30,14 +30,16 @@ export const AppBackgroundSettingsSection: React.FC = () => {
     setPicking(true);
     try {
       const result = await pickAppBackgroundImage();
+      if (result.status === "imported") {
+        if (result.animated) {
+          toast.warning(t("settings.appearance.background.animatedWarning"), { duration: 10000 });
+        }
+        return;
+      }
       if (result.status !== "error") return;
-      const message = result.error === "too-large"
-        ? t("settings.appearance.background.error.tooLarge", {
-          size: Math.round((result.maxBytes ?? 0) / (1024 * 1024)),
-        })
-        : result.error === "unsupported-type"
-          ? t("settings.appearance.background.error.unsupported")
-          : t("settings.appearance.background.error.generic");
+      const message = result.error === "unsupported-type"
+        ? t("settings.appearance.background.error.unsupported")
+        : t("settings.appearance.background.error.generic");
       toast.error(message);
     } catch (err) {
       console.warn("[AppBackground] Failed to import image:", err);
@@ -61,7 +63,15 @@ export const AppBackgroundSettingsSection: React.FC = () => {
               className="h-10 w-16 shrink-0 overflow-hidden rounded-md border border-border bg-muted/50 flex items-center justify-center"
               aria-hidden="true"
             >
-              {settings.imageId ? (
+              {settings.imageId && isAppBackgroundVideo(settings.imageId) ? (
+                <video
+                  src={resolveAppBackgroundImageUrl(settings.imageId)}
+                  className="h-full w-full object-cover"
+                  muted
+                  playsInline
+                  preload="metadata"
+                />
+              ) : settings.imageId ? (
                 <img
                   src={resolveAppBackgroundImageUrl(settings.imageId)}
                   alt=""
@@ -100,7 +110,7 @@ export const AppBackgroundSettingsSection: React.FC = () => {
         <SettingRow label={t("settings.appearance.background.fit")}>
           <Select
             value={settings.fit}
-            options={FIT_OPTIONS.map((fit) => ({
+            options={appBackgroundFitsFor(settings.imageId).map((fit) => ({
               value: fit,
               label: t(`settings.appearance.background.fit.${fit}`),
             }))}

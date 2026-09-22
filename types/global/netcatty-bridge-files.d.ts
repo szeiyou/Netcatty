@@ -34,10 +34,10 @@ declare global {
     stageUploadFile?(file: File, transferId: string): Promise<string>;
     cancelStagedUploadFile?(transferId: string): Promise<{ success: boolean }>;
 
-    // App background image (copied into userData, served via netcatty-bg://)
+    // App background image or video (copied into userData, served via netcatty-bg://)
     pickAppBackgroundImage?(): Promise<
-      | { ok: true; imageId: string }
-      | { ok: false; error: 'canceled' | 'unsupported-type' | 'not-found' | 'too-large' | 'unavailable'; maxBytes?: number }
+      | { ok: true; imageId: string; animated?: boolean }
+      | { ok: false; error: 'canceled' | 'unsupported-type' | 'not-found' | 'unavailable' }
     >;
     removeAppBackgroundImage?(imageId: string): Promise<{ ok: boolean; error?: string }>;
 

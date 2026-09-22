@@ -545,12 +545,12 @@ export const zhCNCoreMessages: Messages = {
   'settings.appearance.windowOpacity': '窗口透明度',
   'settings.appearance.windowOpacity.desc': '调节整个应用窗口的透明度，方便叠在其他内容上方。较低时终端文字也会变淡；部分 Linux 桌面环境可能不支持。',
   'settings.appearance.background': '背景图',
-  'settings.appearance.background.image': '图片',
-  'settings.appearance.background.image.desc': '在整个应用背后显示一张图片。图片会复制到 Netcatty 数据目录，仅保存在本机，不参与同步。',
-  'settings.appearance.background.choose': '选择图片…',
+  'settings.appearance.background.image': '图片或视频',
+  'settings.appearance.background.image.desc': '在整个应用背后显示一张图片或一段循环视频（MP4/WebM）。文件会复制到 Netcatty 数据目录，仅保存在本机，不参与同步。',
+  'settings.appearance.background.choose': '选择文件…',
   'settings.appearance.background.change': '更换…',
   'settings.appearance.background.remove': '移除',
-  'settings.appearance.background.enabled': '显示背景图',
+  'settings.appearance.background.enabled': '显示背景',
   'settings.appearance.background.fit': '填充方式',
   'settings.appearance.background.fit.cover': '填充',
   'settings.appearance.background.fit.contain': '适应',
@@ -559,9 +559,9 @@ export const zhCNCoreMessages: Messages = {
   'settings.appearance.background.surfaceOpacity': '界面不透明度',
   'settings.appearance.background.surfaceOpacity.desc': '面板和终端叠在图片上的不透明程度。数值越低图片越明显，但文字对比度会下降。',
   'settings.appearance.background.blur': '模糊',
-  'settings.appearance.background.error.tooLarge': '图片过大（最大 {size} MB）。',
-  'settings.appearance.background.error.unsupported': '不支持的图片格式，请使用 PNG、JPEG、WebP、GIF、BMP 或 AVIF。',
-  'settings.appearance.background.error.generic': '导入背景图失败。',
+  'settings.appearance.background.error.unsupported': '不支持的文件格式，请使用 PNG、JPEG、WebP、GIF、BMP、AVIF、MP4 或 WebM。',
+  'settings.appearance.background.error.generic': '导入背景图失败。',
+  'settings.appearance.background.animatedWarning': '动态图片每一帧都要由 CPU 解码，可能导致终端卡顿。动态背景建议转成 MP4 或 WebM 视频，由显卡解码。',
   'settings.appearance.appIcon': '应用图标',
   'settings.appearance.appIcon.desc': '选择 Dock/任务栏图标风格，切换应用时更容易找到 Netcatty。运行时生效，安装包内的图标不会改变。',
   'settings.appearance.appIcon.original': '原始',

@@ -541,12 +541,12 @@ Highlight the focused split pane:
   'settings.appearance.windowOpacity': 'Window Opacity',
   'settings.appearance.windowOpacity.desc': 'Adjust the transparency of the entire application window. Lower values also fade terminal text. Some Linux desktop environments may not support this.',
   'settings.appearance.background': 'Background Image',
-  'settings.appearance.background.image': 'Image',
-  'settings.appearance.background.image.desc': 'Show an image behind the whole app. The file is copied into Netcatty\'s data folder and stays on this device (not synced).',
-  'settings.appearance.background.choose': 'Choose Image…',
+  'settings.appearance.background.image': 'Image or Video',
+  'settings.appearance.background.image.desc': 'Show an image or a looping video (MP4/WebM) behind the whole app. The file is copied into Netcatty\'s data folder and stays on this device (not synced).',
+  'settings.appearance.background.choose': 'Choose File…',
   'settings.appearance.background.change': 'Change…',
   'settings.appearance.background.remove': 'Remove',
-  'settings.appearance.background.enabled': 'Show Background Image',
+  'settings.appearance.background.enabled': 'Show Background',
   'settings.appearance.background.fit': 'Fit',
   'settings.appearance.background.fit.cover': 'Fill',
   'settings.appearance.background.fit.contain': 'Fit',
@@ -555,9 +555,9 @@ Highlight the focused split pane:
   'settings.appearance.background.surfaceOpacity': 'Surface Opacity',
   'settings.appearance.background.surfaceOpacity.desc': 'How opaque panels and terminals are on top of the image. Lower values show more of the image but reduce text contrast.',
   'settings.appearance.background.blur': 'Blur',
-  'settings.appearance.background.error.tooLarge': 'Image is too large (max {size} MB).',
-  'settings.appearance.background.error.unsupported': 'Unsupported image type. Use PNG, JPEG, WebP, GIF, BMP or AVIF.',
-  'settings.appearance.background.error.generic': 'Failed to import the background image.',
+  'settings.appearance.background.error.unsupported': 'Unsupported file type. Use PNG, JPEG, WebP, GIF, BMP, AVIF, MP4 or WebM.',
+  'settings.appearance.background.error.generic': 'Failed to import the background image.',
+  'settings.appearance.background.animatedWarning': 'Animated images are decoded on the CPU every frame and can make the terminal lag. For animated backgrounds, convert it to an MP4 or WebM video, which is decoded by the GPU.',
   'settings.appearance.appIcon': 'App Icon',
   'settings.appearance.appIcon.desc': 'Choose a dock/taskbar icon style to make Netcatty easier to spot when switching apps. Applies at runtime; the installed app bundle icon is unchanged.',
   'settings.appearance.appIcon.original': 'Original',
