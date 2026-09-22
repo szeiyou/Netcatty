@@ -30,6 +30,7 @@
 !README.md
 !README.zh-CN.md
 !README.zh-TW.md
+!build-win.cmd
 !electron-builder.config.cjs
 !eslint.config.js
 !flake.lock
