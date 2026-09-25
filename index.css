@@ -555,6 +555,12 @@ html[data-app-background] [data-section="terminal-workspace"] {
   background-color: transparent;
 }
 
+/* The main window root (.netcatty-shell, defined below) paints an opaque
+   gradient over the whole window that would hide the image entirely. */
+html[data-app-background] .netcatty-shell {
+  background: transparent;
+}
+
 /* Floating layers (dialogs, menus, popovers, tooltips) stay opaque so their
    content never mixes with whatever sits underneath them. */
 html[data-app-background] :is(
