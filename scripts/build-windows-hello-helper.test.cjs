@@ -4,6 +4,7 @@ const path = require("node:path");
 
 const {
   buildWindowsHelloHelper,
+  findVisualStudioDevCmd,
   getExpectedPeMachine,
   normalizeWindowsHelperArch,
   readPeMachine,
@@ -34,6 +35,7 @@ test("buildWindowsHelloHelper writes target architecture helper into an arch-spe
     run: (...args) => calls.push(args),
     mkdir: () => {},
     readMachine: () => 0xaa64,
+    existsSync: () => false,
     logger: { warn() {} },
   });
 
@@ -151,4 +153,12 @@ test("readPeMachine reads the PE COFF machine value", () => {
 
   assert.equal(readPeMachine(buffer), 0xaa64);
   assert.equal(readPeMachine(Buffer.from("not-pe")), null);
+});
+
+test("findVisualStudioDevCmd finds Visual Studio 2026 under its numeric \"18\" install directory", () => {
+  const vsDevCmd = "C:\\Program Files (x86)\\Microsoft Visual Studio\\18\\BuildTools\\Common7\\Tools\\VsDevCmd.bat";
+  assert.equal(
+    findVisualStudioDevCmd({ "ProgramFiles(x86)": "C:\\Program Files (x86)" }, (candidate) => candidate === vsDevCmd),
+    vsDevCmd,
+  );
 });

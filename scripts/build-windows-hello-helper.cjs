@@ -28,7 +28,7 @@ function visualStudioDevCmdCandidates(env = process.env) {
     "C:\\Program Files",
     "C:\\Program Files (x86)",
   ].filter(Boolean);
-  const versions = ["2026", "2022", "2019"];
+  const versions = ["18", "2026", "2022", "2019"];
   const editions = ["Enterprise", "Professional", "Community", "BuildTools", "Preview"];
   for (const root of programFilesRoots) {
     for (const version of versions) {
