@@ -71,6 +71,8 @@ export const removeSelectedHostCredential = (
 
 export const HostDetailsConnectionSections: React.FC<HostDetailsConnectionSectionsProps> = ({
   t,
+  compact = false,
+  advancedOnly = false,
   form,
   setForm,
   update,
@@ -128,103 +130,8 @@ export const HostDetailsConnectionSections: React.FC<HostDetailsConnectionSectio
   const effectiveEtEnabled = form.etEnabled ?? groupDefaults?.etEnabled;
   const effectiveProtocol = form.protocol ?? groupDefaults?.protocol;
 
-  return (
-  <>
-        <HostDetailsSection
-          icon={<MapPin size={14} className="text-muted-foreground" />}
-          title={t("hostDetails.section.address")}
-        >
-          <Input
-            placeholder={t("hostDetails.hostname.placeholder")}
-            value={form.hostname}
-            onChange={(e) => update("hostname", e.target.value)}
-            className="h-10 w-full"
-          />
-        </HostDetailsSection>
-
-        <HostDetailsSection
-          icon={<KeyRound size={14} className="text-muted-foreground" />}
-          title={t("hostDetails.section.portCredentials")}
-          className="overflow-hidden"
-        >
-          <div className="flex items-center gap-2">
-            <div className="flex-1 min-w-0 h-10 flex items-center gap-2 bg-secondary/70 border border-border/70 rounded-md px-3">
-              <span className="text-xs text-muted-foreground">SSH on</span>
-              <div className="ml-auto w-1/2 min-w-0 flex items-center gap-2 justify-end">
-                <Input
-                  type="number"
-                  value={form.port ?? ""}
-                  onChange={(e) => update("port", e.target.value ? Number(e.target.value) : undefined)}
-                  placeholder={groupDefaults?.port ? String(groupDefaults.port) : "22"}
-                  className="h-8 flex-1 min-w-0 text-center"
-                />
-                <span className="text-xs text-muted-foreground">
-                  {t("hostDetails.port")}
-                </span>
-              </div>
-            </div>
-          </div>
-          <div className="grid gap-2">
-            <HostDetailsSettingRow
-              label={t("hostDetails.auth.method")}
-              hint={t(`hostDetails.auth.${resolvedAuthMethod}.desc`)}
-            >
-              <Select
-                value={resolvedAuthMethod}
-                onValueChange={(val) => selectAuthMethod(val as "auto" | "password" | "key" | "certificate")}
-              >
-                <SelectTrigger
-                  className="h-8 w-32 gap-2"
-                  aria-label={t("hostDetails.auth.method")}
-                >
-                  {/*
-                    Radix Select only mirrors the selected item text after the
-                    closed control is measured. Render the current label directly
-                    so the default value is never blank on first paint.
-                  */}
-                  <span className="min-w-0 flex-1 truncate text-left">
-                    {selectedAuthMethodLabel}
-                  </span>
-                </SelectTrigger>
-                <SelectContent>
-                  {HOST_AUTH_METHOD_CHOICES.map(([value, labelKey]) => (
-                    <SelectItem
-                      key={value}
-                      value={value}
-                      textValue={t(labelKey)}
-                      onPointerUp={() => {
-                        // Radix skips consumer onValueChange for an unchanged value.
-                        // Key/certificate still need the same-item path to reopen the chooser.
-                        if (shouldForceAuthMethodReselect(value, resolvedAuthMethod)) {
-                          selectAuthMethod(value);
-                        }
-                      }}
-                      onKeyDown={(event) => {
-                        if (
-                          (event.key === "Enter" || event.key === " ")
-                          && shouldForceAuthMethodReselect(value, resolvedAuthMethod)
-                        ) {
-                          selectAuthMethod(value);
-                        }
-                      }}
-                    >
-                      {t(labelKey)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </HostDetailsSettingRow>
-            {!effectiveEtEnabled && effectiveProtocol !== "et" && (
-              <HostDetailsSettingRow
-                label={t("hostDetails.auth.mfaFirst")}
-                hint={t("hostDetails.auth.mfaFirst.desc")}
-              >
-                <Switch
-                  checked={!!form.requiresMfa}
-                  onCheckedChange={(val) => update("requiresMfa" as keyof Host, val)}
-                />
-              </HostDetailsSettingRow>
-            )}
+  const credentialFields = (
+    <>
             {selectedIdentity ? (
               <div className="flex items-center gap-2 h-10 px-3 rounded-md border border-border/70 bg-secondary/60">
                 <User size={16} className="text-muted-foreground" />
@@ -274,16 +181,22 @@ export const HostDetailsConnectionSections: React.FC<HostDetailsConnectionSectio
                 const hasIdentities = identities.length > 0;
                 if (!hasIdentities) {
                   return (
+                    <div data-credential-field="username" className="min-w-0 space-y-1.5">
+                      {compact && <p className="text-xs font-semibold">{t("hostDetails.username.placeholder")}</p>}
                     <Input
+                      aria-label={t("hostDetails.username.placeholder")}
                       placeholder={groupDefaults?.username || t("hostDetails.username.placeholder")}
                       value={form.username}
                       onChange={(e) => update("username", e.target.value)}
                       className="h-10"
                     />
+                    </div>
                   );
                 }
 
                 return (
+                  <div data-credential-field="username" className="min-w-0 space-y-1.5">
+                  {compact && <p className="text-xs font-semibold">{t("hostDetails.username.placeholder")}</p>}
                   <Popover
                     open={
                       identitySuggestionsOpen &&
@@ -304,6 +217,7 @@ export const HostDetailsConnectionSections: React.FC<HostDetailsConnectionSectio
                         data-identity-suggestions-anchor=""
                       >
                         <Input
+                          aria-label={t("hostDetails.username.placeholder")}
                           placeholder={groupDefaults?.username || t("hostDetails.username.placeholder")}
                           value={form.username}
                           onChange={(e) => {
@@ -433,13 +347,17 @@ export const HostDetailsConnectionSections: React.FC<HostDetailsConnectionSectio
                       </ScrollArea>
                     </PopoverContent>
                   </Popover>
+                  </div>
                 );
               })()
             )}
 
             {!selectedIdentity && !form.identityId && (
+              <div data-credential-field="password" className="min-w-0 space-y-1.5">
+                {compact && <p className="text-xs font-semibold">{t("hostDetails.password.placeholder")}</p>}
               <div className="relative">
                 <Input
+                  aria-label={t("hostDetails.password.placeholder")}
                   placeholder={t("hostDetails.password.placeholder")}
                   type={showPassword ? "text" : "password"}
                   value={form.password || ""}
@@ -450,6 +368,7 @@ export const HostDetailsConnectionSections: React.FC<HostDetailsConnectionSectio
                   <TooltipTrigger asChild>
                     <button
                       type="button"
+                      aria-label={showPassword ? t("hostDetails.password.hide") : t("hostDetails.password.show")}
                       onClick={() => setShowPassword(!showPassword)}
                       className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-muted-foreground hover:text-foreground transition-colors"
                     >
@@ -458,6 +377,7 @@ export const HostDetailsConnectionSections: React.FC<HostDetailsConnectionSectio
                   </TooltipTrigger>
                   <TooltipContent>{showPassword ? t("hostDetails.password.hide") : t("hostDetails.password.show")}</TooltipContent>
                 </Tooltip>
+              </div>
               </div>
             )}
 
@@ -541,7 +461,8 @@ export const HostDetailsConnectionSections: React.FC<HostDetailsConnectionSectio
             {/* Credential type selection with inline popover - hidden when credential is selected */}
             {!selectedIdentity &&
               !form.identityFileId &&
-              !selectedCredentialType && (
+              !selectedCredentialType &&
+              (!compact || resolvedAuthMethod === "key" || resolvedAuthMethod === "certificate") && (
                 <Popover
                   open={credentialPopoverOpen}
                   onOpenChange={setCredentialPopoverOpen}
@@ -739,9 +660,10 @@ export const HostDetailsConnectionSections: React.FC<HostDetailsConnectionSectio
                   </div>
                 </div>
               )}
-          </div>
-        </HostDetailsSection>
+    </>
+  );
 
+  const advancedFields = (<>
         <HostDetailsSection
           icon={<FolderLock size={14} className="text-muted-foreground" />}
           title={t("hostDetails.section.sftp")}
@@ -834,6 +756,147 @@ export const HostDetailsConnectionSections: React.FC<HostDetailsConnectionSectio
             }}
           />
         </HostDetailsSection>
+  </>);
+
+  if (advancedOnly) return (<>
+    {!effectiveEtEnabled && effectiveProtocol !== "et" && <HostDetailsSettingRow label={t("hostDetails.auth.mfaFirst")} hint={t("hostDetails.auth.mfaFirst.desc")}>
+      <Switch checked={!!form.requiresMfa} onCheckedChange={(value) => update("requiresMfa", value)} />
+    </HostDetailsSettingRow>}
+    {advancedFields}
+  </>);
+
+  if (compact) {
+    return (
+      <div className="space-y-3" data-section="new-host-connection">
+        <div className="grid grid-cols-[minmax(0,1fr)_100px] gap-3">
+          <label className="min-w-0 space-y-1.5">
+            <span className="text-xs font-semibold">{t("hostDetails.section.address")} <span className="text-destructive">*</span></span>
+            <Input aria-label={t("hostDetails.section.address")} placeholder={t("hostDetails.hostname.placeholder")} value={form.hostname} onChange={(event) => update("hostname", event.target.value)} />
+          </label>
+          <label className="space-y-1.5">
+            <span className="text-xs font-semibold">{t("hostDetails.port")}</span>
+            <Input aria-label={t("hostDetails.port")} type="number" min={1} max={65535} value={form.port ?? ""} placeholder={String(groupDefaults?.port || 22)} onChange={(event) => update("port", event.target.value ? Number(event.target.value) : undefined)} />
+          </label>
+        </div>
+        <div className="space-y-1.5">
+          <p className="text-xs font-semibold">{t("hostDetails.auth.method")}</p>
+          <div className="flex gap-1 rounded-md border border-border/70 p-1" role="group" aria-label={t("hostDetails.auth.method")}>
+            {HOST_AUTH_METHOD_CHOICES.map(([value, labelKey]) => (
+              <button key={value} type="button" aria-pressed={resolvedAuthMethod === value} onClick={() => selectAuthMethod(value)} className={`min-w-0 flex-1 rounded px-2 py-1.5 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${resolvedAuthMethod === value ? "bg-secondary text-foreground shadow-sm ring-1 ring-border" : "text-muted-foreground hover:bg-secondary/50 hover:text-foreground"}`}>
+                {t(labelKey)}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 [&>*:not([data-credential-field])]:col-span-full">
+          {credentialFields}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+  <>
+        <HostDetailsSection
+          icon={<MapPin size={14} className="text-muted-foreground" />}
+          title={t("hostDetails.section.address")}
+        >
+          <Input
+            placeholder={t("hostDetails.hostname.placeholder")}
+            value={form.hostname}
+            onChange={(e) => update("hostname", e.target.value)}
+            className="h-10 w-full"
+          />
+        </HostDetailsSection>
+
+        <HostDetailsSection
+          icon={<KeyRound size={14} className="text-muted-foreground" />}
+          title={t("hostDetails.section.portCredentials")}
+          className="overflow-hidden"
+        >
+          <div className="flex items-center gap-2">
+            <div className="flex-1 min-w-0 h-10 flex items-center gap-2 bg-secondary/70 border border-border/70 rounded-md px-3">
+              <span className="text-xs text-muted-foreground">SSH on</span>
+              <div className="ml-auto w-1/2 min-w-0 flex items-center gap-2 justify-end">
+                <Input
+                  type="number"
+                  value={form.port ?? ""}
+                  onChange={(e) => update("port", e.target.value ? Number(e.target.value) : undefined)}
+                  placeholder={groupDefaults?.port ? String(groupDefaults.port) : "22"}
+                  className="h-8 flex-1 min-w-0 text-center"
+                />
+                <span className="text-xs text-muted-foreground">
+                  {t("hostDetails.port")}
+                </span>
+              </div>
+            </div>
+          </div>
+          <div className="grid gap-2">
+            <HostDetailsSettingRow
+              label={t("hostDetails.auth.method")}
+              hint={t(`hostDetails.auth.${resolvedAuthMethod}.desc`)}
+            >
+              <Select
+                value={resolvedAuthMethod}
+                onValueChange={(val) => selectAuthMethod(val as "auto" | "password" | "key" | "certificate")}
+              >
+                <SelectTrigger
+                  className="h-8 w-32 gap-2"
+                  aria-label={t("hostDetails.auth.method")}
+                >
+                  {/*
+                    Radix Select only mirrors the selected item text after the
+                    closed control is measured. Render the current label directly
+                    so the default value is never blank on first paint.
+                  */}
+                  <span className="min-w-0 flex-1 truncate text-left">
+                    {selectedAuthMethodLabel}
+                  </span>
+                </SelectTrigger>
+                <SelectContent>
+                  {HOST_AUTH_METHOD_CHOICES.map(([value, labelKey]) => (
+                    <SelectItem
+                      key={value}
+                      value={value}
+                      textValue={t(labelKey)}
+                      onPointerUp={() => {
+                        // Radix skips consumer onValueChange for an unchanged value.
+                        // Key/certificate still need the same-item path to reopen the chooser.
+                        if (shouldForceAuthMethodReselect(value, resolvedAuthMethod)) {
+                          selectAuthMethod(value);
+                        }
+                      }}
+                      onKeyDown={(event) => {
+                        if (
+                          (event.key === "Enter" || event.key === " ")
+                          && shouldForceAuthMethodReselect(value, resolvedAuthMethod)
+                        ) {
+                          selectAuthMethod(value);
+                        }
+                      }}
+                    >
+                      {t(labelKey)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </HostDetailsSettingRow>
+            {!effectiveEtEnabled && effectiveProtocol !== "et" && (
+              <HostDetailsSettingRow
+                label={t("hostDetails.auth.mfaFirst")}
+                hint={t("hostDetails.auth.mfaFirst.desc")}
+              >
+                <Switch
+                  checked={!!form.requiresMfa}
+                  onCheckedChange={(val) => update("requiresMfa" as keyof Host, val)}
+                />
+              </HostDetailsSettingRow>
+            )}
+            {credentialFields}
+          </div>
+        </HostDetailsSection>
+
+        {advancedFields}
   </>
   );
 };

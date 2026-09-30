@@ -1,5 +1,6 @@
 import {
   Check,
+  ChevronRight,
   Eye,
   EyeOff,
   FileText,
@@ -32,6 +33,9 @@ import {
 } from "../domain/terminalAppearance";
 import { EnvVar, GroupConfig, Host, Identity, ManagedSource, ProxyConfig, ProxyProfile, Snippet, SSHKey } from "../types";
 import { DISTRO_COLORS, DISTRO_LOGOS } from "./DistroAvatar";
+import SerialHostDetailsPanel from "./SerialHostDetailsPanel";
+import { HostCreationProtocolSelect } from "./host-details/HostCreationProtocolSelect";
+import { HostIconPopover } from "./host-details/HostIconPopover";
 import ThemeSelectPanel from "./ThemeSelectPanel";
 import {
   AsidePanel,
@@ -58,6 +62,10 @@ import { TerminalEncodingSelect } from "./TerminalEncodingSelect";
 import { Button } from "./ui/button";
 import { Combobox, ComboboxOption, MultiCombobox } from "./ui/combobox";
 import { Input } from "./ui/input";
+import { Textarea } from "./ui/textarea";
+import { cn } from "../lib/utils";
+import { Dialog, DialogContent, DialogTitle } from "./ui/dialog";
+import { PortalContainerProvider } from "./ui/portal-container";
 import { Switch } from "./ui/switch";
 import { toast } from "./ui/toast";
 
@@ -116,7 +124,7 @@ interface HostDetailsPanelProps {
 
 type HostDetailsPanelPropsWithResize = HostDetailsPanelProps & AsidePanelResizeProps;
 
-const HostDetailsPanel: React.FC<HostDetailsPanelPropsWithResize> = ({
+const HostDetailsPanelContent: React.FC<HostDetailsPanelPropsWithResize> = ({
   initialData,
   availableKeys,
   identities,
@@ -175,6 +183,10 @@ const HostDetailsPanel: React.FC<HostDetailsPanelPropsWithResize> = ({
       } as Host),
   );
 
+  const isCreating = !initialData;
+  const [serialMode, setSerialMode] = useState(false);
+  const [serialDraft, setSerialDraft] = useState<Host | null>(null);
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const [activeSubPanel, setActiveSubPanel] = useState<SubPanel>("none");
 
   const [credentialPopoverOpen, setCredentialPopoverOpen] = useState(false);
@@ -823,8 +835,132 @@ const HostDetailsPanel: React.FC<HostDetailsPanelPropsWithResize> = ({
     }));
   }, []);
 
+  const groupField = (
+            <Combobox
+              options={groupOptions}
+              value={form.group || ""}
+              onValueChange={(val) => {
+                update("group", val);
+                setGroupInputValue(val);
+              }}
+              placeholder={t(isCreating ? "hostDetails.create.ungrouped" : "hostDetails.group.placeholder")}
+              ariaLabel={t("hostDetails.create.group")}
+              allowCreate={true}
+              onCreateNew={(val) => {
+                onCreateGroup?.(val);
+                update("group", val);
+                setGroupInputValue(val);
+              }}
+              createText="Create Group"
+              triggerClassName={isCreating ? "w-full h-7 text-xs" : "flex-1 h-10"}
+            />
+  );
+  const connectionSections = (
+    <HostDetailsConnectionSections compact={isCreating}
+          t={t}
+          form={form}
+          setForm={setForm}
+          update={update}
+          groupDefaults={effectiveGroupDefaults}
+          effectiveAuthMethod={effectiveAuthMethod}
+          effectiveUsername={effectiveAuth.username}
+          effectiveIdentityId={effectiveAuthHost.identityId}
+          selectedIdentity={selectedIdentity}
+          clearIdentity={clearIdentity}
+          identities={identities}
+          identitySuggestionsOpen={identitySuggestionsOpen}
+          filteredIdentitySuggestions={filteredIdentitySuggestions}
+          setIdentitySuggestionsOpen={setIdentitySuggestionsOpen}
+          availableKeys={availableKeys}
+          applyIdentity={applyIdentity}
+          showPassword={showPassword}
+          setShowPassword={setShowPassword}
+          pendingReferenceKeyPath={pendingReferenceKeyPath}
+          setPendingReferenceKeyPath={setPendingReferenceKeyPath}
+          selectedCredentialType={selectedCredentialType}
+          setSelectedCredentialType={setSelectedCredentialType}
+          credentialPopoverOpen={credentialPopoverOpen}
+          setCredentialPopoverOpen={setCredentialPopoverOpen}
+          keysByCategory={keysByCategory}
+          newKeyFilePath={newKeyFilePath}
+          setNewKeyFilePath={setNewKeyFilePath}
+          addLocalKeyFilePath={addLocalKeyFilePath}
+          handleDistroModeChange={handleDistroModeChange}
+          distroOptions={distroOptions}
+          effectiveFormDistro={effectiveFormDistro}
+          getDistroOptionLabel={getDistroOptionLabel}
+    />
+  );
+
+  const protocolControl = (
+    <HostCreationProtocolSelect
+      value={serialMode ? "serial" : form.protocol === "telnet" ? "telnet" : "ssh"}
+      onChange={(protocol) => {
+        if (protocol === "serial") {
+          // Serial auto-login must start without the SSH form's credentials.
+          setSerialDraft((previous) => previous ?? {
+            id: form.id,
+            label: form.label,
+            hostname: "",
+            username: "",
+            port: 115200,
+            protocol: "serial",
+            os: "linux",
+            tags: [...(form.tags || [])],
+            group: form.group,
+            notes: form.notes,
+            charset: form.charset,
+            createdAt: form.createdAt,
+            distroMode: form.distroMode,
+            manualDistro: form.manualDistro,
+            iconMode: form.iconMode,
+            iconId: form.iconId,
+            iconColorMode: form.iconColorMode,
+            iconColor: form.iconColor,
+            iconColorCustom: form.iconColorCustom,
+          });
+          setSerialMode(true);
+          return;
+        }
+        setSerialMode(false);
+        setForm((previous) => ({
+          ...previous,
+          protocol,
+          port: resolvePrimaryProtocolSwitchPort(previous.port, protocol, Boolean(effectiveGroupDefaults?.telnetPort), Boolean(effectiveGroupDefaults?.port)),
+        }));
+      }}
+    />
+  );
+
+  const renderPanels = (panel: React.ReactNode) => {
+    if (!isCreating) return panel;
+
+  return (
+    <>
+      <div hidden={serialMode} className="h-full min-h-0 [&>div]:!w-full [&>div]:!border-l-0 [&>div]:!shadow-none">
+        {panel}
+      </div>
+      {serialDraft && (
+        <div hidden={!serialMode} className="h-full min-h-0 [&>div]:!w-full [&>div]:!border-l-0 [&>div]:!shadow-none">
+          <SerialHostDetailsPanel
+            initialData={serialDraft}
+            groups={groups}
+            allTags={allTags}
+            groupDefaults={effectiveGroupDefaults}
+            onSave={onSave}
+            onCancel={onCancel}
+            layout="inline"
+            creationProtocolControl={protocolControl}
+            iconPickerOptions={{ distroOptions, getDistroOptionLabel }}
+          />
+        </div>
+      )}
+    </>
+  );
+  };
+
   if (activeSubPanel === "create-group") {
-    return (
+    return renderPanels(
       <CreateGroupPanel
         newGroupName={newGroupName}
         setNewGroupName={setNewGroupName}
@@ -841,7 +977,7 @@ const HostDetailsPanel: React.FC<HostDetailsPanelPropsWithResize> = ({
   }
 
   if (activeSubPanel === "proxy") {
-    return (
+    return renderPanels(
       <ProxyPanel
         proxyConfig={form.proxyConfig}
         proxyProfiles={proxyProfiles}
@@ -859,7 +995,7 @@ const HostDetailsPanel: React.FC<HostDetailsPanelPropsWithResize> = ({
   }
 
   if (activeSubPanel === "chain") {
-    return (
+    return renderPanels(
       <ChainPanel
         formLabel={form.label}
         formHostname={form.hostname}
@@ -878,7 +1014,7 @@ const HostDetailsPanel: React.FC<HostDetailsPanelPropsWithResize> = ({
   }
 
   if (activeSubPanel === "env-vars") {
-    return (
+    return renderPanels(
       <EnvVarsPanel
         hostLabel={form.label}
         hostHostname={form.hostname}
@@ -907,7 +1043,7 @@ const HostDetailsPanel: React.FC<HostDetailsPanelPropsWithResize> = ({
   }
 
   if (activeSubPanel === "theme-select") {
-    return (
+    return renderPanels(
       <ThemeSelectPanel
         open={true}
         selectedThemeId={effectiveThemeId}
@@ -929,7 +1065,7 @@ const HostDetailsPanel: React.FC<HostDetailsPanelPropsWithResize> = ({
   }
 
   if (activeSubPanel === "telnet-theme-select") {
-    return (
+    return renderPanels(
       <ThemeSelectPanel
         open={true}
         selectedThemeId={effectiveTelnetThemeId}
@@ -965,19 +1101,19 @@ const HostDetailsPanel: React.FC<HostDetailsPanelPropsWithResize> = ({
     );
   }
 
-  return (
+  const standardPanel = (
     <AsidePanel
       open={true}
       onClose={onCancel}
-      width="w-[420px]"
+      width={isCreating ? "w-[520px]" : "w-[420px]"}
       layout={layout}
-      className={className}
+      className={cn(className, isCreating && "[&_input]:h-7 [&_input]:bg-secondary/40 [&_input]:text-xs [&_input]:focus-visible:ring-1 [&_input]:focus-visible:ring-ring [&_textarea]:bg-secondary/40 [&_textarea]:focus-visible:ring-1 [&_textarea]:focus-visible:ring-ring")}
       dataSection="host-details-panel"
       {...asideResizeProps}
       title={
         initialData ? t("hostDetails.title.details") : t("hostDetails.title.new")
       }
-      actions={
+      actions={!isCreating &&
         <Button
           variant="ghost"
           size="icon"
@@ -990,11 +1126,14 @@ const HostDetailsPanel: React.FC<HostDetailsPanelPropsWithResize> = ({
         </Button>
       }
     >
-      <AsidePanelContent>
+      <AsidePanelContent className={isCreating ? "[&_[data-radix-scroll-area-viewport]>div>div]:space-y-2 [&_[data-radix-scroll-area-viewport]>div>div]:py-3" : undefined}>
         <HostDetailsSection
           icon={<Settings2 size={14} className="text-muted-foreground" />}
-          title={t("hostDetails.section.general")}
+          title={t(isCreating ? "hostDetails.create.name" : "hostDetails.section.general")}
+          className={isCreating ? "!border-0 !bg-transparent !p-0 !shadow-none !space-y-1.5 [&>div:first-child>span]:hidden" : undefined}
         >
+          <div className="flex items-center gap-2">
+            {isCreating && <HostIconPopover host={form} options={{ distroOptions, getDistroOptionLabel }} onChange={(next) => setForm((previous) => ({ ...previous, ...next }))} />}
           <Input
             placeholder={t("hostDetails.label.placeholder")}
             value={form.label}
@@ -1010,32 +1149,17 @@ const HostDetailsPanel: React.FC<HostDetailsPanelPropsWithResize> = ({
               }
               update("label", value);
             }}
+            aria-label={t("hostDetails.create.name")}
             className="h-10"
           />
-
-          <div className="flex items-center gap-2">
-            <div className="h-10 w-10 rounded-lg bg-secondary/80 flex items-center justify-center shrink-0">
-              <FolderPlus size={16} className="text-muted-foreground" />
-            </div>
-            <Combobox
-              options={groupOptions}
-              value={form.group || ""}
-              onValueChange={(val) => {
-                update("group", val);
-                setGroupInputValue(val);
-              }}
-              placeholder={t("hostDetails.group.placeholder")}
-              allowCreate={true}
-              onCreateNew={(val) => {
-                onCreateGroup?.(val);
-                update("group", val);
-                setGroupInputValue(val);
-              }}
-              createText="Create Group"
-              triggerClassName="flex-1 h-10"
-            />
           </div>
 
+          {!isCreating && <div className="flex items-center gap-2">
+            <div className="h-10 w-10 rounded-lg bg-secondary/80 flex items-center justify-center shrink-0"><FolderPlus size={16} className="text-muted-foreground" /></div>
+            {groupField}
+          </div>}
+
+          {!isCreating && <>
           <div className="flex items-center gap-2">
             <div className="h-10 w-10 rounded-lg bg-secondary/80 flex items-center justify-center shrink-0">
               <Tag size={16} className="text-muted-foreground" />
@@ -1051,7 +1175,10 @@ const HostDetailsPanel: React.FC<HostDetailsPanelPropsWithResize> = ({
               triggerClassName="flex-1 min-h-10"
             />
           </div>
+          </>}
         </HostDetailsSection>
+
+        {isCreating && !pluginProtocolActive && protocolControl}
 
         <PluginConnectionSection
           form={form}
@@ -1062,40 +1189,72 @@ const HostDetailsPanel: React.FC<HostDetailsPanelPropsWithResize> = ({
           keys={availableKeys}
         />
 
-        {!pluginProtocolActive ? <HostDetailsConnectionSections
-          t={t}
-          form={form}
-          setForm={setForm}
-          update={update}
-          groupDefaults={effectiveGroupDefaults}
-          effectiveAuthMethod={effectiveAuthMethod}
-          effectiveUsername={effectiveAuth.username}
-          effectiveIdentityId={effectiveAuthHost.identityId}
-          selectedIdentity={selectedIdentity}
-          clearIdentity={clearIdentity}
-          identities={identities}
-          identitySuggestionsOpen={identitySuggestionsOpen}
-          filteredIdentitySuggestions={filteredIdentitySuggestions}
-          setIdentitySuggestionsOpen={setIdentitySuggestionsOpen}
-          availableKeys={availableKeys}
-          applyIdentity={applyIdentity}
-          showPassword={showPassword}
-          setShowPassword={setShowPassword}
-          pendingReferenceKeyPath={pendingReferenceKeyPath}
-          setPendingReferenceKeyPath={setPendingReferenceKeyPath}
-          selectedCredentialType={selectedCredentialType}
-          setSelectedCredentialType={setSelectedCredentialType}
-          credentialPopoverOpen={credentialPopoverOpen}
-          setCredentialPopoverOpen={setCredentialPopoverOpen}
-          keysByCategory={keysByCategory}
-          newKeyFilePath={newKeyFilePath}
-          setNewKeyFilePath={setNewKeyFilePath}
-          addLocalKeyFilePath={addLocalKeyFilePath}
-          handleDistroModeChange={handleDistroModeChange}
-          distroOptions={distroOptions}
-          effectiveFormDistro={effectiveFormDistro}
-          getDistroOptionLabel={getDistroOptionLabel}
-        /> : null}
+        {!pluginProtocolActive && (!isCreating || form.protocol !== "telnet") ? connectionSections : null}
+        {isCreating && form.protocol === "telnet" && (
+          <div className="space-y-3">
+            <div className="grid grid-cols-[minmax(0,1fr)_100px] gap-3">
+              <label className="min-w-0 space-y-1.5">
+                <span className="text-xs font-semibold">{t("hostDetails.section.address")} <span className="text-destructive">*</span></span>
+                <Input aria-label={t("hostDetails.section.address")} placeholder={t("hostDetails.hostname.placeholder")} value={form.hostname} onChange={(event) => update("hostname", event.target.value)} />
+              </label>
+              <label className="space-y-1.5">
+                <span className="text-xs font-semibold">{t("hostDetails.port")}</span>
+                <Input aria-label={t("hostDetails.port")} type="number" min={1} max={65535} value={effectiveTelnetPort} onChange={(event) => update("telnetPort", parseOptionalPortInput(event.target.value))} />
+              </label>
+            </div>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <label className="min-w-0 space-y-1.5">
+                <span className="text-xs font-semibold">{t("hostDetails.username.placeholder")}</span>
+                <Input value={effectiveTelnetUsername} placeholder={t("hostDetails.telnet.username")} onChange={(event) => update("telnetUsername", event.target.value)} disabled={Boolean(form.telnetIdentityId)} />
+              </label>
+              <label className="min-w-0 space-y-1.5">
+                <span className="text-xs font-semibold">{t("hostDetails.password.placeholder")}</span>
+                <div className="relative">
+                  <Input className="pr-9" type={showTelnetPassword ? "text" : "password"} value={effectiveTelnetPassword} placeholder={t("hostDetails.telnet.password")} onChange={(event) => update("telnetPassword", event.target.value)} disabled={Boolean(form.telnetIdentityId)} />
+                  <button type="button" className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground" aria-label={showTelnetPassword ? t("hostDetails.password.hide") : t("hostDetails.password.show")} onClick={() => setShowTelnetPassword(!showTelnetPassword)}>{showTelnetPassword ? <EyeOff size={14} /> : <Eye size={14} />}</button>
+                </div>
+              </label>
+            </div>
+          </div>
+        )}
+        {isCreating && (
+          <>
+            <div className="space-y-1.5">
+              <p className="text-xs font-semibold">{t("hostDetails.create.group")}</p>
+              {groupField}
+            </div>
+            {!pluginProtocolActive && form.protocol !== "telnet" && (
+              <div className="space-y-1.5">
+                <p className="text-xs font-semibold">{t("hostDetails.create.connection")}</p>
+                <div className="flex gap-1 rounded-md border border-border/70 p-1" role="group" aria-label={t("hostDetails.create.connection")}>
+                  {(["direct", "chain", "proxy"] as const).map((mode) => {
+                    const selected = mode === "direct" ? !chainedHosts.length && !form.proxyConfig && !form.proxyProfileId : mode === "chain" ? chainedHosts.length > 0 : Boolean(form.proxyConfig || form.proxyProfileId);
+                    return <button key={mode} type="button" aria-pressed={selected} className={cn("flex-1 rounded px-2 py-1.5 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring", selected ? "bg-secondary text-foreground shadow-sm ring-1 ring-border" : "text-muted-foreground hover:bg-secondary/50 hover:text-foreground")} onClick={() => {
+                      if (mode === "direct") { clearHostChain(); clearProxyConfig(); }
+                      else setActiveSubPanel(mode);
+                    }}>{t(mode === "direct" && (effectiveGroupDefaults?.hostChain?.hostIds?.length || effectiveGroupDefaults?.proxyConfig || effectiveGroupDefaults?.proxyProfileId) ? "hostDetails.create.connection.inherit" : `hostDetails.create.connection.${mode}`)}</button>;
+                  })}
+                </div>
+                {chainedHosts.length > 0 && <p className="truncate text-xs text-muted-foreground">{chainedHosts.map((host) => host.label || host.hostname).join(" > ")}</p>}
+                {(form.proxyConfig || form.proxyProfileId) && <p className="truncate text-xs text-muted-foreground">{proxySummaryLabel}</p>}
+              </div>
+            )}
+            <label className="block space-y-1.5">
+              <span className="text-xs font-semibold">{t("hostDetails.notes.label")}</span>
+              <Textarea value={form.notes ?? ""} onChange={(event) => update("notes", event.target.value)} placeholder={t("hostDetails.notes.placeholder")} className="min-h-20 resize-y text-xs" rows={3} />
+            </label>
+            <button type="button" className="flex w-full items-center gap-1.5 py-1 text-xs text-muted-foreground transition-colors hover:text-foreground" aria-expanded={showAdvanced} aria-controls={`host-advanced-${form.id}`} onClick={() => setShowAdvanced(!showAdvanced)}>
+              <ChevronRight size={14} className={cn("transition-transform duration-150", showAdvanced && "rotate-90")} />
+              {t("hostDetails.create.advanced")}
+            </button>
+          </>
+        )}
+        <div id={`host-advanced-${form.id}`} hidden={isCreating && !showAdvanced} className="space-y-4">
+        {isCreating && <>
+          <MultiCombobox options={tagOptions} values={form.tags || []} onValuesChange={(values) => update("tags", values)} placeholder={t("hostDetails.create.tags")} allowCreate onCreateNew={(value) => onCreateTag?.(value)} />
+          {!pluginProtocolActive && form.protocol !== "telnet" && React.cloneElement(connectionSections, { compact: false, advancedOnly: true })}
+        </>}
+
 
         {onSnippetsChange ? (
           <HostDetailsScriptsSection
@@ -1106,7 +1265,7 @@ const HostDetailsPanel: React.FC<HostDetailsPanelPropsWithResize> = ({
           />
         ) : null}
 
-        <HostDetailsSection
+        {!isCreating && <HostDetailsSection
           icon={<FileText size={14} className="text-muted-foreground shrink-0" />}
           title={t("hostDetails.notes.label")}
           hint={t("hostDetails.notes.help")}
@@ -1131,7 +1290,7 @@ const HostDetailsPanel: React.FC<HostDetailsPanelPropsWithResize> = ({
               defaultTab="edit"
             />
           ) : null}
-        </HostDetailsSection>
+        </HostDetailsSection>}
 
         <HostDetailsAdvancedSections
           t={t}
@@ -1308,10 +1467,12 @@ const HostDetailsPanel: React.FC<HostDetailsPanelPropsWithResize> = ({
             {t("hostDetails.telnet.add")}
           </Button>
         )}
+        </div>
       </AsidePanelContent>
-      <AsidePanelFooter>
+      <AsidePanelFooter className={isCreating ? "flex items-center justify-end gap-2" : undefined}>
+        {isCreating && <Button variant="secondary" className="h-8 px-3 text-xs" onClick={onCancel}>{t("common.cancel")}</Button>}
         <Button
-          className="w-full h-10"
+          className={isCreating ? "h-8 px-4 text-xs" : "w-full h-10"}
           onClick={handleSubmit}
           disabled={!canSaveHost}
         >
@@ -1320,7 +1481,34 @@ const HostDetailsPanel: React.FC<HostDetailsPanelPropsWithResize> = ({
       </AsidePanelFooter>
     </AsidePanel>
   );
+
+  return renderPanels(standardPanel);
 };
 
+
+const HostDetailsPanel: React.FC<HostDetailsPanelPropsWithResize> = (props) => {
+  const { t } = useI18n();
+  const [portalContainer, setPortalContainer] = useState<HTMLDivElement | null>(null);
+
+  if (props.initialData) return <HostDetailsPanelContent {...props} />;
+
+  return (
+    <Dialog open onOpenChange={(open) => { if (!open) props.onCancel(); }}>
+      <DialogContent
+        ref={setPortalContainer}
+        hideCloseButton
+        overlayClassName="bg-black/40 backdrop-blur-sm"
+        className="flex h-[min(800px,calc(100dvh-32px))] w-[calc(100vw-32px)] max-w-[520px] flex-col gap-0 overflow-visible rounded-xl border-border/70 p-0"
+      >
+        <DialogTitle className="sr-only">{t("hostDetails.title.new")}</DialogTitle>
+        <PortalContainerProvider container={portalContainer}>
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[inherit] [&_.split-panel-enter]:!animate-none [&>div]:!w-full [&>div]:!border-l-0 [&>div]:!shadow-none">
+            <HostDetailsPanelContent {...props} layout="inline" resizable={false} className={props.className} />
+          </div>
+        </PortalContainerProvider>
+      </DialogContent>
+    </Dialog>
+  );
+};
 
 export default HostDetailsPanel;

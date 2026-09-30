@@ -230,12 +230,12 @@ export const HostIconPicker: React.FC<HostIconPickerProps> = ({
         <div className="space-y-1">
           <span className="text-xs text-muted-foreground">{t("hostDetails.icon.source")}</span>
           <Select value={manualSource ? "manual" : "auto"} onValueChange={(value) => setSource(value as "auto" | "manual")}>
-            <SelectTrigger className="h-8" aria-label={t("hostDetails.icon.source")}>
+            <SelectTrigger className="h-8 w-full min-w-0" aria-label={t("hostDetails.icon.source")}>
               <span className="truncate whitespace-nowrap pr-2 text-left">
                 {manualSource ? t("hostDetails.distro.mode.manual") : t("hostDetails.distro.mode.auto")}
               </span>
             </SelectTrigger>
-            <SelectContent>
+            <SelectContent sideOffset={4} collisionPadding={8}>
               <SelectItem value="auto">{t("hostDetails.distro.mode.auto")}</SelectItem>
               <SelectItem value="manual">{t("hostDetails.distro.mode.manual")}</SelectItem>
             </SelectContent>
@@ -250,14 +250,14 @@ export const HostIconPicker: React.FC<HostIconPickerProps> = ({
               onValueChange={setManualIcon}
               {...(manualIconMenuOpen === undefined ? {} : { open: manualIconMenuOpen })}
             >
-              <SelectTrigger className="h-8" aria-label={t("hostDetails.icon.manualLabel")}>
+              <SelectTrigger className="h-8 w-full min-w-0" aria-label={t("hostDetails.icon.manualLabel")}>
                 {selectedIconTab === "type"
                   ? renderTypeOption(selectedIconId, t(`hostDetails.icon.option.${selectedIconId}`), selectedTypePreviewColor)
                   : selectedBrand
                     ? renderBrandOption(selectedBrand)
                     : <SelectValue placeholder={t("hostDetails.distro.unknown")} />}
               </SelectTrigger>
-              <SelectContent className="min-w-[16rem]" hideScrollButtons>
+              <SelectContent className="min-w-[16rem] max-h-[min(20rem,var(--radix-select-content-available-height))]" sideOffset={4} collisionPadding={8} hideScrollButtons>
                 <div className="sticky top-0 z-10 bg-popover px-1 pb-1">
                   <div className="grid h-8 grid-cols-2 rounded-md bg-muted/50 p-0.5">
                     <button
@@ -325,12 +325,12 @@ export const HostIconPicker: React.FC<HostIconPickerProps> = ({
           <div className="space-y-1">
             <span className="text-xs text-muted-foreground">{t("hostDetails.icon.colorLabel")}</span>
             <Select value={manualColor ? "manual" : "auto"} onValueChange={(value) => setColorMode(value as "auto" | "manual")}>
-              <SelectTrigger className="h-8" aria-label={t("hostDetails.icon.colorLabel")}>
+              <SelectTrigger className="h-8 w-full min-w-0" aria-label={t("hostDetails.icon.colorLabel")}>
                 <span className="truncate whitespace-nowrap pr-2 text-left">
                   {manualColor ? t("hostDetails.icon.colorManual") : t("hostDetails.icon.colorAuto")}
                 </span>
               </SelectTrigger>
-              <SelectContent>
+              <SelectContent sideOffset={4} collisionPadding={8}>
                 <SelectItem value="auto">{t("hostDetails.icon.colorAuto")}</SelectItem>
                 <SelectItem value="manual">{t("hostDetails.icon.colorManual")}</SelectItem>
               </SelectContent>
@@ -341,7 +341,7 @@ export const HostIconPicker: React.FC<HostIconPickerProps> = ({
             <div className="space-y-1">
               <span className="text-xs text-muted-foreground">{t("hostDetails.icon.colorChoice")}</span>
               <Select value={selectedColorValue} onValueChange={setColorChoice}>
-                <SelectTrigger className="h-8" aria-label={t("hostDetails.icon.colorChoice")}>
+                <SelectTrigger className="h-8 w-full min-w-0" aria-label={t("hostDetails.icon.colorChoice")}>
                   <div className="flex min-w-0 items-center gap-2 pr-2">
                     <span className="h-4 w-4 shrink-0 rounded-full border border-border/70" style={{ backgroundColor: manualPreviewColor }} />
                     <span className="truncate whitespace-nowrap">
@@ -351,7 +351,7 @@ export const HostIconPicker: React.FC<HostIconPickerProps> = ({
                     </span>
                   </div>
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent sideOffset={4} collisionPadding={8}>
                   {HOST_ICON_COLORS.map((color) => (
                     <SelectItem key={color.id} value={color.id}>
                       <div className="flex items-center gap-2">

@@ -104,8 +104,8 @@ test("HostIconPicker ignores stale colors when color mode is automatic", () => {
 });
 
 test("HostIconPicker keeps brand/type tabs inside the manual icon dropdown menu", () => {
-  assert.match(hostIconPickerSource, /<SelectContent className="min-w-\[16rem\]" hideScrollButtons>[\s\S]*role="tab"[\s\S]*hostDetails\.icon\.tab\.brand/);
-  assert.match(hostIconPickerSource, /<SelectContent className="min-w-\[16rem\]" hideScrollButtons>[\s\S]*hostDetails\.icon\.tab\.type/);
+  assert.match(hostIconPickerSource, /<SelectContent className="min-w-\[16rem\][^"]*"[^>]*hideScrollButtons>[\s\S]*role="tab"[\s\S]*hostDetails\.icon\.tab\.brand/);
+  assert.match(hostIconPickerSource, /<SelectContent className="min-w-\[16rem\][^"]*"[^>]*hideScrollButtons>[\s\S]*hostDetails\.icon\.tab\.type/);
   assert.doesNotMatch(hostIconPickerSource, /<TabsList/);
 });
 
