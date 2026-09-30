@@ -49,12 +49,21 @@ let authToken = null;  // Random token generated when TCP server starts
 let externalAuthToken = null;
 let pendingHostStart = null; // { promise, server, cancel }
 let electronModule = null;
-let cliDiscoveryFilePath = getCliDiscoveryFilePath();
+// Resolved on demand rather than frozen at load time. The path used to be
+// captured here, so merely requiring this module (including from `node --test`)
+// inherited the INSTALLED app's live discovery file and `cleanup()` deleted it.
+let cliDiscoveryFilePathOverride = null;
+function getActiveCliDiscoveryFilePath() {
+  return cliDiscoveryFilePathOverride || getCliDiscoveryFilePath();
+}
+let discoverySelfHealTimer = null;
+const DISCOVERY_SELF_HEAL_INTERVAL_MS = 15000;
 
 // Track which sockets have completed authentication
 const authenticatedSockets = new WeakSet();
 // Sockets authenticated with the External MCP token (or that used the reserved scope).
 const externalMcpSockets = new Set();
+const sessionApprovedExternalSockets = new WeakSet();
 
 function markExternalMcpSocket(socket) {
   if (!socket || socket.destroyed) return;
@@ -63,6 +72,8 @@ function markExternalMcpSocket(socket) {
     socket.__netcattyExternalMcpCleanupBound = true;
     const cleanup = () => {
       externalMcpSockets.delete(socket);
+      sessionApprovedExternalSockets.delete(socket);
+      clearPendingApprovalsForSocket(socket);
     };
     socket.once("close", cleanup);
     socket.once("end", cleanup);
@@ -77,6 +88,9 @@ function issueExternalMcpAuthToken() {
 
 function revokeExternalMcpAuthToken() {
   externalAuthToken = null;
+  for (const socket of externalMcpSockets) {
+    sessionApprovedExternalSockets.delete(socket);
+  }
 }
 
 function getExternalMcpAuthToken() {
@@ -89,6 +103,7 @@ function disconnectExternalMcpClients() {
   // is reserved for process shutdown paths that call this intentionally.
   for (const socket of Array.from(externalMcpSockets)) {
     externalMcpSockets.delete(socket);
+    sessionApprovedExternalSockets.delete(socket);
     try {
       if (!socket.destroyed) socket.destroy();
     } catch {
@@ -199,7 +214,7 @@ function broadcastApprovalEvent(channel, payload) {
   }
 }
 
-function requestApprovalFromRenderer(toolName, args, chatSessionId) {
+function requestApprovalFromRenderer(toolName, args, chatSessionId, approvalContext = {}) {
   return new Promise((resolve) => {
     debugLog("requestApprovalFromRenderer", { toolName, args, chatSessionId });
     const targets = listApprovalTargetWindows();
@@ -253,25 +268,59 @@ function requestApprovalFromRenderer(toolName, args, chatSessionId) {
       absoluteExpiresAt,
       idleCancelled: false,
       chatSessionId: chatSessionId || null,
+      externalSocket: approvalContext.externalSocket || null,
     });
     broadcastApprovalEvent('netcatty:ai:mcp:approval-request', {
       approvalId,
       toolName,
       args,
       chatSessionId: chatSessionId || undefined,
+      target: approvalContext.target || undefined,
+      allowSession: chatSessionId === EXTERNAL_MCP_CHAT_SESSION_ID
+        && externalMcpSockets.has(approvalContext.externalSocket),
     });
   });
 }
 
-function resolveApprovalFromRenderer(approvalId, approved) {
+function resolveApprovalFromRenderer(approvalId, approved, scope = 'once') {
   debugLog("resolveApprovalFromRenderer", { approvalId, approved });
   const entry = pendingApprovals.get(approvalId);
-  if (entry) {
-    pendingApprovals.delete(approvalId);
-    entry.resolve(approved);
-    // Main + settings both receive approval requests; clear the sibling card.
-    notifyRendererApprovalCleared([approvalId]);
+  if (!entry) return false;
+  pendingApprovals.delete(approvalId);
+  const externalSocket = entry.chatSessionId === EXTERNAL_MCP_CHAT_SESSION_ID
+    ? entry.externalSocket
+    : null;
+  const socketValid = entry.chatSessionId !== EXTERNAL_MCP_CHAT_SESSION_ID
+    || Boolean(externalSocket
+      && !externalSocket.destroyed
+      && externalMcpSockets.has(externalSocket)
+      && externalMcpActivityHook?.isEnabled?.());
+  const accepted = approved === true && socketValid;
+  const clearedIds = [approvalId];
+  if (accepted && scope === 'session' && externalSocket) {
+    sessionApprovedExternalSockets.add(externalSocket);
+    for (const [id, pending] of pendingApprovals) {
+      if (pending.externalSocket !== externalSocket) continue;
+      pendingApprovals.delete(id);
+      pending.resolve(true);
+      clearedIds.push(id);
+    }
   }
+  entry.resolve(accepted);
+  // Main + settings both receive approval requests; clear sibling cards.
+  notifyRendererApprovalCleared(clearedIds);
+  return socketValid;
+}
+
+function clearPendingApprovalsForSocket(socket) {
+  const clearedIds = [];
+  for (const [id, entry] of pendingApprovals) {
+    if (entry.externalSocket !== socket) continue;
+    pendingApprovals.delete(id);
+    entry.resolve(false);
+    clearedIds.push(id);
+  }
+  notifyRendererApprovalCleared(clearedIds);
 }
 
 /**
@@ -385,7 +434,7 @@ function init(deps) {
   terminalWorkerManager = deps.terminalWorkerManager || null;
   fileTransferBridge = deps.transferBridge || null;
   electronModule = deps.electronModule || null;
-  cliDiscoveryFilePath = deps.cliDiscoveryFilePath || getCliDiscoveryFilePath();
+  cliDiscoveryFilePathOverride = deps.cliDiscoveryFilePath || null;
   debugLog("init", { hasSessions: Boolean(sessions), hasElectron: Boolean(electronModule) });
   if (deps.commandBlocklist) {
     commandBlocklist = deps.commandBlocklist;
@@ -423,6 +472,7 @@ async function listActivePortForwards() {
 }
 
 function writeCliDiscoveryFile() {
+  const cliDiscoveryFilePath = getActiveCliDiscoveryFilePath();
   if (!tcpPort || !authToken || !cliDiscoveryFilePath) return;
   const payload = {
     port: tcpPort,
@@ -440,6 +490,7 @@ function writeCliDiscoveryFile() {
 }
 
 function removeCliDiscoveryFile() {
+  const cliDiscoveryFilePath = getActiveCliDiscoveryFilePath();
   if (!cliDiscoveryFilePath) return;
   try {
     fs.rmSync(cliDiscoveryFilePath, { force: true });
@@ -448,7 +499,57 @@ function removeCliDiscoveryFile() {
   }
 }
 
+function isCliDiscoveryFileCurrent() {
+  const cliDiscoveryFilePath = getActiveCliDiscoveryFilePath();
+  if (!cliDiscoveryFilePath) return true;
+  let raw;
+  try {
+    raw = fs.readFileSync(cliDiscoveryFilePath, "utf8");
+  } catch {
+    return false;
+  }
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed?.port === tcpPort
+      && parsed?.token === authToken
+      && parsed?.pid === process.pid;
+  } catch {
+    return false;
+  }
+}
+
+// Self-heal: the discovery file is a runtime pointer that can be deleted
+// out-of-band (cleanup tools, agent shells) while the TCP bridge is still
+// listening. Rewrite it from the in-memory port/token so tool CLI does not
+// report a misleading APP_NOT_RUNNING / "sessions gone" error.
+function ensureCliDiscoveryFile() {
+  const cliDiscoveryFilePath = getActiveCliDiscoveryFilePath();
+  if (!tcpPort || !authToken || !cliDiscoveryFilePath) return;
+  if (isCliDiscoveryFileCurrent()) return;
+  debugLog("self-healing CLI discovery file");
+  writeCliDiscoveryFile();
+}
+
+function startDiscoverySelfHeal() {
+  stopDiscoverySelfHeal();
+  discoverySelfHealTimer = setInterval(() => {
+    try {
+      ensureCliDiscoveryFile();
+    } catch {
+      // Self-heal is best-effort.
+    }
+  }, DISCOVERY_SELF_HEAL_INTERVAL_MS);
+  if (typeof discoverySelfHealTimer.unref === "function") discoverySelfHealTimer.unref();
+}
+
+function stopDiscoverySelfHeal() {
+  if (!discoverySelfHealTimer) return;
+  clearInterval(discoverySelfHealTimer);
+  discoverySelfHealTimer = null;
+}
+
 function shutdownHost({ preserveScopedMetadata = false } = {}) {
+  stopDiscoverySelfHeal();
   removeCliDiscoveryFile();
   authToken = null;
   if (pendingHostStart?.server && pendingHostStart.server !== tcpServer) {
@@ -582,6 +683,7 @@ function syncLiveSessionsToExternalScope(chatSessionId = EXTERNAL_MCP_CHAT_SESSI
       sessionList.push({
         sessionId,
         hostId: session.hostId || previous.hostId || "",
+        savedHostId: session.savedHostId || previous.savedHostId || "",
         hostname: session.hostname || session.host || previous.hostname || "",
         label: session.label || session.hostname || previous.label || sessionId,
         os: session.os || previous.os || "",
@@ -666,6 +768,7 @@ function updateLiveSessionMetadata(sessionList) {
       deviceType: entry.deviceType || "",
       connected: entry.connected !== false,
       hostId: entry.hostId || "",
+      savedHostId: entry.savedHostId || "",
       hostChain: Array.isArray(entry.hostChain) ? entry.hostChain : [],
       activePortForwards: Array.isArray(entry.activePortForwards) ? entry.activePortForwards : [],
       _revision: updateRevision,
@@ -790,6 +893,7 @@ function updateSessionMetadata(sessionList, chatSessionId) {
       deviceType: s.deviceType || "",
       connected: s.connected !== false,
       hostId: s.hostId || "",
+      savedHostId: s.savedHostId || "",
       hostChain: Array.isArray(s.hostChain) ? s.hostChain : [],
       activePortForwards: Array.isArray(s.activePortForwards) ? s.activePortForwards : [],
       _revision: Number.isSafeInteger(s._revision) ? s._revision : updateRevision,
@@ -830,6 +934,9 @@ function mergeSessionMetadata(sessionList, chatSessionId) {
       deviceType: entry.deviceType || previous.deviceType || "",
       connected: entry.connected !== undefined ? entry.connected !== false : previous.connected !== false,
       hostId: entry.hostId || previous.hostId || "",
+      savedHostId: Object.prototype.hasOwnProperty.call(entry, "savedHostId")
+        ? entry.savedHostId || ""
+        : previous.savedHostId || "",
       hostChain: Array.isArray(entry.hostChain)
         ? entry.hostChain
         : (Array.isArray(previous.hostChain) ? previous.hostChain : []),
@@ -946,16 +1053,44 @@ function handleReadAttachment(params) {
   const found = findRegisteredAttachment(params);
   if (found.error) return { ok: false, error: found.error };
   const attachment = found.attachment;
+  const maxBytes = Number.isSafeInteger(params?.maxBytes) && params.maxBytes >= 0
+    ? params.maxBytes
+    : null;
   let base64Data = attachment.base64Data;
+  if (maxBytes !== null && base64Data && Buffer.byteLength(base64Data, "base64") > maxBytes) {
+    return { ok: false, error: "Attachment exceeds the requested size limit." };
+  }
   if (!base64Data && attachment.filePath) {
     try {
-      base64Data = fs.readFileSync(attachment.filePath).toString("base64");
+      if (maxBytes === null) {
+        base64Data = fs.readFileSync(attachment.filePath).toString("base64");
+      } else {
+        const fd = fs.openSync(attachment.filePath, "r");
+        try {
+          const chunk = Buffer.alloc(Math.min(64 * 1024, maxBytes + 1));
+          const chunks = [];
+          let total = 0;
+          while (total <= maxBytes) {
+            const read = fs.readSync(fd, chunk, 0, Math.min(chunk.length, maxBytes + 1 - total), null);
+            if (read === 0) break;
+            chunks.push(Buffer.from(chunk.subarray(0, read)));
+            total += read;
+          }
+          if (total > maxBytes) return { ok: false, error: "Attachment exceeds the requested size limit." };
+          base64Data = Buffer.concat(chunks, total).toString("base64");
+        } finally {
+          fs.closeSync(fd);
+        }
+      }
     } catch (err) {
       return { ok: false, error: err?.message || "Failed to read attachment." };
     }
   }
-  if (!base64Data) return { ok: false, error: "Attachment content is unavailable." };
+  if (!base64Data && !attachment.filePath) return { ok: false, error: "Attachment content is unavailable." };
   const buffer = Buffer.from(base64Data, "base64");
+  if (maxBytes !== null && buffer.length > maxBytes) {
+    return { ok: false, error: "Attachment exceeds the requested size limit." };
+  }
   const result = {
     ok: true,
     filename: attachment.filename,
@@ -1042,6 +1177,18 @@ function toPublicSessionMeta(meta) {
   return publicMeta;
 }
 
+function getApprovalTarget(params) {
+  if (typeof params?.sessionId !== 'string' || !params.sessionId) return null;
+  const meta = getSessionMeta(params.sessionId, params.chatSessionId);
+  if (!meta) return null;
+  return {
+    sessionId: params.sessionId,
+    hostId: meta.savedHostId || '',
+    label: meta.label || meta.hostname || params.sessionId,
+    hostname: meta.hostname || '',
+  };
+}
+
 function buildOpenedSessionMeta(result, sessionId) {
   const host = result?.host && typeof result.host === "object" ? result.host : {};
   return {
@@ -1055,6 +1202,9 @@ function buildOpenedSessionMeta(result, sessionId) {
     deviceType: host.deviceType || "",
     connected: result?.status === "connected",
     hostId: result?.hostId || host.id || "",
+    savedHostId: result?.savedHostId && result.savedHostId === (result?.hostId || host.id)
+      ? result.savedHostId
+      : "",
     hostChain: [],
     activePortForwards: [],
   };
@@ -1124,7 +1274,11 @@ function checkCommandSafetyCommonOnly(command) {
 // ── TCP Server ──
 
 function getOrCreateHost() {
-  if (tcpServer && tcpPort) return Promise.resolve(tcpPort);
+  if (tcpServer && tcpPort) {
+    // Host is alive; repair the discovery file if it was removed out-of-band.
+    ensureCliDiscoveryFile();
+    return Promise.resolve(tcpPort);
+  }
   if (pendingHostStart?.promise) return pendingHostStart.promise;
 
   // Generate a random auth token for this server instance
@@ -1183,6 +1337,7 @@ function getOrCreateHost() {
       tcpServer = server;
       debugLog("TCP server listening", { port: tcpPort });
       writeCliDiscoveryFile();
+      startDiscoverySelfHeal();
       try {
         externalMcpHostReadyHook?.({ port: tcpPort, token: authToken });
       } catch {
@@ -1317,7 +1472,9 @@ async function handleMessage(socket, line) {
       );
     }
     notifyExternalMcpActivity(method, callParams);
-    const result = await dispatch(method, callParams);
+    const result = await dispatch(method, callParams, {
+      externalSocket: externalMcpSockets.has(socket) ? socket : null,
+    });
     const response = JSON.stringify({ jsonrpc: "2.0", id, result }) + "\n";
     if (!socket.destroyed) socket.write(response);
   } catch (err) {
@@ -1444,6 +1601,8 @@ const dispatchCapabilityRpc = createCapabilityRpcDispatcher({
   },
   isChatSessionCancelled,
   requestApprovalFromRenderer,
+  getApprovalTarget,
+  hasSessionApproval: (socket) => Boolean(socket && sessionApprovedExternalSockets.has(socket)),
   USER_DENIED_MESSAGE,
   listPortForwards: () => listActivePortForwards(),
   sessionService,
@@ -1880,11 +2039,11 @@ function getBuiltinRpcHandlerRegistry() {
   return builtinRpcHandlerRegistry;
 }
 
-async function dispatch(method, params) {
+async function dispatch(method, params, approvalContext = {}) {
   debugLog("dispatch", { method, params, permissionMode });
 
   if (!method.startsWith("netcatty/")) {
-    const capabilityResult = await dispatchCapabilityRpc(method, params || {});
+    const capabilityResult = await dispatchCapabilityRpc(method, params || {}, approvalContext);
     if (capabilityResult !== UNROUTED) {
       return capabilityResult;
     }
@@ -1896,6 +2055,7 @@ async function dispatch(method, params) {
     : null;
   pruneCompletedBackgroundJobs();
 
+  const approvalTarget = getApprovalTarget(params);
   const permission = evaluatePermissionWithGrants({
     rpcMethod: method,
     surface: CAPABILITY_SURFACES.BUILTIN,
@@ -1903,6 +2063,7 @@ async function dispatch(method, params) {
     params,
     context: {
       chatSessionCancelled: isChatSessionCancelled(params?.chatSessionId),
+      hostId: approvalTarget?.hostId,
     },
   }, permissionGrantsSnapshot);
   if (!permission.allowed) {
@@ -1958,9 +2119,13 @@ async function dispatch(method, params) {
     // netcatty/jobStop bypasses approval — it's a stop/cancel action that
     // must remain available even if the renderer is unavailable; otherwise
     // a runaway terminal_start job could not be interrupted at all.
-    if (permission.requiresApproval) {
+    if (permission.requiresApproval
+      && !sessionApprovedExternalSockets.has(approvalContext.externalSocket)) {
       const { chatSessionId, ...toolArgs } = params || {};
-      const approved = await requestApprovalFromRenderer(method, toolArgs, chatSessionId);
+      const approved = await requestApprovalFromRenderer(method, toolArgs, chatSessionId, {
+        ...approvalContext,
+        target: approvalTarget,
+      });
       if (!approved) {
         return { ok: false, error: USER_DENIED_MESSAGE };
       }
@@ -2125,6 +2290,10 @@ async function handleGetContext(params) {
 }
 
 function handleGetStatus() {
+  const cliDiscoveryFilePath = getActiveCliDiscoveryFilePath();
+  // Repair the discovery pointer before reporting on it, so a mid-session
+  // out-of-band deletion is visible to callers as already self-healed.
+  ensureCliDiscoveryFile();
   return {
     ok: true,
     environment: "netcatty-terminal",
@@ -2275,6 +2444,7 @@ module.exports = {
   handleReadAttachment,
   getScopedSessionIds,
   getOrCreateHost,
+  ensureCliDiscoveryFile,
   buildMcpServerConfig,
   activePtyExecs,
   cancelBackgroundJobsForSession,

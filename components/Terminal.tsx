@@ -1,6 +1,7 @@
 import { appSurfaceColor } from "../domain/appBackground";
 import { clearTerminalBroadcastUserInput, markTerminalBroadcastUserInput } from "./terminal/runtime/terminalPacedBroadcast";
-import { publishTerminalCommandCompletion } from "../application/state/terminalCommandCompletion";
+import { shouldBroadcastDuringSensitivePrompt } from "../domain/terminalBroadcast";
+import { STORAGE_KEY_TERMINAL_BROADCAST_PASSWORD_BYPASS } from "../infrastructure/config/storageKeys";
 import { createTerminalReflowReadingPosition } from "./terminal/terminalReflowReadingPosition";
 import { resolveHostOs } from '../domain/host';
 import { Terminal as XTerm } from "@xterm/xterm";
@@ -47,7 +48,7 @@ import {
   resolveTerminalContextLineWindow,
   type TerminalContextReader,
 } from "../domain/terminalContextRead";
-import { classifyDistroId, shouldProbeSessionCwd } from "../domain/host";
+import { classifyDistroId, hostRestrictsExtraSshChannels, shouldProbeSessionCwd } from "../domain/host";
 import { shouldCollectServerStats } from "../domain/systemManager/systemTarget";
 import { resolveHostSshConnectionTimeouts } from "../domain/sshConnectionTimeouts";
 import { CONNECTION_PROGRESS_START } from "./terminal/connectionProgress";
@@ -83,6 +84,7 @@ import { usePluginTerminalProviders } from "../application/state/usePluginTermin
 import type { PluginTerminalDecorationRule } from "../domain/pluginTerminalProviders";
 import { terminalReconnectRegistry } from "../application/state/terminalReconnectRegistry";
 import { resolveSftpReuseSourceSessionId } from "../application/state/terminalConnectionReuse";
+import { resolvePasswordAuthSftpHost } from "../domain/authIdentityPicker";
 // SFTPModal removed - SFTP is now handled by SftpSidePanel in TerminalLayer
 import { Button } from "./ui/button";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "./ui/hover-card";
@@ -162,7 +164,12 @@ import { registerTerminalSensitiveInputReader } from "./terminal/runtime/termina
 import { registerTerminalCommandInjectionReadyReader } from "./terminal/runtime/terminalCommandInjectionReadyRegistry";
 import { isIdleShellReadyForCommandInjection } from "../domain/terminalCommandInjectionReady";
 import { detectPrompt } from "./terminal/autocomplete/promptDetector";
-import { applyUserCursorPreference } from "./terminal/runtime/cursorPreference";
+import {
+  applyUserCursorPreference,
+  applyUserCursorWidthPreference,
+  shouldApplyUserCursorPreference,
+  snapshotUserCursorPreference,
+} from "./terminal/runtime/cursorPreference";
 import { terminalAltKeyOptions } from "./terminal/runtime/altKeyOptions";
 import {
   createPromptLineBreakState,
@@ -197,6 +204,7 @@ import {
 import {
   createTerminalCwdTracker,
   invalidateTerminalCwdAfterCommand,
+  shouldPreserveTerminalCwdAcrossCommand,
   resolvePreferredTerminalCwd,
   type TerminalCwdChangeMeta,
 } from "./terminal/sftpCwd";
@@ -831,6 +839,15 @@ const TerminalComponent: React.FC<TerminalProps> = ({
   isBroadcastEnabledRef.current = isBroadcastEnabled;
   onBroadcastInputRef.current = onBroadcastInput;
 
+  // Opt-in "broadcast without password protection" (#3488): when enabled, the
+  // fail-closed password-prompt heuristic no longer pauses broadcast fan-out.
+  const [broadcastPasswordBypass] = useStoredBoolean(
+    STORAGE_KEY_TERMINAL_BROADCAST_PASSWORD_BYPASS,
+    false,
+  );
+  const broadcastPasswordBypassRef = useRef(broadcastPasswordBypass);
+  broadcastPasswordBypassRef.current = broadcastPasswordBypass;
+
   // Snippets ref for shortkey support in terminal
   const snippetsRef = useRef(snippets);
   snippetsRef.current = snippets;
@@ -1061,8 +1078,17 @@ const TerminalComponent: React.FC<TerminalProps> = ({
       }
 
       // Broadcast to other sessions if broadcast mode is enabled
-      if (!sensitive && isBroadcastEnabledRef.current && onBroadcastInputRef.current) {
-        onBroadcastInputRef.current(text, sessionId);
+      if (
+        shouldBroadcastDuringSensitivePrompt({
+          sensitivePromptActive: sensitive,
+          broadcastPasswordBypass: broadcastPasswordBypassRef.current,
+        })
+        && isBroadcastEnabledRef.current
+        && onBroadcastInputRef.current
+      ) {
+        // Bypassed password fan-out (#3488): retain the sensitive marker so
+        // peer writes keep skipping input interceptors.
+        onBroadcastInputRef.current(text, sessionId, sensitive ? { sourceSensitive: true } : undefined);
       }
 
       // ESC-prefixed writes (Esc+. yank-last-arg) are shell editor commands.
@@ -1135,12 +1161,15 @@ const TerminalComponent: React.FC<TerminalProps> = ({
     allowRendererFallback?: boolean;
     requireActiveShellCwd?: boolean;
   }): Promise<string | undefined> => {
+    const skipBackendPwd = hostRestrictsExtraSshChannels(host);
     const cwd = await resolvePreferredTerminalCwd({
       rendererCwd: terminalCwdTracker.getRendererCwd(),
       rendererCwdSource: terminalCwdTracker.getRendererCwdSource(),
       sessionId: sessionRef.current,
-      getSessionPwd: (id, options) => terminalBackend.getSessionPwd(id, options),
-      preferFreshBackend: options?.preferFreshBackend,
+      getSessionPwd: skipBackendPwd
+        ? async () => ({ success: false })
+        : (id, pwdOptions) => terminalBackend.getSessionPwd(id, pwdOptions),
+      preferFreshBackend: skipBackendPwd ? false : options?.preferFreshBackend,
       allowRendererFallback: options?.allowRendererFallback,
       requireActiveShellCwd: options?.requireActiveShellCwd,
     });
@@ -1239,6 +1268,7 @@ const TerminalComponent: React.FC<TerminalProps> = ({
   }
   const auth = useTerminalAuthState({
     host,
+    identities,
     pendingAuthRef,
     termRef,
     onUpdateHost: handleUpdateHostFromTerminal,
@@ -1439,8 +1469,11 @@ const TerminalComponent: React.FC<TerminalProps> = ({
       hasEverConnectedRef.current = true;
       clearAutoReconnect();
     }
-    onStatusChange?.(sessionId, next);
-  }, [clearAutoReconnect, onStatusChange, sessionId]);
+    const sftpHost = next === "connected"
+      ? resolvePasswordAuthSftpHost(host, identities, pendingAuthRef.current)
+      : host;
+    onStatusChange?.(sessionId, next, sftpHost === host ? undefined : sftpHost);
+  }, [clearAutoReconnect, host, identities, onStatusChange, sessionId]);
   const updateStatusRef = useRef(updateStatus);
   updateStatusRef.current = updateStatus;
 
@@ -2372,19 +2405,21 @@ const TerminalComponent: React.FC<TerminalProps> = ({
   const cwdAwareOnCommandSubmitted = useCallback((
     ...args: Parameters<NonNullable<typeof onCommandSubmitted>>
   ) => {
-    invalidateTerminalCwdAfterCommand(
-      terminalCwdTracker,
-      sessionId,
-      () => { knownCwdRef.current = undefined; },
-      onTerminalCwdChange,
-    );
-    onCommandSubmitted?.(...args);
-  }, [onCommandSubmitted, onTerminalCwdChange, sessionId, terminalCwdTracker]);
+    if (!shouldPreserveTerminalCwdAcrossCommand(hostRestrictsExtraSshChannels(host))) {
+      invalidateTerminalCwdAfterCommand(
+        terminalCwdTracker,
+        sessionId,
+        () => { knownCwdRef.current = undefined; },
+        onTerminalCwdChange,
+      );
+    }
+    const [command, hostId, hostLabel, submittedSessionId] = args;
+    onCommandSubmitted?.(command, hostId, hostLabel, submittedSessionId);
+  }, [host, onCommandSubmitted, onTerminalCwdChange, sessionId, terminalCwdTracker]);
   const pluginAwareOnCommandCompleted = useCallback(() => {
-    publishTerminalCommandCompletion(sessionId);
     pluginTerminalLifecycle.onCommandCompleted();
     void xtermRuntimeRef.current?.pluginProviderHost?.commandCompleted();
-  }, [pluginTerminalLifecycle, sessionId]);
+  }, [pluginTerminalLifecycle]);
   const pluginAwareOnTerminalCwdChange = useCallback((
     changedSessionId: string,
     cwd: string | null,
@@ -3263,15 +3298,26 @@ const TerminalComponent: React.FC<TerminalProps> = ({
 
   const broadcastUserPasteData = useCallback((
     data: string,
-    options?: { lineDelayMs?: number },
+    options?: { lineDelayMs?: number; sensitive?: boolean },
   ) => {
     if (
-      !passwordPromptActiveRef.current
+      shouldBroadcastDuringSensitivePrompt({
+        sensitivePromptActive: passwordPromptActiveRef.current,
+        broadcastPasswordBypass: broadcastPasswordBypassRef.current,
+      })
       && sessionRef.current
       && isBroadcastEnabledRef.current
       && onBroadcastInputRef.current
     ) {
-      onBroadcastInputRef.current(data, sessionId, options);
+      // Bypassed password fan-out (#3488): retain the sensitive marker so
+      // peer writes keep skipping input interceptors. A paste confirmed at
+      // a sensitive prompt keeps its pre-dialog snapshot (#3491), so its
+      // carried sensitivity tags the fan-out even when the dialog await
+      // cleared the live prompt ref.
+      const sourceSensitive = passwordPromptActiveRef.current || options?.sensitive === true;
+      onBroadcastInputRef.current(data, sessionId, sourceSensitive
+        ? { ...options, sourceSensitive: true }
+        : options);
       return true;
     }
     return false;
@@ -3285,6 +3331,10 @@ const TerminalComponent: React.FC<TerminalProps> = ({
       multiLineRunMode?: Snippet["multiLineRunMode"];
       /** When false, skip term.focus() so multi-tab fan-out does not steal focus. */
       focus?: boolean;
+      /** Force sensitive classification on the write (bypassed password fan-out, #3488). */
+      sensitive?: boolean;
+      /** Observer for the broadcast recipients that received the payload (#3491). */
+      onBroadcastDelivered?: (sessionIds: readonly string[]) => void;
     },
   ): Promise<boolean> => {
     // Hidden-tab hibernation clears termRef. Wake via the *connected* path so
@@ -3339,13 +3389,32 @@ const TerminalComponent: React.FC<TerminalProps> = ({
     // without re-wrapping. Without broadcasting at all, accepting a snippet in
     // broadcast mode would clear peer input (the clear keystrokes already go
     // through the broadcast-aware path) but never send the command.
-    const sensitive = passwordPromptActiveRef.current;
-    if (!sensitive && options?.broadcast !== false && isBroadcastEnabledRef.current && onBroadcastInputRef.current) {
-      onBroadcastInputRef.current(data, sessionId, {
+    // A bypassed password fan-out (#3488) forces the sensitive marker even
+    // when this target has not itself classified its prompt as sensitive.
+    const sensitive = passwordPromptActiveRef.current || options?.sensitive === true;
+    if (
+      shouldBroadcastDuringSensitivePrompt({
+        sensitivePromptActive: sensitive,
+        broadcastPasswordBypass: broadcastPasswordBypassRef.current,
+      })
+      && options?.broadcast !== false
+      && isBroadcastEnabledRef.current
+      && onBroadcastInputRef.current
+    ) {
+      const broadcastDeliveredSessionIds = onBroadcastInputRef.current(data, sessionId, {
         automated: true,
         noAutoRun,
+        // Bypassed password fan-out (#3488): retain the sensitive marker so
+        // peer writes keep skipping input interceptors.
+        ...(sensitive ? { sourceSensitive: true } : {}),
         ...(lineDelayMs ? { lineDelayMs } : {}),
       });
+      // #3491: report the sessions that received the fan-out so callers (the
+      // solo compose bar) can detect a payload delivered into a sensitive
+      // peer prompt and keep it out of send history.
+      if (broadcastDeliveredSessionIds) {
+        options?.onBroadcastDelivered?.(broadcastDeliveredSessionIds);
+      }
     }
 
     data = prepareProgrammaticSudoInput(data);
@@ -3375,6 +3444,7 @@ const TerminalComponent: React.FC<TerminalProps> = ({
         await runAutomationScript({
           snippet,
           sessionId,
+          initiatedBy: 'user',
           sessionMeta: {
             connected: true,
             name: scriptSessionName,
@@ -3414,6 +3484,7 @@ const TerminalComponent: React.FC<TerminalProps> = ({
     isBroadcastEnabledRef,
     onBroadcastInputRef,
     passwordPromptActiveRef,
+    broadcastPasswordBypassRef,
     isLocalConnection,
     supportsRemoteImagePaste,
     autoUploadClipboardImageOnPasteRef,
@@ -3468,8 +3539,11 @@ const TerminalComponent: React.FC<TerminalProps> = ({
     if (onOpenSftp) {
       // Delegate to parent (TerminalLayer) for shared SFTP side panel
       const initialPath = await resolveSftpInitialPath();
+      const sftpHost = statusRef.current === 'connected'
+        ? resolvePasswordAuthSftpHost(host, identities, pendingAuthRef.current)
+        : host;
       onOpenSftp(
-        host,
+        sftpHost,
         initialPath,
         undefined,
         sessionId,
@@ -3484,7 +3558,7 @@ const TerminalComponent: React.FC<TerminalProps> = ({
       return;
     }
     setShowSFTP(true);
-  }, [host, onOpenSftp, resolveSftpInitialPath, sessionId, showSFTP]);
+  }, [host, identities, onOpenSftp, resolveSftpInitialPath, sessionId, showSFTP]);
 
   const handleSendYmodem = useCallback(async () => {
     if (!isSerialConnection || statusRef.current !== "connected") return;
@@ -3962,6 +4036,13 @@ const TerminalComponent: React.FC<TerminalProps> = ({
     requiresUserInput: auth.needsAuth || needsHostKeyVerification || isConnectionAwaitingUserInput,
   });
 
+  const dragDropSftpHost = status === 'connected'
+    ? resolvePasswordAuthSftpHost(host, identities, pendingAuthRef.current)
+    : host;
+  const dragDropSudoPassword = dragDropSftpHost === host
+    ? resolvedSudoAutofillPassword
+    : identities.find(identity => identity.id === dragDropSftpHost.identityId)?.password;
+
   const {
     handleDragEnter,
     handleDragLeave,
@@ -3969,9 +4050,9 @@ const TerminalComponent: React.FC<TerminalProps> = ({
     handleDrop,
     isDraggingOver,
   } = useTerminalDragDrop({
-    host,
-    resolvedLoginUsername,
-    resolvedSudoPassword: resolvedSudoAutofillPassword,
+    host: dragDropSftpHost,
+    resolvedLoginUsername: dragDropSftpHost === host ? resolvedLoginUsername : dragDropSftpHost.username,
+    resolvedSudoPassword: dragDropSudoPassword,
     isLocalConnection,
     isNetworkDevice,
     onOpenSftp,
@@ -3994,6 +4075,7 @@ const TerminalComponent: React.FC<TerminalProps> = ({
     terminalBackend,
     isSensitiveInput: () => passwordPromptActiveRef.current,
     scrollOnPasteRef,
+    broadcastPasswordBypassRef,
     onPasteData: broadcastUserPasteData,
     scrollToBottomAfterProgrammaticInput,
     containerRef,
@@ -4238,6 +4320,7 @@ const TerminalComponent: React.FC<TerminalProps> = ({
     onOpenExternalError,
     isBroadcastEnabledRef,
     onBroadcastInputRef,
+    broadcastPasswordBypassRef,
     snippetsRef,
     onSnippetShortkeyRef,
     sessionId,
@@ -4544,11 +4627,11 @@ const TerminalComponent: React.FC<TerminalProps> = ({
     onWake: wakeFromHibernateRuntime,
   });
 
-  useTerminalEffects({ CONNECTION_TIMEOUT, Error, XTERM_PERFORMANCE_CONFIG, applyUserCursorPreference, auth, autocompleteCloseRef, autocompleteInputRef, autocompleteKeyEventRef, autocompleteRepositionRef, captureTerminalLogData, chainHosts: resolvedChainHosts, chainProgress, clearTerminalCwd, commandBufferRef, connectionLogBufferRef, containerRef, createPromptLineBreakState, createReplaySafeTerminalLogSanitizer, createXTermRuntime, deferTerminalResizeRef, disableTerminalFontZoomRef, effectiveFontSize, effectiveFontWeight, effectiveTheme, error, executeSnippetCommand, finalizeTerminalLogData, fitAddonRef, fontFamilyId, fontSize, fontWeightFixupDoneRef, forceCloseHibernatedSession, forceSyncRenderAfterResize, handleOsc52ReadRequest, handleTerminalDataCaptureOnce, hasConnectedRef, hasRuntimeRef, host, hotkeySchemeRef, hibernatedRef, identities, inWorkspace, isBootActiveRef, bootEpochRef, isBroadcastEnabledRef, isComposeBarOpen: effectiveComposeBarOpen, isConnectionAwaitingUserInput, isConnectionPastTcpDial, isFocusMode, isFocused, isLocalConnection, isNetworkDevice, isResizing: deferTerminalResize, isRestoringSelectionRef, isSearchOpen, isSerialConnection, isVisible, isVisibleRef, keyBindingsRef, keys, kittyKeyboardProtocolEnabledForSession, knownCwdRef, lastFittedSizeRef, lastToastedErrorRef, logger, mouseTrackingRef, needsHostKeyVerification, onBroadcastInputRef, onBroadcastInterruptPriorityChange, onCommandExecuted, onCommandSubmitted: cwdAwareOnCommandSubmitted, onHotkeyActionRef, onOpenExternalError, onOutputTriggerUserInputRef: noteOutputTriggerUserInputRef, onPluginRuntimeCwdChange: pluginAwareOnRuntimeCwdChange, onSnippetShortkeyRef, onSnippetExecutorChange, onTerminalCwdChange, onTerminalTitleChange, onTerminalBell, onTerminalFontSizeChange, paneLayoutKey, passwordPromptActiveRef, pendingAuthRef, pendingOutputScrollRef, pluginDecorationRefreshRef, pluginDecorationRules, pluginDecorationRulesRef, pluginTerminalLifecycle, pluginTerminalProviderRevision, isPluginTerminalProviderAvailable, requestPluginTerminalProviders, prepareRestoredReconnect, prepareInitialCwdIntent, prevIsResizingRef, promptLineBreakStateRef, resizeSession, resolveHostAuth, resolvedFontFamily, safeFit, scriptRecorderRef: recorderRef, searchAddonRef, serialConfig, serialLineBufferRef, serializeAddonRef, sessionId, sessionRef, sessionStarters, setError, setHasMouseTracking, setIsCancelling, setIsDisconnectedDialogDismissed, requestSearchFocus, setNeedsHostKeyVerification, setPendingHostKeyInfo, setPendingHostKeyRequestId, setProgressLogs, setProgressValue, setShowLogs, setStatus, setTimeLeft, shellType, shouldEnableNativeUserInputAutoScroll, shouldProbeSessionCwd, shouldStartTerminalBackend, vaultInitialized, attachExistingSession, attachAuthorization, attachHomeWebContentsIdRef, snippetsRef, splitResizeActive: isResizing, status, statusRef, sudoAutofillRef, t, teardown, telnetLocalEchoRef, termRef, terminalAltKeyOptions, terminalBackend, terminalContextActionsRef, terminalCwdTracker, terminalDataCapturedRef, terminalLogSanitizerRef, terminalOutputHistory: terminalOutputHistoryRef.current, terminalSettings, terminalSettingsRef, terminalTitleRef, toHostKeyInfo, toast, updateStatus, useEffect, useLayoutEffect, workspaceId, xtermRuntimeRef, zmodem, zmodemToastedRef, restoreState });
+  useTerminalEffects({ CONNECTION_TIMEOUT, Error, XTERM_PERFORMANCE_CONFIG, applyUserCursorPreference, applyUserCursorWidthPreference, shouldApplyUserCursorPreference, snapshotUserCursorPreference, auth, autocompleteCloseRef, autocompleteInputRef, autocompleteKeyEventRef, autocompleteRepositionRef, captureTerminalLogData, chainHosts: resolvedChainHosts, chainProgress, clearTerminalCwd, commandBufferRef, connectionLogBufferRef, containerRef, createPromptLineBreakState, createReplaySafeTerminalLogSanitizer, createXTermRuntime, deferTerminalResizeRef, disableTerminalFontZoomRef, effectiveFontSize, effectiveFontWeight, effectiveTheme, error, executeSnippetCommand, finalizeTerminalLogData, fitAddonRef, fontFamilyId, fontSize, fontWeightFixupDoneRef, forceCloseHibernatedSession, forceSyncRenderAfterResize, handleOsc52ReadRequest, handleTerminalDataCaptureOnce, hasConnectedRef, hasRuntimeRef, host, hotkeySchemeRef, hibernatedRef, identities, inWorkspace, isBootActiveRef, bootEpochRef, isBroadcastEnabledRef, broadcastPasswordBypassRef, isComposeBarOpen: effectiveComposeBarOpen, isConnectionAwaitingUserInput, isConnectionPastTcpDial, isFocusMode, isFocused, isLocalConnection, isNetworkDevice, isResizing: deferTerminalResize, isRestoringSelectionRef, isSearchOpen, isSerialConnection, isVisible, isVisibleRef, keyBindingsRef, keys, kittyKeyboardProtocolEnabledForSession, knownCwdRef, lastFittedSizeRef, lastToastedErrorRef, logger, mouseTrackingRef, needsHostKeyVerification, onBroadcastInputRef, onBroadcastInterruptPriorityChange, onCommandExecuted, onCommandSubmitted: cwdAwareOnCommandSubmitted, onHotkeyActionRef, onOpenExternalError, onOutputTriggerUserInputRef: noteOutputTriggerUserInputRef, onPluginRuntimeCwdChange: pluginAwareOnRuntimeCwdChange, onSnippetShortkeyRef, onSnippetExecutorChange, onTerminalCwdChange, onTerminalTitleChange, onTerminalBell, onTerminalFontSizeChange, paneLayoutKey, passwordPromptActiveRef, pendingAuthRef, pendingOutputScrollRef, pluginDecorationRefreshRef, pluginDecorationRules, pluginDecorationRulesRef, pluginTerminalLifecycle, pluginTerminalProviderRevision, isPluginTerminalProviderAvailable, requestPluginTerminalProviders, prepareRestoredReconnect, prepareInitialCwdIntent, prevIsResizingRef, promptLineBreakStateRef, resizeSession, resolveHostAuth, resolvedFontFamily, safeFit, scriptRecorderRef: recorderRef, searchAddonRef, serialConfig, serialLineBufferRef, serializeAddonRef, sessionId, sessionRef, sessionStarters, setError, setHasMouseTracking, setIsCancelling, setIsDisconnectedDialogDismissed, requestSearchFocus, setNeedsHostKeyVerification, setPendingHostKeyInfo, setPendingHostKeyRequestId, setProgressLogs, setProgressValue, setShowLogs, setStatus, setTimeLeft, shellType, shouldEnableNativeUserInputAutoScroll, shouldProbeSessionCwd, shouldStartTerminalBackend, vaultInitialized, attachExistingSession, attachAuthorization, attachHomeWebContentsIdRef, snippetsRef, splitResizeActive: isResizing, status, statusRef, sudoAutofillRef, t, teardown, telnetLocalEchoRef, termRef, terminalAltKeyOptions, terminalBackend, terminalContextActionsRef, terminalCwdTracker, terminalDataCapturedRef, terminalLogSanitizerRef, terminalOutputHistory: terminalOutputHistoryRef.current, terminalSettings, terminalSettingsRef, terminalTitleRef, toHostKeyInfo, toast, updateStatus, useEffect, useLayoutEffect, workspaceId, xtermRuntimeRef, zmodem, zmodemToastedRef, restoreState });
 
   return (
     <>
-      <TerminalView ctx={{ Activity, ArrowDownToLine, ArrowUpFromLine, Button, Clock3, Copy, Cpu, HardDrive, HoverCard, HoverCardContent, HoverCardTrigger, Maximize2, MemoryStick, Radio, RefreshCcw, Sparkles, SquareArrowOutUpRight, Unplug, TerminalAutocomplete, TerminalComposeBar, TerminalConnectionDialog, TerminalContextMenu, TerminalSearchBar, Tooltip, TooltipContent, TooltipTrigger, ZmodemOverwriteDialog, ZmodemProgressIndicator, auth, autocompleteAcceptTextRef, autocompleteCloseRef, autocompleteHostOs, autocompleteInputRef, autocompleteKeyEventRef, autocompleteRepositionRef, autocompleteSettings, canUpdateHost: !!onUpdateHost, chainProgress, cn, compactToolbar, lineTimestampsAvailable, containerRef, effectiveFontSize, effectiveFontWeight, effectiveTheme, error, executeSnippet, executeSnippetCommand, handleAddSelectionToAI: onAddSelectionToAI ? handleAddSelectionToAI : undefined, handleCancelConnect, handleCloseDisconnectedSession, handleCloseSearch, handleDisconnect: (attachExistingSession || compactToolbar) ? undefined : handleDisconnect, handleDismissDisconnectedDialog, handleDragEnter, handleDragLeave, handleDragOver, handleDrop, handleFindNext, handleFindPrevious, handleHostKeyAddAndContinue, handleHostKeyClose, handleHostKeyContinue, handleOsc52ReadResponse, handleOsc7SetupConfirm, handleOsc7SetupOpenChange, handleReceiveYmodem, handleRetry, handleSearch, handleSendYmodem, handleTopOverlayMouseDownCapture, hasMouseTracking, host, hotkeyScheme, inWorkspace, isBroadcastEnabled, isCancelling, isComposeBarOpen: effectiveComposeBarOpen, isConnectionAwaitingUserInput, isDraggingOver, isFocusMode, isFocusedPane, isLocalConnection, remoteDragDropUsesZmodem, isPluginTerminalProviderAvailable, isReconnectActive, isSerialConnection, isSearchOpen, isSupportedOs, isSystemSidebarEligible, isVisible, keyBindings, keys, knownCwdRef, needsHostKeyVerification, onAddSelectionToAI, onBroadcastInput, onCloseSession, onDetach, onDetachDragEnd, onDetachDragStart, onDetachPointerDown, onEndSessionDrag, onExpandToFocus, onTogglePaneMagnification, onOpenSystem, onRename, onSplitHorizontal, onSplitVertical, onStartSessionDrag, onToggleBroadcast, onUpdateHost: handleUpdateHostFromTerminal, osc52ReadPromptVisible, osc7SetupOpen, osc7SetupRunning, passwordPromptActiveRef, pendingHostKeyInfo, progressLogs, progressValue, renderControls, resolvedFontFamily, restoreState, scrollToBottomAfterProgrammaticInput, searchMatchCount, searchFocusToken, scriptExecutionOverlay: activeScriptRun ? (
+      <TerminalView ctx={{ Activity, ArrowDownToLine, ArrowUpFromLine, Button, Clock3, Copy, Cpu, HardDrive, HoverCard, HoverCardContent, HoverCardTrigger, Maximize2, MemoryStick, Radio, RefreshCcw, Sparkles, SquareArrowOutUpRight, Unplug, TerminalAutocomplete, TerminalComposeBar, TerminalConnectionDialog, TerminalContextMenu, TerminalSearchBar, Tooltip, TooltipContent, TooltipTrigger, ZmodemOverwriteDialog, ZmodemProgressIndicator, auth, autocompleteAcceptTextRef, autocompleteCloseRef, autocompleteHostOs, autocompleteInputRef, autocompleteKeyEventRef, autocompleteRepositionRef, autocompleteSettings, canUpdateHost: !!onUpdateHost, chainProgress, cn, compactToolbar, lineTimestampsAvailable, containerRef, effectiveFontSize, effectiveFontWeight, effectiveTheme, error, executeSnippet, executeSnippetCommand, handleAddSelectionToAI: onAddSelectionToAI ? handleAddSelectionToAI : undefined, handleCancelConnect, handleCloseDisconnectedSession, handleCloseSearch, handleDisconnect: (attachExistingSession || compactToolbar) ? undefined : handleDisconnect, handleDismissDisconnectedDialog, handleDragEnter, handleDragLeave, handleDragOver, handleDrop, handleFindNext, handleFindPrevious, handleHostKeyAddAndContinue, handleHostKeyClose, handleHostKeyContinue, handleOsc52ReadResponse, handleOsc7SetupConfirm, handleOsc7SetupOpenChange, handleReceiveYmodem, handleRetry, handleSearch, handleSendYmodem, handleTopOverlayMouseDownCapture, hasMouseTracking, host, hotkeyScheme, inWorkspace, isBroadcastEnabled, isCancelling, isComposeBarOpen: effectiveComposeBarOpen, isConnectionAwaitingUserInput, isDraggingOver, isFocusMode, isFocusedPane, isLocalConnection, remoteDragDropUsesZmodem, isPluginTerminalProviderAvailable, isReconnectActive, isSerialConnection, isSearchOpen, isSupportedOs, isSystemSidebarEligible, isVisible, keyBindings, keys, identities, knownCwdRef, needsHostKeyVerification, onAddSelectionToAI, onBroadcastInput, onCloseSession, onDetach, onDetachDragEnd, onDetachDragStart, onDetachPointerDown, onEndSessionDrag, onExpandToFocus, onTogglePaneMagnification, onOpenSystem, onRename, onSplitHorizontal, onSplitVertical, onStartSessionDrag, onToggleBroadcast, onUpdateHost: handleUpdateHostFromTerminal, osc52ReadPromptVisible, osc7SetupOpen, osc7SetupRunning, passwordPromptActiveRef, pendingHostKeyInfo, progressLogs, progressValue, renderControls, resolvedFontFamily, restoreState, scrollToBottomAfterProgrammaticInput, searchMatchCount, searchFocusToken, scriptExecutionOverlay: activeScriptRun ? (
         <ScriptExecutionOverlay
           run={activeScriptRun}
           onPause={() => { void pauseScriptRun(activeScriptRun.runId); }}

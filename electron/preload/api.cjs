@@ -1563,6 +1563,10 @@ function createPreloadApi(ctx) {
     ipcRenderer.invoke("netcatty:tray:setCloseToTray", { enabled }),
   isCloseToTray: () =>
     ipcRenderer.invoke("netcatty:tray:isCloseToTray"),
+  setShowTrayIcon: (enabled) =>
+    ipcRenderer.invoke("netcatty:tray:setShowTrayIcon", { enabled }),
+  isShowTrayIcon: () =>
+    ipcRenderer.invoke("netcatty:tray:isShowTrayIcon"),
 
   // Auto Launch at system login (hidden to tray)
   getAutoLaunch: () =>
@@ -1893,8 +1897,8 @@ function createPreloadApi(ctx) {
     ipcRenderer.on("netcatty:ai:mcp:approval-request", handler);
     return () => ipcRenderer.removeListener("netcatty:ai:mcp:approval-request", handler);
   },
-  respondMcpApproval: async (approvalId, approved) => {
-    return ipcRenderer.invoke("netcatty:ai:mcp:approval-response", { approvalId, approved });
+  respondMcpApproval: async (approvalId, approved, scope) => {
+    return ipcRenderer.invoke("netcatty:ai:mcp:approval-response", { approvalId, approved, scope });
   },
   cancelMcpApprovalTimeout: async (approvalId) => {
     return ipcRenderer.invoke("netcatty:ai:mcp:approval-cancel-timeout", { approvalId });

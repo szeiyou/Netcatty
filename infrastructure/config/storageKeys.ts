@@ -171,6 +171,8 @@ export const STORAGE_KEY_MANAGED_SOURCES = 'netcatty_managed_sources_v1';
 // Global Toggle Window Settings (Quake Mode)
 export const STORAGE_KEY_TOGGLE_WINDOW_HOTKEY = 'netcatty_toggle_window_hotkey_v1';
 export const STORAGE_KEY_CLOSE_TO_TRAY = 'netcatty_close_to_tray_v1';
+/** Whether the system tray / menu bar icon is shown. Default: shown. */
+export const STORAGE_KEY_SHOW_TRAY_ICON = 'netcatty_show_tray_icon_v1';
 /** Optimistic cache only — the source of truth is app.getLoginItemSettings() in the main process. */
 export const STORAGE_KEY_AUTO_LAUNCH_ENABLED = 'netcatty_auto_launch_enabled_v1';
 /** App-level HTTP(S) proxy for cloud sync / AI (not SSH ProxyJump). */
@@ -257,9 +259,7 @@ export const STORAGE_KEY_HOST_CLICK_BEHAVIOR = 'netcatty_host_click_behavior_v1'
 export const STORAGE_KEY_SHOW_ONLY_UNGROUPED_HOSTS_IN_ROOT = 'netcatty_show_only_ungrouped_hosts_in_root_v1';
 
 // Top tabs: Show standalone SFTP view tab
-export const STORAGE_KEY_TAB_BAR_POSITION = 'netcatty_tab_bar_position_v1';
 export const STORAGE_KEY_SHOW_SFTP_TAB = 'netcatty_show_sftp_tab_v1';
-export const STORAGE_KEY_SFTP_IN_SIDEBAR = 'netcatty_sftp_in_sidebar_v1';
 export const STORAGE_KEY_SHOW_HOST_TREE_SIDEBAR = 'netcatty_show_host_tree_sidebar_v1';
 
 // Shortcuts: Cmd/Ctrl+[1...9] and Ctrl+Tab skip pinned Vault/SFTP tabs
@@ -281,6 +281,7 @@ export const STORAGE_KEY_PLUGIN_IMPORT_TRANSACTION = 'netcatty_plugin_import_tra
 
 // Side Panel
 export const STORAGE_KEY_SIDE_PANEL_WIDTH = 'netcatty_side_panel_width';
+export const STORAGE_KEY_SIDE_PANEL_HEIGHT = 'netcatty_side_panel_height';
 export const STORAGE_KEY_TERMINAL_SIDE_PANEL_TAB_ORDER = 'netcatty_terminal_side_panel_tab_order_v1';
 export const STORAGE_KEY_TERMINAL_SIDE_PANEL_AUTO_OPEN = 'netcatty_terminal_side_panel_auto_open_v1';
 export const STORAGE_KEY_TERMINAL_SIDE_PANEL_AUTO_OPEN_TAB = 'netcatty_terminal_side_panel_auto_open_tab_v1';
@@ -290,6 +291,8 @@ export const STORAGE_KEY_WORKSPACE_FOCUS_SIDEBAR_WIDTH = 'netcatty_workspace_foc
 export const STORAGE_KEY_TERMINAL_HOST_TREE_WIDTH = 'netcatty_terminal_host_tree_width_v1';
 export const STORAGE_KEY_TERMINAL_HOST_TREE_COLLAPSED = 'netcatty_terminal_host_tree_collapsed_v1';
 export const STORAGE_KEY_TERMINAL_COMPOSE_BAR_OPEN = 'netcatty_terminal_compose_bar_open_v1';
+/** Opt-in "broadcast without password protection" switch (terminal compose bar, issue #3488). */
+export const STORAGE_KEY_TERMINAL_BROADCAST_PASSWORD_BYPASS = 'netcatty_terminal_broadcast_password_bypass_v1';
 export const STORAGE_KEY_TERMINAL_SEARCH_OPEN = 'netcatty_terminal_search_open_v1';
 export const STORAGE_KEY_TERMINAL_ENCODING_BY_HOST_PREFIX = 'netcatty_terminal_encoding_by_host_v1:';
 export const STORAGE_KEY_TERMINAL_YMODEM_SEND_DIR = 'netcatty_terminal_ymodem_send_dir_v1';
