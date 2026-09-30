@@ -1,10 +1,10 @@
 /**
  * App-wide background image settings.
  *
- * The background is an image or a looping muted video (mp4/webm); `imageId`
- * names either, and its extension tells them apart. The file itself lives
+ * Backgrounds are images or looping muted videos (mp4/webm); each image ID
+ * names one file, and its extension tells them apart. The files live
  * in the main process userData directory (`app-backgrounds/`), imported by
- * appBackgroundBridge. The renderer only stores the opaque `imageId` and
+ * appBackgroundBridge. The renderer only stores opaque image IDs and
  * loads it through the `netcatty-bg://` protocol, so this setting is
  * device-local and never carries a raw filesystem path.
  */
@@ -13,7 +13,8 @@ export type AppBackgroundFit = 'cover' | 'contain' | 'tile' | 'center';
 
 export interface AppBackgroundSettings {
   enabled: boolean;
-  imageId: string | null;
+  imageIds: string[];
+  intervalSeconds: number;
   fit: AppBackgroundFit;
   /** Opacity of app surfaces (panels, terminal) drawn on top of the image. */
   surfaceOpacity: number;
@@ -26,6 +27,8 @@ export const APP_BACKGROUND_FITS: readonly AppBackgroundFit[] = ['cover', 'conta
 export const APP_BACKGROUND_SURFACE_OPACITY_MIN = 0.2;
 export const APP_BACKGROUND_SURFACE_OPACITY_MAX = 1;
 export const APP_BACKGROUND_BLUR_MAX = 40;
+export const APP_BACKGROUND_INTERVAL_MIN = 10;
+export const APP_BACKGROUND_INTERVAL_MAX = 3600;
 
 /** Content-hash file name produced by appBackgroundBridge.importImage. */
 const IMAGE_ID_PATTERN = /^[a-f0-9]{16,64}\.(png|jpg|jpeg|webp|gif|bmp|avif|mp4|webm)$/;
@@ -33,7 +36,8 @@ const VIDEO_ID_PATTERN = /\.(mp4|webm)$/;
 
 export const DEFAULT_APP_BACKGROUND_SETTINGS: AppBackgroundSettings = Object.freeze({
   enabled: false,
-  imageId: null,
+  imageIds: [],
+  intervalSeconds: 60,
   fit: 'cover',
   surfaceOpacity: 0.8,
   blur: 0,
@@ -62,11 +66,17 @@ const clamp = (value: unknown, min: number, max: number, fallback: number): numb
 };
 
 export function normalizeAppBackgroundSettings(raw: unknown): AppBackgroundSettings {
-  const input = raw && typeof raw === 'object' ? (raw as Partial<AppBackgroundSettings>) : {};
+  const input = raw && typeof raw === 'object'
+    ? (raw as Partial<AppBackgroundSettings> & { imageId?: unknown }) : {};
   const defaults = DEFAULT_APP_BACKGROUND_SETTINGS;
+  const imageIds = Array.isArray(input.imageIds)
+    ? input.imageIds
+    : isValidAppBackgroundImageId(input.imageId) ? [input.imageId] : [];
   return {
     enabled: typeof input.enabled === 'boolean' ? input.enabled : defaults.enabled,
-    imageId: isValidAppBackgroundImageId(input.imageId) ? input.imageId : null,
+    imageIds: [...new Set(imageIds.filter(isValidAppBackgroundImageId))],
+    intervalSeconds: Math.round(clamp(input.intervalSeconds,
+      APP_BACKGROUND_INTERVAL_MIN, APP_BACKGROUND_INTERVAL_MAX, defaults.intervalSeconds)),
     fit: APP_BACKGROUND_FITS.includes(input.fit as AppBackgroundFit)
       ? (input.fit as AppBackgroundFit)
       : defaults.fit,
@@ -82,7 +92,13 @@ export function normalizeAppBackgroundSettings(raw: unknown): AppBackgroundSetti
 
 /** The background only takes effect once an image has actually been imported. */
 export function isAppBackgroundActive(settings: AppBackgroundSettings): boolean {
-  return settings.enabled && settings.imageId !== null;
+  return settings.enabled && settings.imageIds.length > 0;
+}
+
+export function nextAppBackgroundImageId(imageIds: readonly string[], currentId: string | null): string | null {
+  if (imageIds.length === 0) return null;
+  const index = imageIds.indexOf(currentId ?? '');
+  return imageIds[(index + 1) % imageIds.length];
 }
 
 export function resolveAppBackgroundImageUrl(imageId: string): string {

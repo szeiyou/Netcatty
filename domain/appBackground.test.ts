@@ -10,6 +10,7 @@ import {
   isAppBackgroundVideo,
   isValidAppBackgroundImageId,
   normalizeAppBackgroundSettings,
+  nextAppBackgroundImageId,
   resolveAppBackgroundImageStyle,
   resolveAppBackgroundImageUrl,
   resolveAppBackgroundMediaStyle,
@@ -17,6 +18,30 @@ import {
 } from './appBackground.ts';
 
 const IMAGE_ID = '0123456789abcdef0123456789abcdef.png';
+const SECOND_ID = 'fedcba9876543210fedcba9876543210.jpg';
+
+test('legacy single background migrates into the ordered media list', () => {
+  const settings = normalizeAppBackgroundSettings({ imageId: IMAGE_ID, enabled: true });
+  assert.deepEqual(settings.imageIds, [IMAGE_ID]);
+  assert.equal(settings.intervalSeconds, 60);
+  assert.equal(isAppBackgroundActive(settings), true);
+});
+
+test('normalization keeps valid unique media in order and clamps interval', () => {
+  const settings = normalizeAppBackgroundSettings({
+    imageIds: [IMAGE_ID, '../bad.png', SECOND_ID, IMAGE_ID],
+    intervalSeconds: 2,
+  });
+  assert.deepEqual(settings.imageIds, [IMAGE_ID, SECOND_ID]);
+  assert.equal(settings.intervalSeconds, 10);
+  assert.equal(normalizeAppBackgroundSettings({ intervalSeconds: 99999 }).intervalSeconds, 3600);
+});
+
+test('rotation advances in selection order and wraps to the first image', () => {
+  assert.equal(nextAppBackgroundImageId([IMAGE_ID, SECOND_ID], IMAGE_ID), SECOND_ID);
+  assert.equal(nextAppBackgroundImageId([IMAGE_ID, SECOND_ID], SECOND_ID), IMAGE_ID);
+  assert.equal(nextAppBackgroundImageId([IMAGE_ID, SECOND_ID], 'missing.png'), IMAGE_ID);
+});
 
 test('normalize falls back to defaults for garbage input', () => {
   assert.deepEqual(normalizeAppBackgroundSettings(null), DEFAULT_APP_BACKGROUND_SETTINGS);
@@ -38,17 +63,17 @@ test('normalize clamps numeric ranges', () => {
 
 test('normalize rejects image ids that could escape the image directory', () => {
   for (const imageId of ['../secret.png', '/etc/passwd', 'abc.png', `${IMAGE_ID}/..`, 'C:\\x.png']) {
-    assert.equal(normalizeAppBackgroundSettings({ imageId }).imageId, null, imageId);
+    assert.deepEqual(normalizeAppBackgroundSettings({ imageId }).imageIds, [], imageId);
     assert.equal(isValidAppBackgroundImageId(imageId), false, imageId);
   }
-  assert.equal(normalizeAppBackgroundSettings({ imageId: IMAGE_ID }).imageId, IMAGE_ID);
+  assert.deepEqual(normalizeAppBackgroundSettings({ imageId: IMAGE_ID }).imageIds, [IMAGE_ID]);
 });
 
 test('background is only active when enabled with an image', () => {
   assert.equal(isAppBackgroundActive({ ...DEFAULT_APP_BACKGROUND_SETTINGS, enabled: true }), false);
-  assert.equal(isAppBackgroundActive({ ...DEFAULT_APP_BACKGROUND_SETTINGS, imageId: IMAGE_ID }), false);
+  assert.equal(isAppBackgroundActive({ ...DEFAULT_APP_BACKGROUND_SETTINGS, imageIds: [IMAGE_ID] }), false);
   assert.equal(
-    isAppBackgroundActive({ ...DEFAULT_APP_BACKGROUND_SETTINGS, enabled: true, imageId: IMAGE_ID }),
+    isAppBackgroundActive({ ...DEFAULT_APP_BACKGROUND_SETTINGS, enabled: true, imageIds: [IMAGE_ID] }),
     true,
   );
 });
@@ -93,7 +118,7 @@ test('video ids are valid and detected by extension', () => {
   assert.equal(isAppBackgroundVideo(video), true);
   assert.equal(isAppBackgroundVideo(IMAGE_ID), false);
   assert.equal(isAppBackgroundVideo(null), false);
-  assert.equal(normalizeAppBackgroundSettings({ imageId: video }).imageId, video);
+  assert.deepEqual(normalizeAppBackgroundSettings({ imageId: video }).imageIds, [video]);
 });
 
 test('videos cannot tile', () => {

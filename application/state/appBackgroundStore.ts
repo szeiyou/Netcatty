@@ -71,7 +71,9 @@ class AppBackgroundStore {
     this.loaded = true;
     if (
       prev.enabled === next.enabled
-      && prev.imageId === next.imageId
+      && prev.imageIds.length === next.imageIds.length
+      && prev.imageIds.every((id, index) => id === next.imageIds[index])
+      && prev.intervalSeconds === next.intervalSeconds
       && prev.fit === next.fit
       && prev.surfaceOpacity === next.surfaceOpacity
       && prev.blur === next.blur
@@ -132,8 +134,8 @@ export type PickAppBackgroundImageResult =
   | { status: 'error'; error: 'unsupported-type' | 'not-found' | 'unavailable' };
 
 /** Remove an imported image file unless it is still the configured one. */
-function discardImage(imageId: string | null): void {
-  if (!imageId || imageId === getAppBackgroundSettings().imageId) return;
+function discardImage(imageId: string): void {
+  if (getAppBackgroundSettings().imageIds.includes(imageId)) return;
   netcattyBridge.get()?.removeAppBackgroundImage?.(imageId).catch((err) => {
     console.warn('[AppBackground] Failed to remove previous image:', err);
   });
@@ -141,8 +143,7 @@ function discardImage(imageId: string | null): void {
 
 /**
  * Let the user pick an image or video (native dialog in the main process),
- * make it the app background and enable it. The previously configured image file is
- * removed from userData.
+ * replace the background selection and enable it. Removed files are deleted.
  */
 export async function pickAppBackgroundImage(): Promise<PickAppBackgroundImageResult> {
   const pick = netcattyBridge.get()?.pickAppBackgroundImage;
@@ -152,19 +153,28 @@ export async function pickAppBackgroundImage(): Promise<PickAppBackgroundImageRe
     if (result.error === 'canceled') return { status: 'canceled' };
     return { status: 'error', error: result.error };
   }
-  const { imageId: previousImageId, fit } = getAppBackgroundSettings();
+  const { imageIds: previousImageIds, fit } = getAppBackgroundSettings();
+  const imageIds = [...new Set(result.images.map((image) => image.imageId))];
   updateAppBackgroundSettings({
-    imageId: result.imageId,
+    imageIds,
     enabled: true,
-    // Videos cannot tile; keep the fit only if it still applies.
-    fit: appBackgroundFitsFor(result.imageId).includes(fit) ? fit : 'cover',
+    // Tiling cannot be applied while the playlist contains a video.
+    fit: imageIds.every((id) => appBackgroundFitsFor(id).includes(fit)) ? fit : 'cover',
   });
-  discardImage(previousImageId);
-  return { status: 'imported', animated: result.animated === true };
+  previousImageIds.forEach(discardImage);
+  return { status: 'imported', animated: result.images.some((image) => image.animated) };
 }
 
 export function clearAppBackgroundImage(): void {
-  const previousImageId = getAppBackgroundSettings().imageId;
-  updateAppBackgroundSettings({ imageId: null, enabled: false });
-  discardImage(previousImageId);
+  const previousImageIds = getAppBackgroundSettings().imageIds;
+  updateAppBackgroundSettings({ imageIds: [], enabled: false });
+  previousImageIds.forEach(discardImage);
+}
+
+export function removeAppBackgroundImage(imageId: string): void {
+  const settings = getAppBackgroundSettings();
+  const imageIds = settings.imageIds.filter((id) => id !== imageId);
+  if (imageIds.length === settings.imageIds.length) return;
+  updateAppBackgroundSettings({ imageIds, enabled: imageIds.length > 0 && settings.enabled });
+  discardImage(imageId);
 }

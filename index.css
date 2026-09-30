@@ -537,6 +537,18 @@ html[data-theme-transition] *::after {
    (painted by a fixed z-index:-1 layer) shows through; --color-* resolve on
    <html> exactly like the @theme defaults above. Nested surfaces that use
    appNestedSurfaceColor() go fully transparent to avoid alpha stacking. */
+.app-background-crossfade {
+  position: absolute;
+  inset: 0;
+  transition: opacity 700ms ease-in-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-background-crossfade {
+    transition-duration: 0.01ms;
+  }
+}
+
 html[data-app-background] {
   --nc-app-nested-surface-alpha: 0;
   --color-background: hsl(var(--background) / var(--nc-app-surface-alpha, 1));

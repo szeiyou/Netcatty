@@ -36,7 +36,7 @@ declare global {
 
     // App background image or video (copied into userData, served via netcatty-bg://)
     pickAppBackgroundImage?(): Promise<
-      | { ok: true; imageId: string; animated?: boolean }
+      | { ok: true; images: Array<{ imageId: string; animated: boolean }> }
       | { ok: false; error: 'canceled' | 'unsupported-type' | 'not-found' | 'unavailable' }
     >;
     removeAppBackgroundImage?(imageId: string): Promise<{ ok: boolean; error?: string }>;
