@@ -279,6 +279,18 @@ export const esAiMessages: Messages = {
   'ai.opencode.check': 'Verificar',
   'ai.opencode.resetPath': 'Restablecer',
 
+  // AI MiMo Code (CLI de Xiaomi MiMo Code — fork de OpenCode)
+  'ai.mimo.title': 'MiMo Code',
+  'ai.mimo.description': 'CLI de MiMo Code de Xiaomi, un fork de OpenCode. Instálalo y configura los proveedores en su propia configuración, luego selecciónalo como agente de codificación externo.',
+  'ai.mimo.detecting': 'Detectando...',
+  'ai.mimo.detected': 'Detectado',
+  'ai.mimo.notFound': 'No encontrado',
+  'ai.mimo.path': 'Ruta:',
+  'ai.mimo.notFoundHint': 'No se pudo encontrar mimo en el PATH. Instálalo o especifica la ruta del ejecutable a continuación.',
+  'ai.mimo.customPathPlaceholder': 'p. ej. /usr/local/bin/mimo',
+  'ai.mimo.check': 'Verificar',
+  'ai.mimo.resetPath': 'Restablecer',
+
   // AI Grok Build (in-app managed agent — distinct from External MCP client install)
   'ai.grok.title': 'Grok Build',
   'ai.grok.description': "La CLI de agente de codificación Grok Build de xAI. Instala la CLI de Grok, inicia sesión con `grok login` o define XAI_API_KEY, y luego selecciónala como agente externo.",
@@ -315,6 +327,13 @@ export const esAiMessages: Messages = {
 
   // External MCP (productized catalog MCP for Codex / Claude Code / Cursor)
   'ai.externalMcp.title': 'MCP externo',
+  'ai.externalMcp.allowCommandOnHost': 'Siempre',
+  'ai.externalMcp.allowCommandOnHostHint': 'Permitir siempre esta acción en este servidor.',
+  'ai.externalMcp.allowAll': 'Permitir todas las acciones',
+  'ai.externalMcp.allowSession': 'Esta conexión',
+  'ai.externalMcp.allowSessionHint': 'Permitir todas las acciones de este cliente hasta que se desconecte.',
+  'ai.externalMcp.allowHost': 'Este servidor',
+  'ai.externalMcp.allowHostHint': 'Permitir siempre acciones en este servidor.',
   'ai.externalMcp.description': 'Expón Netcatty como un servidor MCP para clientes externos como Codex, Claude Code, Cursor y Grok. Usa las mismas herramientas del catálogo que los agentes de la aplicación (terminal, SFTP, Vault, reenvío de puertos). Mantén Netcatty en ejecución mientras los clientes estén conectados.',
   'ai.externalMcp.sessionsExposed': 'Sesiones en alcance: {count}',
   'ai.externalMcp.mode': 'Modo de disponibilidad',
@@ -592,6 +611,11 @@ export const esAiMessages: Messages = {
   'terminal.layer.aiChat': 'Chat de IA',
   'terminal.layer.movePanelLeft': 'Mover panel a la izquierda',
   'terminal.layer.movePanelRight': 'Mover panel a la derecha',
+  'terminal.layer.movePanelBottom': 'Mover panel a la parte inferior',
+  'terminal.layer.choosePanelPosition': 'Cambiar posición',
+  'terminal.layer.dockLeft': 'Izquierda',
+  'terminal.layer.dockRight': 'Derecha',
+  'terminal.layer.dockBottom': 'Abajo',
   'terminal.layer.closePanel': 'Cerrar panel',
   'terminal.layer.closePane': 'Cerrar división',
   'terminal.layer.resizeSplit': 'Redimensionar división',

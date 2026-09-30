@@ -288,6 +288,18 @@ export const zhCNAiMessages: Messages = {
   'ai.opencode.check': '检查',
   'ai.opencode.resetPath': '重置',
 
+  // AI MiMo Code（小米 MiMo Code CLI，OpenCode 分支）
+  'ai.mimo.title': 'MiMo Code',
+  'ai.mimo.description': '小米 MiMo Code CLI（OpenCode 分支）。安装后在它自己的配置里配置 provider 和密钥，检测到后即可作为外部编程 Agent 使用。',
+  'ai.mimo.detecting': '检测中...',
+  'ai.mimo.detected': '已检测到',
+  'ai.mimo.notFound': '未找到',
+  'ai.mimo.path': '路径：',
+  'ai.mimo.notFoundHint': '在 PATH 中未找到 mimo。请安装或在下方指定可执行文件路径。',
+  'ai.mimo.customPathPlaceholder': '例如 /usr/local/bin/mimo',
+  'ai.mimo.check': '检查',
+  'ai.mimo.resetPath': '重置',
+
   // AI Grok Build（应用内托管 Agent，与 External MCP「添加到 Grok」不同）
   'ai.grok.title': 'Grok Build',
   'ai.grok.description': 'xAI 的 Grok Build 编程 Agent CLI。安装 Grok CLI，使用 `grok login` 登录或设置 XAI_API_KEY 后，即可作为外部 Agent 选择。',
@@ -324,6 +336,13 @@ export const zhCNAiMessages: Messages = {
 
   // External MCP
   'ai.externalMcp.title': '对外 MCP',
+  'ai.externalMcp.allowCommandOnHost': '始终',
+  'ai.externalMcp.allowCommandOnHostHint': '始终允许在此服务器执行同类操作。',
+  'ai.externalMcp.allowAll': '允许所有操作',
+  'ai.externalMcp.allowSession': '此次连接',
+  'ai.externalMcp.allowSessionHint': '在客户端断开前，允许此次连接的所有操作。',
+  'ai.externalMcp.allowHost': '此服务器',
+  'ai.externalMcp.allowHostHint': '始终允许操作此服务器。',
   'ai.externalMcp.description': '把 Netcatty 作为 MCP 服务器暴露给 Codex、Claude Code、Cursor、Grok 等外部客户端。工具面与应用内 Agent 相同（终端、SFTP、Vault、端口转发）。客户端连接期间请保持 Netcatty 运行。',
   'ai.externalMcp.sessionsExposed': '作用域内会话：{count}',
   'ai.externalMcp.mode': '可用模式',
@@ -601,6 +620,11 @@ export const zhCNAiMessages: Messages = {
   'terminal.layer.aiChat': 'AI 助手',
   'terminal.layer.movePanelLeft': '面板移至左侧',
   'terminal.layer.movePanelRight': '面板移至右侧',
+  'terminal.layer.movePanelBottom': '面板移至底部',
+  'terminal.layer.choosePanelPosition': '改变位置',
+  'terminal.layer.dockLeft': '左侧',
+  'terminal.layer.dockRight': '右侧',
+  'terminal.layer.dockBottom': '底部',
   'terminal.layer.closePanel': '关闭面板',
   'terminal.layer.closePane': '关闭分屏',
   'terminal.layer.saveLayoutAsDefault': '将布局保存为默认',

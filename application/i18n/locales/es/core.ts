@@ -227,8 +227,11 @@ export const esCoreMessages: Messages = {
   'settings.globalHotkey.toggleWindowDesc': 'Presiona una combinación de teclas para definir un atajo global que muestre u oculte la ventana.',
   'settings.globalHotkey.notSet': 'No configurada',
   'settings.globalHotkey.reset': 'Restablecer al valor predeterminado',
-  'settings.globalHotkey.closeToTray': 'Cerrar a la bandeja del sistema',
-  'settings.globalHotkey.closeToTrayDesc': 'Cuando está activado, cerrar la ventana la minimiza a la bandeja del sistema en lugar de salir.',
+  'settings.globalHotkey.closeToTray': 'Seguir en segundo plano al cerrar la ventana',
+  'settings.globalHotkey.closeToTrayDesc': 'Al cerrar la ventana, se oculta y la aplicación sigue activa. La visibilidad del icono de la bandeja se configura aparte.',
+  'settings.globalHotkey.showTrayIcon': 'Mostrar icono de la bandeja del sistema',
+  'settings.globalHotkey.showTrayIconDesc': 'Cuando está desactivado, el icono de la bandeja se oculta, pero la aplicación sigue ejecutándose en segundo plano.',
+  'settings.globalHotkey.showTrayIconHiddenHint': 'Icono de la bandeja oculto. Vuelve a iniciar la aplicación o usa el atajo global para recuperar la ventana y vuelve a activar este ajuste para restaurar el icono.',
   'settings.globalHotkey.enabled': 'Activar tecla de acceso global',
   'settings.globalHotkey.enabledDesc': 'Registra atajos de teclado a nivel de todo el sistema. Cuando está desactivado, todas las teclas de acceso global se desregistran.',
   'settings.globalHotkey.hint': 'La tecla de acceso global funciona en todo el sistema para mostrar u ocultar la ventana rápidamente (terminal estilo Quake).',
@@ -274,13 +277,8 @@ export const esCoreMessages: Messages = {
   'settings.vault.selectBeforeConnectDesc': 'Haz clic una vez para seleccionar un host (resaltado con el color de acento en la vista de cuadrícula), haz clic de nuevo para conectarte. Los grupos funcionan igual. El valor predeterminado sigue siendo conectarse con un solo clic.',
   'settings.vault.showOnlyUngroupedHostsInRoot': 'Mostrar solo hosts sin grupo en la raíz',
   'settings.vault.showOnlyUngroupedHostsInRootDesc': 'Cuando está activado, la lista de hosts de la raíz solo muestra hosts sin grupo. Abre un grupo desde la barra lateral para ver los hosts agrupados.',
-  'settings.appearance.tabBarPosition': 'Posición de la barra de pestañas',
-  'settings.appearance.tabBarPosition.top': 'Arriba',
-  'settings.appearance.tabBarPosition.bottom': 'Abajo',
   'settings.vault.showSftpTab': 'Mostrar pestaña SFTP',
   'settings.vault.showSftpTabDesc': 'Muestra la vista SFTP independiente en la barra de pestañas superior. Cuando está oculta, usa el panel lateral SFTP dentro de la sesión.',
-  'settings.vault.sftpInSidebar': 'Mantener SFTP en la barra lateral',
-  'settings.vault.sftpInSidebarDesc': 'Oculta la pestaña SFTP superior y muestra SFTP en la barra lateral del depósito, de modo que la barra lateral siga visible mientras SFTP está abierto.',
   'settings.vault.showHostTreeSidebar': 'Mostrar barra lateral de lista de hosts',
   'settings.vault.showHostTreeSidebarDesc': 'Muestra la barra lateral de lista de hosts y su alternador en la barra superior en las pestañas de terminal y editor.',
   'settings.vault.autoImportSystemKnownHosts': 'Importar automáticamente known_hosts del sistema',
@@ -485,7 +483,7 @@ Resalta el panel dividido enfocado:
   'settings.appearance.background.error.generic': 'No se pudo importar la imagen de fondo.',
   'settings.appearance.background.animatedWarning': 'Las imágenes animadas se decodifican en la CPU en cada fotograma y pueden hacer que la terminal vaya lenta. Para fondos animados, conviértela a un vídeo MP4 o WebM, que decodifica la GPU.',
   'settings.appearance.appIcon': 'Ícono de la aplicación',
-  'settings.appearance.appIcon.desc': 'Elige un estilo de ícono para el dock o la barra de tareas que haga más fácil distinguir Netcatty al cambiar de aplicación. Se aplica en tiempo de ejecución; el ícono del paquete instalado no cambia.',
+  'settings.appearance.appIcon.desc': 'Elige un estilo de ícono para el dock o la barra de tareas que haga más fácil distinguir Netcatty al cambiar de aplicación. En Windows, el icono del área de notificación usa el mismo estilo. Se aplica en tiempo de ejecución; el ícono del paquete instalado no cambia.',
   'settings.appearance.appIcon.original': 'Original',
   'settings.appearance.appIcon.bright': 'Brillante',
   'settings.appearance.appIcon.dark': 'Oscuro',
@@ -561,6 +559,8 @@ Resalta el panel dividido enfocado:
   'settings.terminal.font.weightBold.desc': 'Peso del texto en negrita (100-900)',
   'settings.terminal.font.smoothing': 'Suavizado de fuente',
   'settings.terminal.font.smoothing.desc': 'Usar el anti-aliasing nativo de fuentes de macOS',
+  'settings.terminal.font.ligatures': 'Ligaduras de fuente',
+  'settings.terminal.font.ligatures.desc': 'Mostrar ligaduras como != cuando la fuente del terminal las incluye',
   'settings.terminal.font.linePadding': 'Espaciado de líneas',
   'settings.terminal.font.linePadding.desc': 'Espacio adicional entre líneas (0-10)',
   'settings.terminal.font.emulationType': 'Tipo de emulación de terminal',
@@ -568,6 +568,8 @@ Resalta el panel dividido enfocado:
   'settings.terminal.cursor.style.block': 'Bloque',
   'settings.terminal.cursor.style.bar': 'Barra',
   'settings.terminal.cursor.style.underline': 'Subrayado',
+  'settings.terminal.cursor.barWidth': 'Ancho del cursor de barra',
+  'settings.terminal.cursor.barWidth.desc': 'Ancho de los cursores de barra utilizados por aplicaciones como vi (1-4 px)',
   'settings.terminal.cursor.blink': 'Parpadeo del cursor',
   'settings.terminal.cursor.highlightLine': 'Resaltar línea actual',
   'settings.terminal.cursor.highlightLine.desc':
@@ -652,7 +654,10 @@ Resalta el panel dividido enfocado:
     'Envía el texto configurado en lugar del Enter normal al presionar Shift+Enter en la terminal.',
   'settings.terminal.behavior.shiftEnterNewlineText': 'Texto a enviar',
   'settings.terminal.behavior.shiftEnterNewlineText.desc':
-    'Usa \\n para nueva línea, \\t para tabulación y \\\\ para barra invertida.',
+    'Usa \\n para nueva línea, \\t para tabulación, \\e para Escape y \\\\ para barra invertida.',
+  'settings.terminal.behavior.shiftEnterForceText': 'Enviar texto también en modo de entrada Win32',
+  'settings.terminal.behavior.shiftEnterForceText.desc':
+    'Envía también el texto anterior cuando una sesión ConPTY local de Windows negocia el modo de entrada Win32. Necesario para CLI escritas en Node/Bun (Claude Code, CodeBuddy) que no pueden leer modificadores desde los registros de entrada de la consola.',
   'settings.terminal.behavior.clearWipesScrollback': '`clear` borra el historial de desplazamiento',
   'settings.terminal.behavior.clearWipesScrollback.desc':
     'Haz que `clear` también borre el buffer del historial de desplazamiento (predeterminado de POSIX). Desactívalo para mantener visible el historial después de `clear`.',
@@ -1014,7 +1019,6 @@ Resalta el panel dividido enfocado:
   'vault.nav.snippets': 'Scripts',
   'vault.nav.notes': 'Notas',
   'vault.nav.knownHosts': 'Hosts conocidos',
-  'vault.nav.sftp': 'SFTP',
   'vault.nav.logs': 'Registros',
 
   'proxyProfiles.action.add': 'Agregar proxy',

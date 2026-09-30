@@ -288,6 +288,18 @@ export const enAiMessages: Messages = {
   'ai.opencode.check': 'Check',
   'ai.opencode.resetPath': 'Reset',
 
+  // AI MiMo Code (Xiaomi MiMo Code CLI — OpenCode fork)
+  'ai.mimo.title': 'MiMo Code',
+  'ai.mimo.description': "Xiaomi's MiMo Code CLI, an OpenCode fork. Install it and configure providers in its own config, then select it as an external coding agent.",
+  'ai.mimo.detecting': 'Detecting...',
+  'ai.mimo.detected': 'Detected',
+  'ai.mimo.notFound': 'Not found',
+  'ai.mimo.path': 'Path:',
+  'ai.mimo.notFoundHint': 'Could not find mimo in PATH. Install it or specify the executable path below.',
+  'ai.mimo.customPathPlaceholder': 'e.g. /usr/local/bin/mimo',
+  'ai.mimo.check': 'Check',
+  'ai.mimo.resetPath': 'Reset',
+
   // AI Grok Build (in-app managed agent — distinct from External MCP client install)
   'ai.grok.title': 'Grok Build',
   'ai.grok.description': "xAI's Grok Build coding agent CLI. Install the Grok CLI, sign in with `grok login` or set XAI_API_KEY, then select it as an external agent.",
@@ -324,6 +336,13 @@ export const enAiMessages: Messages = {
 
   // External MCP (productized catalog MCP for Codex / Claude Code / Cursor)
   'ai.externalMcp.title': 'External MCP',
+  'ai.externalMcp.allowCommandOnHost': 'Always',
+  'ai.externalMcp.allowCommandOnHostHint': 'Always allow this action on this server.',
+  'ai.externalMcp.allowAll': 'Allow all actions',
+  'ai.externalMcp.allowSession': 'This connection',
+  'ai.externalMcp.allowSessionHint': 'Allow all actions from this client until it disconnects.',
+  'ai.externalMcp.allowHost': 'This server',
+  'ai.externalMcp.allowHostHint': 'Always allow actions on this server.',
   'ai.externalMcp.description': 'Expose Netcatty as an MCP server for external clients such as Codex, Claude Code, Cursor, and Grok. Uses the same catalog tools as in-app agents (terminal, SFTP, Vault, port forwarding). Keep Netcatty running while clients are connected.',
   'ai.externalMcp.sessionsExposed': 'Sessions in scope: {count}',
   'ai.externalMcp.mode': 'Availability mode',
@@ -601,6 +620,11 @@ export const enAiMessages: Messages = {
   'terminal.layer.aiChat': 'AI Chat',
   'terminal.layer.movePanelLeft': 'Move panel to left',
   'terminal.layer.movePanelRight': 'Move panel to right',
+  'terminal.layer.movePanelBottom': 'Move panel to bottom',
+  'terminal.layer.choosePanelPosition': 'Change position',
+  'terminal.layer.dockLeft': 'Left',
+  'terminal.layer.dockRight': 'Right',
+  'terminal.layer.dockBottom': 'Bottom',
   'terminal.layer.closePanel': 'Close panel',
   'terminal.layer.closePane': 'Close split',
   'terminal.layer.saveLayoutAsDefault': 'Save layout as default',

@@ -61,11 +61,7 @@ function SettingsAppearanceTab(props: {
   setHostClickBehavior: (behavior: "connect" | "select") => void;
   showOnlyUngroupedHostsInRoot: boolean;
   setShowOnlyUngroupedHostsInRoot: (enabled: boolean) => void;
-  tabBarPosition: 'top' | 'bottom';
-  setTabBarPosition: (position: 'top' | 'bottom') => void;
   showSftpTab: boolean;
-  sftpInSidebar: boolean;
-  setSftpInSidebar: (enabled: boolean) => void;
   setShowSftpTab: (enabled: boolean) => void;
   showHostTreeSidebar: boolean;
   setShowHostTreeSidebar: (enabled: boolean) => void;
@@ -134,11 +130,7 @@ function SettingsAppearanceTab(props: {
     setHostClickBehavior,
     showOnlyUngroupedHostsInRoot,
     setShowOnlyUngroupedHostsInRoot,
-    tabBarPosition,
-    setTabBarPosition,
     showSftpTab,
-    sftpInSidebar,
-    setSftpInSidebar,
     setShowSftpTab,
     showHostTreeSidebar,
     setShowHostTreeSidebar,
@@ -491,41 +483,11 @@ function SettingsAppearanceTab(props: {
           />
         </SettingRow>
         <SettingRow
-          anchorId="appearance-tab-bar-position"
-          label={t('settings.appearance.tabBarPosition')}
-        >
-          <div className="flex items-center rounded-lg border border-border bg-muted/50 p-0.5">
-            {(['top', 'bottom'] as const).map((position) => (
-              <button
-                key={position}
-                type="button"
-                aria-pressed={tabBarPosition === position}
-                onClick={() => setTabBarPosition(position)}
-                className={cn(
-                  "px-2.5 py-1 rounded-md text-xs font-medium transition-colors",
-                  tabBarPosition === position
-                    ? "bg-background text-foreground shadow-sm"
-                    : "text-muted-foreground hover:text-foreground",
-                )}
-              >
-                {t(`settings.appearance.tabBarPosition.${position}`)}
-              </button>
-            ))}
-          </div>
-        </SettingRow>
-        <SettingRow
           anchorId="appearance-vault-show-sftp-tab"
           label={t('settings.vault.showSftpTab')}
           description={t('settings.vault.showSftpTabDesc')}
         >
           <Toggle checked={showSftpTab} onChange={setShowSftpTab} />
-        </SettingRow>
-        <SettingRow
-          anchorId="appearance-vault-sftp-in-sidebar"
-          label={t('settings.vault.sftpInSidebar')}
-          description={t('settings.vault.sftpInSidebarDesc')}
-        >
-          <Toggle checked={sftpInSidebar} onChange={setSftpInSidebar} />
         </SettingRow>
         <SettingRow
           anchorId="appearance-vault-host-tree"

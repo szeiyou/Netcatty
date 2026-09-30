@@ -4,11 +4,19 @@ import {
   type ExternalAgentConfig,
 } from '../infrastructure/ai/types';
 import { getExternalAgentSdkBackend } from '../infrastructure/ai/managedAgents';
-import { canonicalizeEffortEncodedModelId } from '../infrastructure/ai/composerPicker';
+import {
+  canonicalizeEffortEncodedModelId,
+  modelPresetMatchesId,
+  modelPresetsContainId,
+} from '../infrastructure/ai/composerPicker';
 import { sha256 } from '@noble/hashes/sha2.js';
 import { bytesToHex } from '@noble/hashes/utils.js';
 
-export { canonicalizeEffortEncodedModelId };
+export {
+  canonicalizeEffortEncodedModelId,
+  modelPresetMatchesId,
+  modelPresetsContainId,
+};
 
 export type SdkRuntimeModelCatalog = {
   currentModelId: string | null;
@@ -46,6 +54,14 @@ const MODEL_CACHE_ENV_HINTS = [
   'OPENCODE_CONFIG',
   'OPENCODE_CONFIG_DIR',
   'OPENCODE_CONFIG_CONTENT',
+  'MIMOCODE_HOME',
+  'MIMOCODE_BIN',
+  'MIMOCODE_BIN_PATH',
+  'MIMOCODE_CONFIG',
+  'MIMOCODE_CONFIG_DIR',
+  'MIMOCODE_MIMO_ONLY',
+  'XDG_DATA_HOME',
+  'XDG_CACHE_HOME',
   'CLAUDE_CODE_EXECUTABLE',
   'CODEBUDDY_CODE_PATH',
   'CURSOR_API_KEY',
@@ -234,19 +250,6 @@ export function agentModelPresetsShallowEqual(
   });
 }
 
-export function modelPresetMatchesId(preset: AgentModelPreset, modelId: string): boolean {
-  const canonical = canonicalizeEffortEncodedModelId(modelId);
-  if (preset.thinkingLevels?.length) {
-    return preset.id === canonical
-      || preset.thinkingLevels.some((level) => `${preset.id}/${level}` === canonical);
-  }
-  return preset.id === canonical;
-}
-
-export function modelPresetsContainId(presets: AgentModelPreset[], modelId: string): boolean {
-  return presets.some((preset) => modelPresetMatchesId(preset, modelId));
-}
-
 export function normalizeStoredAgentModelSelection(
   storedModelId: string | null | undefined,
   presets: AgentModelPreset[],
@@ -271,7 +274,8 @@ export function shouldLoadSdkRuntimeModels(agent?: ExternalAgentConfig): boolean
     || sdkBackend === 'cursor'
     || sdkBackend === 'codebuddy'
     || sdkBackend === 'opencode'
-    || sdkBackend === 'grok';
+    || sdkBackend === 'grok'
+    || sdkBackend === 'mimo';
 }
 
 export function shouldAdoptSdkCurrentModel(
