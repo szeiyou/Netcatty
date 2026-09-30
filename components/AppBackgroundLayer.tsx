@@ -1,8 +1,9 @@
-import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import {
   isAppBackgroundActive,
   isAppBackgroundVideo,
+  nextAppBackgroundImageId,
   resolveAppBackgroundImageStyle,
   resolveAppBackgroundImageUrl,
   resolveAppBackgroundMediaStyle,
@@ -10,6 +11,7 @@ import {
 import { useAppBackgroundSettings } from '../application/state/appBackgroundStore';
 
 const SURFACE_ALPHA_VAR = '--nc-app-surface-alpha';
+const CROSSFADE_MS = 700;
 
 /**
  * False until this window has had focus once. A window created hidden (the
@@ -36,23 +38,31 @@ function useWindowHasBeenFocused(): boolean {
  * and frees the decoded frames, so switching away from a huge animated
  * image releases its CPU and memory right away.
  */
-const BackgroundImage: React.FC<{ src: string; style: React.CSSProperties }> = ({ src, style }) => {
+const BackgroundImage: React.FC<{ src: string; style: React.CSSProperties; onReady?: () => void }> = ({ src, style, onReady }) => {
   const imgRef = useRef<HTMLImageElement>(null);
+  useEffect(() => {
+    const img = imgRef.current;
+    if (img?.complete && img.naturalWidth > 0) onReady?.();
+  }, [src, onReady]);
   useEffect(() => {
     const img = imgRef.current;
     return () => {
       img?.removeAttribute('src');
     };
   }, [src]);
-  return <img ref={imgRef} src={src} alt="" decoding="async" draggable={false} style={style} />;
+  return <img ref={imgRef} src={src} alt="" decoding="async" draggable={false} style={style} onLoad={onReady} />;
 };
 
 /**
  * Looping muted background video. Paused while the window is hidden
  * (minimized / occluded) so it costs nothing when nobody can see it.
  */
-const BackgroundVideo: React.FC<{ src: string; style: React.CSSProperties }> = ({ src, style }) => {
+const BackgroundVideo: React.FC<{ src: string; style: React.CSSProperties; onReady?: () => void }> = ({ src, style, onReady }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
+
+  useEffect(() => {
+    if (videoRef.current && videoRef.current.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) onReady?.();
+  }, [src, onReady]);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -90,12 +100,29 @@ const BackgroundVideo: React.FC<{ src: string; style: React.CSSProperties }> = (
       disableRemotePlayback
       preload="auto"
       style={style}
+      onLoadedData={onReady}
     />
   );
 };
 
+const BackgroundTile: React.FC<{
+  src: string;
+  style: React.CSSProperties;
+  onReady?: () => void;
+}> = ({ src, style, onReady }) => {
+  const imgRef = useRef<HTMLImageElement>(null);
+  useEffect(() => {
+    const img = imgRef.current;
+    if (img?.complete && img.naturalWidth > 0) onReady?.();
+  }, [src, onReady]);
+  return <>
+    <div style={style} />
+    {onReady && <img ref={imgRef} src={src} alt="" style={{ display: 'none' }} onLoad={onReady} />}
+  </>;
+};
+
 /**
- * Paints the user's app background image or video behind the whole window.
+ * Paints the user's selected app backgrounds behind the whole window.
  *
  * While active it marks <html data-app-background> and publishes
  * `--nc-app-surface-alpha`; index.css turns the theme surface colors
@@ -107,6 +134,49 @@ export const AppBackgroundLayer: React.FC = () => {
   const settings = useAppBackgroundSettings();
   const active = isAppBackgroundActive(settings);
   const hasBeenFocused = useWindowHasBeenFocused();
+  const [currentImageId, setCurrentImageId] = useState<string | null>(null);
+  const imageIdsKey = settings.imageIds.join('|');
+  const imageIds = useMemo(() => imageIdsKey ? imageIdsKey.split('|') : [], [imageIdsKey]);
+
+  useEffect(() => {
+    setCurrentImageId(imageIds[0] ?? null);
+  }, [imageIds]);
+
+  useEffect(() => {
+    if (!active || !hasBeenFocused || imageIds.length < 2) return;
+    const timer = window.setInterval(() => {
+      setCurrentImageId((current) => nextAppBackgroundImageId(imageIds, current));
+    }, settings.intervalSeconds * 1000);
+    return () => window.clearInterval(timer);
+  }, [active, hasBeenFocused, imageIds, settings.intervalSeconds]);
+  const imageId = currentImageId && imageIds.includes(currentImageId)
+    ? currentImageId : imageIds[0];
+  const [displayedId, setDisplayedId] = useState(imageId);
+  const [incoming, setIncoming] = useState<{ id: string; ready: boolean } | null>(null);
+
+  useEffect(() => {
+    if (!imageId) return;
+    if (!displayedId || !imageIds.includes(displayedId)) {
+      // A removed file cannot remain as the outgoing layer.
+      setDisplayedId(imageId);
+      setIncoming(null);
+      return;
+    }
+    if ((imageId === displayedId && !incoming) || incoming?.id === imageId) return;
+    // If the selection changes mid-fade, keep whichever layer is already visible.
+    const visibleId = incoming?.ready ? incoming.id : displayedId;
+    setDisplayedId(visibleId);
+    setIncoming(visibleId === imageId ? null : { id: imageId, ready: false });
+  }, [imageId, imageIds, displayedId, incoming]);
+
+  useEffect(() => {
+    if (!incoming?.ready) return;
+    const timer = window.setTimeout(() => {
+      setDisplayedId(incoming.id);
+      setIncoming((current) => current?.id === incoming.id ? null : current);
+    }, window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : CROSSFADE_MS);
+    return () => window.clearTimeout(timer);
+  }, [incoming]);
 
   useLayoutEffect(() => {
     const root = document.documentElement;
@@ -125,11 +195,10 @@ export const AppBackgroundLayer: React.FC = () => {
     root.style.removeProperty(SURFACE_ALPHA_VAR);
   }, []);
 
-  if (!active || !settings.imageId) return null;
+  if (!active || !imageId) return null;
 
   // Blur samples transparent pixels past the edge; overscan hides the halo.
   const overscan = settings.blur > 0 ? -settings.blur * 2 : 0;
-  const url = resolveAppBackgroundImageUrl(settings.imageId);
   const filter = settings.blur > 0 ? `blur(${settings.blur}px)` : undefined;
   // <img>/<video> are replaced elements: insets alone do not stretch them.
   const mediaBox: React.CSSProperties = {
@@ -142,29 +211,34 @@ export const AppBackgroundLayer: React.FC = () => {
     filter,
   };
 
-  let media: React.ReactNode = null;
-  if (!hasBeenFocused) {
-    // Keep the tinted base only; load the media once the window is shown.
-  } else if (isAppBackgroundVideo(settings.imageId)) {
-    media = <BackgroundVideo key={url} src={url} style={mediaBox} />;
-  } else if (settings.fit === 'tile') {
-    // Tiling needs CSS background-repeat; object-fit has no equivalent.
-    media = (
-      <div
-        key={url}
-        style={{
-          position: 'absolute',
-          inset: overscan,
-          willChange: 'transform',
-          backgroundImage: `url("${url}")`,
-          ...resolveAppBackgroundImageStyle(settings.fit),
-          filter,
-        }}
-      />
-    );
-  } else {
-    media = <BackgroundImage key={url} src={url} style={mediaBox} />;
-  }
+  const renderMedia = (id: string, onReady?: () => void) => {
+    const url = resolveAppBackgroundImageUrl(id);
+    if (isAppBackgroundVideo(id)) {
+      return <BackgroundVideo src={url} style={mediaBox} onReady={onReady} />;
+    }
+    if (settings.fit === 'tile') {
+      // Tiling needs CSS background-repeat; preload before revealing this layer.
+      return <BackgroundTile src={url} onReady={onReady} style={{
+        position: 'absolute',
+        inset: overscan,
+        willChange: 'transform',
+        backgroundImage: `url("${url}")`,
+        ...resolveAppBackgroundImageStyle(settings.fit),
+        filter,
+      }} />;
+    }
+    return <BackgroundImage src={url} style={mediaBox} onReady={onReady} />;
+  };
+
+  const media = hasBeenFocused && [
+    <div key={displayedId} className="app-background-crossfade" style={{ opacity: incoming?.ready ? 0 : 1 }}>
+      {renderMedia(displayedId)}
+    </div>,
+    incoming && <div key={incoming.id} className="app-background-crossfade" style={{ opacity: incoming.ready ? 1 : 0 }}>
+      {renderMedia(incoming.id, () => setIncoming((current) => current?.id === incoming.id && !current.ready
+        ? { ...current, ready: true } : current))}
+    </div>,
+  ];
 
   // The media gets its own compositor layer (will-change) inside a fully
   // contained box. Otherwise it is rasterized into the same layer as the UI

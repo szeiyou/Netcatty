@@ -6,6 +6,31 @@ const path = require("node:path");
 
 const bridge = require("./appBackgroundBridge.cjs");
 
+test("picker imports every selected file in selection order", async () => {
+  const userDataDir = makeTempDir();
+  const srcDir = makeTempDir();
+  const first = path.join(srcDir, "first.png");
+  const second = path.join(srcDir, "second.jpg");
+  fs.writeFileSync(first, "first");
+  fs.writeFileSync(second, "second");
+  let options;
+  bridge.init({
+    userDataDir,
+    electronModule: {
+      dialog: { showOpenDialog: async (value) => {
+        options = value;
+        return { canceled: false, filePaths: [first, second] };
+      } },
+    },
+  });
+  const result = await bridge.pickAndImportImage();
+  assert.ok(options.properties.includes("multiSelections"));
+  assert.equal(result.ok, true);
+  assert.equal(result.images.length, 2);
+  assert.match(result.images[0].imageId, /\.png$/);
+  assert.match(result.images[1].imageId, /\.jpg$/);
+});
+
 function makeTempDir() {
   return fs.mkdtempSync(path.join(os.tmpdir(), "netcatty-app-bg-test-"));
 }

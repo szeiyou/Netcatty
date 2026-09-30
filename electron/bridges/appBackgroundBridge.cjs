@@ -174,7 +174,7 @@ async function pickAndImportImage(event) {
   if (!dialog) return { ok: false, error: "unavailable" };
   const parent = BrowserWindow?.fromWebContents?.(event?.sender) ?? undefined;
   const options = {
-    properties: ["openFile"],
+    properties: ["openFile", "multiSelections"],
     filters: [
       { name: "Images & Videos", extensions: Object.keys(MIME_BY_EXTENSION) },
       { name: "Images", extensions: Object.keys(MIME_BY_EXTENSION).filter((ext) => !VIDEO_EXTENSIONS.has(ext)) },
@@ -187,7 +187,13 @@ async function pickAndImportImage(event) {
   if (result.canceled || !result.filePaths?.length) {
     return { ok: false, error: "canceled" };
   }
-  return importImage(result.filePaths[0]);
+  const images = [];
+  for (const filePath of result.filePaths) {
+    const imported = await importImage(filePath);
+    if (!imported.ok) return imported;
+    images.push({ imageId: imported.imageId, animated: imported.animated === true });
+  }
+  return { ok: true, images };
 }
 
 /**
@@ -305,6 +311,7 @@ module.exports = {
   },
   init,
   importImage,
+  pickAndImportImage,
   isAnimatedImageHead,
   parseRange,
   removeImage,

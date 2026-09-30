@@ -1,10 +1,11 @@
 import React, { useCallback, useState } from "react";
-import { ImageIcon } from "lucide-react";
+import { ImageIcon, X } from "lucide-react";
 
 import { useI18n } from "../../../application/i18n/I18nProvider";
 import {
   clearAppBackgroundImage,
   pickAppBackgroundImage,
+  removeAppBackgroundImage,
   updateAppBackgroundSettings,
   useAppBackgroundSettings,
 } from "../../../application/state/appBackgroundStore";
@@ -24,7 +25,8 @@ export const AppBackgroundSettingsSection: React.FC = () => {
   const { t } = useI18n();
   const settings = useAppBackgroundSettings();
   const [picking, setPicking] = useState(false);
-  const hasImage = settings.imageId !== null;
+  const hasImage = settings.imageIds.length > 0;
+  const canTile = settings.imageIds.every((id) => !isAppBackgroundVideo(id));
 
   const handlePick = useCallback(async () => {
     setPicking(true);
@@ -58,41 +60,57 @@ export const AppBackgroundSettingsSection: React.FC = () => {
           label={t("settings.appearance.background.image")}
           description={t("settings.appearance.background.image.desc")}
         >
-          <div className="flex items-center gap-2">
-            <div
-              className="h-10 w-16 shrink-0 overflow-hidden rounded-md border border-border bg-muted/50 flex items-center justify-center"
-              aria-hidden="true"
-            >
-              {settings.imageId && isAppBackgroundVideo(settings.imageId) ? (
-                <video
-                  src={resolveAppBackgroundImageUrl(settings.imageId)}
-                  className="h-full w-full object-cover"
-                  muted
-                  playsInline
-                  preload="metadata"
-                />
-              ) : settings.imageId ? (
-                <img
-                  src={resolveAppBackgroundImageUrl(settings.imageId)}
-                  alt=""
-                  className="h-full w-full object-cover"
-                  draggable={false}
-                />
-              ) : (
-                <ImageIcon size={16} className="text-muted-foreground" />
+          <div className="flex w-56 max-w-[45vw] flex-col gap-2">
+            <div className="flex items-center gap-2">
+              <Button variant="outline" size="sm" onClick={handlePick} disabled={picking}>
+                {hasImage
+                  ? t("settings.appearance.background.change")
+                  : t("settings.appearance.background.choose")}
+              </Button>
+              {hasImage && (
+                <Button variant="ghost" size="sm" onClick={clearAppBackgroundImage} disabled={picking}>
+                  {t("settings.appearance.background.removeAll")}
+                </Button>
               )}
             </div>
-            <Button variant="outline" size="sm" onClick={handlePick} disabled={picking}>
-              {hasImage
-                ? t("settings.appearance.background.change")
-                : t("settings.appearance.background.choose")}
-            </Button>
-            {hasImage && (
-              <Button variant="ghost" size="sm" onClick={clearAppBackgroundImage} disabled={picking}>
-                {t("settings.appearance.background.remove")}
-              </Button>
-            )}
+            <div className="flex max-w-full flex-wrap gap-2">
+              {hasImage ? settings.imageIds.map((imageId, index) => (
+                <div key={imageId} className="relative h-12 w-20 overflow-hidden rounded-md border border-border bg-muted/50">
+                  {isAppBackgroundVideo(imageId) ? (
+                    <video src={resolveAppBackgroundImageUrl(imageId)} className="h-full w-full object-cover" muted playsInline preload="metadata" />
+                  ) : (
+                    <img src={resolveAppBackgroundImageUrl(imageId)} alt="" className="h-full w-full object-cover" draggable={false} />
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => removeAppBackgroundImage(imageId)}
+                    disabled={picking}
+                    aria-label={`${t("settings.appearance.background.remove")} ${index + 1}`}
+                    className="absolute right-0 top-0 rounded-bl bg-background/80 p-0.5 text-foreground hover:bg-background"
+                  >
+                    <X size={12} />
+                  </button>
+                </div>
+              )) : (
+                <div className="flex h-10 w-16 items-center justify-center rounded-md border border-border bg-muted/50" aria-hidden="true">
+                  <ImageIcon size={16} className="text-muted-foreground" />
+                </div>
+              )}
+            </div>
           </div>
+        </SettingRow>
+
+        <SettingRow label={t("settings.appearance.background.interval")}>
+          <Select
+            value={String(settings.intervalSeconds)}
+            options={[10, 30, 60, 300, 600, 1800, 3600].map((seconds) => ({
+              value: String(seconds),
+              label: t(`settings.appearance.background.interval.${seconds}`),
+            }))}
+            onChange={(seconds) => updateAppBackgroundSettings({ intervalSeconds: Number(seconds) })}
+            disabled={settings.imageIds.length < 2}
+            className="w-36"
+          />
         </SettingRow>
 
         <SettingRow
@@ -110,7 +128,7 @@ export const AppBackgroundSettingsSection: React.FC = () => {
         <SettingRow label={t("settings.appearance.background.fit")}>
           <Select
             value={settings.fit}
-            options={appBackgroundFitsFor(settings.imageId).map((fit) => ({
+            options={appBackgroundFitsFor(canTile ? null : settings.imageIds.find(isAppBackgroundVideo) ?? null).map((fit) => ({
               value: fit,
               label: t(`settings.appearance.background.fit.${fit}`),
             }))}
