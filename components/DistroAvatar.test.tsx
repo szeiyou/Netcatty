@@ -24,7 +24,7 @@ test("DistroAvatar renders custom host icon before distro color", () => {
   assert.doesNotMatch(markup, /bg-\[#E95420\]/);
 });
 
-test("DistroAvatar keeps serial hosts on the USB icon", () => {
+test("DistroAvatar applies custom icons and colors to serial hosts", () => {
   const markup = renderToStaticMarkup(
     <DistroAvatar
       host={{ ...baseHost, protocol: "serial", iconMode: "custom", iconId: "database", iconColor: "blue" }}
@@ -32,8 +32,9 @@ test("DistroAvatar keeps serial hosts on the USB icon", () => {
     />,
   );
 
-  assert.match(markup, /bg-amber-600/);
-  assert.doesNotMatch(markup, /background-color:#2563EB/i);
+  assert.match(markup, /lucide-database/);
+  assert.match(markup, /background-color:#2563EB/i);
+  assert.doesNotMatch(markup, /lucide-usb/);
 });
 
 test("DistroAvatar xs size uses compact corners without appearing circular", () => {
@@ -101,4 +102,31 @@ test("DistroAvatar renders the FreeBSD logo for a detected FreeBSD host", () => 
 
 test("FreeBSD is available as a manual host icon choice", () => {
   assert.ok(LINUX_DISTRO_OPTION_IDS.includes("freebsd"));
+});
+
+const renderSerial = (overrides: Record<string, unknown> = {}) => renderToStaticMarkup(
+  <DistroAvatar host={{ os: "linux", protocol: "serial", ...overrides }} fallback="Serial" />,
+);
+
+test("serial hosts keep the USB icon by default", () => {
+  assert.match(renderSerial(), /lucide-usb/);
+});
+
+test("serial hosts render a selected custom icon and color", () => {
+  const markup = renderSerial({ iconMode: "custom", iconId: "database", iconColorMode: "manual", iconColor: "violet" });
+  assert.match(markup, /lucide-database/);
+  assert.match(markup, /background-color:#7C3AED/);
+  assert.doesNotMatch(markup, /lucide-usb/);
+});
+
+test("serial hosts can recolor the default USB icon", () => {
+  const markup = renderSerial({ iconColorMode: "manual", iconColorCustom: "#12ABEF" });
+  assert.match(markup, /lucide-usb/);
+  assert.match(markup, /background-color:#12ABEF/);
+});
+
+test("serial hosts render a manually selected brand", () => {
+  const markup = renderSerial({ distroMode: "manual", manualDistro: "ubuntu" });
+  assert.match(markup, /ubuntu.svg/);
+  assert.doesNotMatch(markup, /lucide-usb/);
 });

@@ -2,7 +2,7 @@
  * Serial Host Details Panel
  * A dedicated editor for serial port hosts (distinct from SSH HostDetailsPanel)
  */
-import { ChevronDown, ChevronUp, Eye, EyeOff, Save, Tag, Usb, X } from 'lucide-react';
+import { ChevronDown, ChevronRight, ChevronUp, Eye, EyeOff, Save, Tag, Usb, X } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useI18n } from '../application/i18n/I18nProvider';
 import { useTerminalBackend } from '../application/state/useTerminalBackend';
@@ -15,6 +15,7 @@ import {
 import { Button } from './ui/button';
 import { Combobox, ComboboxOption, MultiCombobox } from './ui/combobox';
 import { Input } from './ui/input';
+import { Textarea } from './ui/textarea';
 import { Label } from './ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from './ui/collapsible';
@@ -25,8 +26,10 @@ import {
   type AsidePanelLayout,
   type AsidePanelResizeProps,
 } from './ui/aside-panel';
+import { HostDetailsSection } from './host-details/HostDetailsSection';
 import { HostNotesEditor } from './host/HostNotesEditor';
 import { cn } from '../lib/utils';
+import { HostIconPopover, type HostIconPickerOptions, type HostIconSelection } from './host-details/HostIconPopover';
 
 interface SerialPort {
   path: string;
@@ -40,6 +43,8 @@ interface SerialPort {
 
 interface SerialHostDetailsPanelProps {
   initialData: Host;
+  creationProtocolControl?: React.ReactNode;
+  iconPickerOptions?: HostIconPickerOptions;
   allTags?: string[];
   groups?: string[];
   groupDefaults?: Partial<GroupConfig>;
@@ -59,6 +64,8 @@ const FLOW_CONTROL_OPTIONS: SerialFlowControl[] = ['none', 'xon/xoff', 'rts/cts'
 
 export const SerialHostDetailsPanel: React.FC<SerialHostDetailsPanelPropsWithResize> = ({
   initialData,
+  creationProtocolControl,
+  iconPickerOptions,
   allTags = [],
   groups = [],
   groupDefaults,
@@ -78,6 +85,15 @@ export const SerialHostDetailsPanel: React.FC<SerialHostDetailsPanelPropsWithRes
   const [showPassword, setShowPassword] = useState(false);
 
   // Form state
+  const [iconSelection, setIconSelection] = useState<HostIconSelection>(() => ({
+    distroMode: initialData.distroMode,
+    manualDistro: initialData.manualDistro,
+    iconMode: initialData.iconMode,
+    iconId: initialData.iconId,
+    iconColorMode: initialData.iconColorMode,
+    iconColor: initialData.iconColor,
+    iconColorCustom: initialData.iconColorCustom,
+  }));
   const [label, setLabel] = useState(initialData.label);
   const [username, setUsername] = useState(initialData.username || '');
   const [password, setPassword] = useState(initialData.password || '');
@@ -150,6 +166,7 @@ export const SerialHostDetailsPanel: React.FC<SerialHostDetailsPanelPropsWithRes
     const portName = selectedPort.split('/').pop() || selectedPort;
     const updatedHost: Host = {
       ...initialData,
+      ...iconSelection,
       label: label.trim() || `Serial: ${portName}`,
       hostname: selectedPort,
       port: baudRate,
@@ -216,46 +233,23 @@ export const SerialHostDetailsPanel: React.FC<SerialHostDetailsPanelPropsWithRes
   // Check if using 1.5 stop bits (limited Windows support)
   const isStopBits15 = stopBits === 1.5;
 
-  return (
-    <AsidePanel
-      open={true}
-      onClose={onCancel}
-      title={t('serial.edit.title')}
-      subtitle={initialData.label}
-      className={cn('z-40', className)}
-      layout={layout}
-      dataSection="serial-host-details-panel"
-      resizable={resizable}
-      persistWidthStorageKey={persistWidthStorageKey}
-      resizeAriaLabel={resizeAriaLabel}
-    >
-      <AsidePanelContent>
-        {/* Label */}
-        <div className="space-y-2">
-          <Label htmlFor="serial-label">{t('serial.field.configLabel')}</Label>
-          <Input
-            id="serial-label"
-            value={label}
-            onChange={(e) => setLabel(e.target.value)}
-            placeholder={t('serial.field.configLabelPlaceholder')}
-          />
-        </div>
-
+  const serialConnectionFields = (<>
         {/* Serial Port */}
-        <div className="space-y-2">
-          <div className="flex items-center justify-between">
+        <div className={creationProtocolControl ? "space-y-1.5" : "space-y-2"}>
+          <div className={cn("flex items-center justify-between", creationProtocolControl && "h-4")}>
             <Label htmlFor="serial-port">{t('serial.field.port')}</Label>
             <Button
               variant="ghost"
               size="sm"
               onClick={loadPorts}
               disabled={isLoadingPorts}
-              className="h-6 px-2 text-xs"
+              className={creationProtocolControl ? "h-5 px-2 text-xs" : "h-6 px-2 text-xs"}
             >
               {t('common.refresh')}
             </Button>
           </div>
           <Combobox
+            triggerClassName={creationProtocolControl ? "h-7 text-xs" : undefined}
             options={portOptions}
             value={selectedPort}
             onValueChange={setSelectedPort}
@@ -273,9 +267,11 @@ export const SerialHostDetailsPanel: React.FC<SerialHostDetailsPanelPropsWithRes
         </div>
 
         {/* Baud Rate */}
-        <div className="space-y-2">
-          <Label htmlFor="baud-rate">{t('serial.field.baudRate')}</Label>
+        <div className={creationProtocolControl ? "space-y-1.5" : "space-y-2"}>
+          <Label className={creationProtocolControl ? "flex h-4 items-center" : undefined} htmlFor="baud-rate">{t('serial.field.baudRate')}</Label>
           <Combobox
+            triggerClassName={creationProtocolControl ? "h-7 text-xs" : undefined}
+            clearable={creationProtocolControl ? false : undefined}
             options={BAUD_RATES.map((rate) => ({
               value: String(rate),
               label: String(rate),
@@ -299,8 +295,60 @@ export const SerialHostDetailsPanel: React.FC<SerialHostDetailsPanelPropsWithRes
           )}
         </div>
 
+  </>);
+
+  const nameField = (
+          <div className="flex items-center gap-2">
+            {creationProtocolControl && iconPickerOptions && <HostIconPopover host={{ ...initialData, ...iconSelection, label }} options={iconPickerOptions} onChange={(next) => setIconSelection((previous) => ({ ...previous, ...next }))} />}
+            <Input
+              id="serial-label"
+              aria-label={t('hostDetails.create.name')}
+              value={label}
+              onChange={(e) => setLabel(e.target.value)}
+              placeholder={t('serial.field.configLabelPlaceholder')}
+            />
+          </div>
+  );
+
+  return (
+    <AsidePanel
+      open={true}
+      onClose={onCancel}
+      title={t(creationProtocolControl ? 'hostDetails.title.new' : 'serial.edit.title')}
+      subtitle={creationProtocolControl ? undefined : initialData.label}
+      className={cn('z-40', creationProtocolControl && "[&_input]:h-7 [&_input]:bg-secondary/40 [&_input]:text-xs [&_input]:focus-visible:ring-1 [&_input]:focus-visible:ring-ring [&_textarea]:focus-visible:ring-1 [&_textarea]:focus-visible:ring-ring [&_label]:text-xs [&_label]:font-semibold", className)}
+      layout={layout}
+      dataSection="serial-host-details-panel"
+      resizable={resizable}
+      persistWidthStorageKey={persistWidthStorageKey}
+      resizeAriaLabel={resizeAriaLabel}
+    >
+      <AsidePanelContent className={creationProtocolControl ? "[&_[data-radix-scroll-area-viewport]>div>div]:space-y-2 [&_[data-radix-scroll-area-viewport]>div>div]:py-3" : undefined}>
+        {/* Keep the shared name and protocol controls in the same position. */}
+        {creationProtocolControl ? <HostDetailsSection
+          icon={null}
+          title={t('hostDetails.create.name')}
+          className="!border-0 !bg-transparent !p-0 !shadow-none !space-y-1.5 [&>div:first-child>span]:hidden"
+        >
+          {nameField}
+        </HostDetailsSection> : (
+          <div className="space-y-2">
+            <Label htmlFor="serial-label">{t('serial.field.configLabel')}</Label>
+            {nameField}
+          </div>
+        )}
+
+        {creationProtocolControl}
+
+        {creationProtocolControl ? (
+          <div className="grid grid-cols-[minmax(0,1fr)_100px] items-start gap-3">
+            {serialConnectionFields}
+          </div>
+        ) : serialConnectionFields}
+
         {/* Login credentials (auto-login) */}
-        <div className="space-y-2">
+        <div className={creationProtocolControl ? "grid grid-cols-1 gap-3 sm:grid-cols-2" : "space-y-2"}>
+          <div className={creationProtocolControl ? "space-y-1.5" : "contents"}>
           <Label htmlFor="serial-username">{t('serial.field.username')}</Label>
           <Input
             id="serial-username"
@@ -309,6 +357,9 @@ export const SerialHostDetailsPanel: React.FC<SerialHostDetailsPanelPropsWithRes
             placeholder={t('serial.field.username')}
             autoComplete="off"
           />
+          </div>
+          <div className={creationProtocolControl ? "space-y-1.5" : "contents"}>
+          {creationProtocolControl && <Label htmlFor="serial-password">{t('serial.field.password')}</Label>}
           <div className="relative">
             <Input
               id="serial-password"
@@ -350,11 +401,13 @@ export const SerialHostDetailsPanel: React.FC<SerialHostDetailsPanelPropsWithRes
               </button>
             </div>
           </div>
-          <p className="text-xs text-muted-foreground">
+          </div>
+          <p className={cn("text-xs text-muted-foreground", creationProtocolControl && "col-span-full")}>
             {t('serial.field.autoLoginDesc')}
           </p>
         </div>
 
+        {!creationProtocolControl && <>
         {/* Tags */}
         <div className="space-y-2">
           <Label className="flex items-center gap-2">
@@ -377,10 +430,13 @@ export const SerialHostDetailsPanel: React.FC<SerialHostDetailsPanelPropsWithRes
           onChange={setNotes}
         />
 
+        </>}
+
         {/* Group */}
-        <div className="space-y-2">
+        <div className={creationProtocolControl ? "space-y-1.5" : "space-y-2"}>
           <Label>{t('hostDetails.group')}</Label>
           <Combobox
+            triggerClassName={creationProtocolControl ? "h-7 text-xs" : undefined}
             options={groupOptions}
             value={group}
             onValueChange={setGroup}
@@ -390,24 +446,33 @@ export const SerialHostDetailsPanel: React.FC<SerialHostDetailsPanelPropsWithRes
           />
         </div>
 
+        {creationProtocolControl ? (
+          <label className="block space-y-1.5">
+            <span className="text-xs font-semibold">{t('hostDetails.notes.label')}</span>
+            <Textarea value={notes} onChange={(event) => setNotes(event.target.value)} placeholder={t('hostDetails.notes.placeholder')} className="min-h-20 bg-secondary/40 text-xs font-normal" rows={3} />
+          </label>
+        ) : null}
+
         {/* Advanced Options */}
         <Collapsible open={showAdvanced} onOpenChange={setShowAdvanced}>
           <CollapsibleTrigger asChild>
             <Button
               variant="ghost"
-              className="w-full justify-between h-9 px-0 hover:bg-transparent"
+              className={creationProtocolControl ? "flex h-auto w-full justify-start gap-1.5 rounded-none py-1 px-0 text-xs text-muted-foreground hover:bg-transparent hover:text-foreground" : "w-full justify-between h-9 px-0 hover:bg-transparent"}
             >
-              <span className="text-sm font-medium text-muted-foreground">
-                {t('common.advanced')}
+              {creationProtocolControl && <ChevronRight size={14} className={cn("transition-transform duration-150", showAdvanced && "rotate-90")} />}
+              <span className={creationProtocolControl ? "font-normal" : "text-sm font-medium text-muted-foreground"}>
+                {t(creationProtocolControl ? 'hostDetails.create.advanced' : 'common.advanced')}
               </span>
-              {showAdvanced ? (
+              {!creationProtocolControl && (showAdvanced ? (
                 <ChevronUp size={14} className="text-muted-foreground" />
               ) : (
                 <ChevronDown size={14} className="text-muted-foreground" />
-              )}
+              ))}
             </Button>
           </CollapsibleTrigger>
           <CollapsibleContent className="space-y-4 pt-2">
+            {creationProtocolControl && <MultiCombobox options={tagOptions} values={tags} onValuesChange={setTags} placeholder={t('hostDetails.addTag')} allowCreate createText={t('hostDetails.createTag')} />}
             {/* Data Bits */}
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
@@ -592,12 +657,12 @@ export const SerialHostDetailsPanel: React.FC<SerialHostDetailsPanelPropsWithRes
       </AsidePanelContent>
 
       <AsidePanelFooter>
-        <div className="flex gap-2">
-          <Button variant="ghost" onClick={onCancel} className="flex-1">
+        <div className={cn("flex gap-2", creationProtocolControl && "justify-end")}>
+          <Button variant={creationProtocolControl ? "secondary" : "ghost"} onClick={onCancel} className={creationProtocolControl ? "h-8 px-3 text-xs" : "flex-1"}>
             {t('common.cancel')}
           </Button>
-          <Button onClick={handleSave} disabled={!isValid} className="flex-1">
-            <Save size={14} className="mr-2" />
+          <Button onClick={handleSave} disabled={!isValid} className={creationProtocolControl ? "h-8 px-4 text-xs" : "flex-1"}>
+            {!creationProtocolControl && <Save size={14} className="mr-2" />}
             {t('common.save')}
           </Button>
         </div>

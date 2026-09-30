@@ -126,21 +126,6 @@ const DistroAvatarInner: React.FC<DistroAvatarProps> = ({
   const containerClass = cn(sizeClasses[size], radiusClasses[size]);
   const iconSize = iconSizes[size];
 
-  // Show USB icon for serial hosts
-  if (host.protocol === 'serial') {
-    return (
-      <div
-        className={cn(
-          "shrink-0 flex items-center justify-center bg-amber-600 text-white dark:bg-amber-400 dark:text-slate-950",
-          containerClass,
-          className,
-        )}
-      >
-        <Usb className={iconSize} />
-      </div>
-    );
-  }
-
   const customAppearance = resolveHostIconAppearance(host);
   const customColor = resolveHostIconColorAppearance(host);
   if (customAppearance) {
@@ -154,6 +139,23 @@ const DistroAvatarInner: React.FC<DistroAvatarProps> = ({
         style={{ backgroundColor: customAppearance.colorHex }}
       >
         {renderHostIconGlyph(customAppearance.iconId, iconSize)}
+      </div>
+    );
+  }
+
+  // Show USB icon for serial hosts
+  if (host.protocol === 'serial' && host.distroMode !== 'manual') {
+    return (
+      <div
+        className={cn(
+          "shrink-0 flex items-center justify-center",
+          customColor ? "text-white" : "bg-amber-600 text-white dark:bg-amber-400 dark:text-slate-950",
+          containerClass,
+          className,
+        )}
+        style={customColor ? { backgroundColor: customColor.colorHex } : undefined}
+      >
+        <Usb className={iconSize} />
       </div>
     );
   }
