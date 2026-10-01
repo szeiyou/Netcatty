@@ -115,6 +115,8 @@ test('immediate tab recovery marks webgl recovery to skip the delayed duplicate 
   );
   assert.match(
     source,
-    /lastWebglRecoveryLayoutKeyRef\.current === paneLayoutKey\s*&& hiddenMs < CSS_ONLY_TAB_REVEAL_MAX_HIDDEN_MS/,
+    /if \(lastWebglRecoveryLayoutKeyRef\.current === paneLayoutKey\)/,
   );
+  const refit = source.slice(source.indexOf('const runImmediateRefit ='), source.indexOf('const syncPtySizeAfterLayout ='));
+  assert.doesNotMatch(refit, /lastFittedSizeRef.current = null/);
 });

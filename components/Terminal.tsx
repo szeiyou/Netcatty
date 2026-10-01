@@ -3110,6 +3110,8 @@ const TerminalComponent: React.FC<TerminalProps> = ({
           }
         }
 
+        const previousSize = lastFittedSizeRef.current;
+        const pixelSizeChanged = !previousSize || previousSize.width !== width || previousSize.height !== height;
         lastFittedSizeRef.current = { width, height };
         // addon-fit 0.11 clears the renderer before resizing, which can show
         // as a one-frame WebGL blink during layout changes. Resize directly
@@ -3123,7 +3125,9 @@ const TerminalComponent: React.FC<TerminalProps> = ({
           // bar, etc.) shrink the container without changing cols/rows, so
           // term.onResize — which clears the WebGL atlas — never fires.
           // Stale atlas glyphs then paint as black squares (#2013).
-          xtermRuntimeRef.current?.clearTextureAtlas();
+          // A forced same-size fit (tab/focus recovery) only needs a redraw.
+          // Rebuilding shared glyph caches repeatedly can blank peer panes.
+          if (pixelSizeChanged) xtermRuntimeRef.current?.clearTextureAtlas();
           forceSyncRenderAfterResize(term);
         }
 

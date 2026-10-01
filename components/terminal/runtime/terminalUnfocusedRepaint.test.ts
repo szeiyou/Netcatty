@@ -434,6 +434,100 @@ test("writeSessionData schedules a throttled coalescer flush when unfocused", ()
   );
 });
 
+test("unfocused repaint waits for the parser to finish a partial TUI update", (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout", "Date"] });
+  let renderedText = "old frame";
+  let bufferText = "";
+  const writeBuffer = { _pendingData: 10 };
+  const term = {
+    rows: 24,
+    buffer: { active: { type: "alternate" } },
+    refresh() {},
+    _core: {
+      _writeBuffer: writeBuffer,
+      _renderService: { _renderRows() { renderedText = bufferText; } },
+    },
+  } as unknown as XTerm;
+
+  withDocumentVisibility("visible", () => {
+    scheduleTerminalRepaintWhenUnfocused(term);
+    t.mock.timers.tick(16);
+    assert.equal(renderedText, "old frame", "keep the previous frame while cleared text is incomplete");
+    bufferText = "new frame";
+    writeBuffer._pendingData = 0;
+    t.mock.timers.tick(16);
+    assert.equal(renderedText, "new frame");
+  }, { hasFocus: false });
+  cancelScheduledUnfocusedRepaint(term);
+});
+
+test("unfocused repaint waits for an active serial write to complete", (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout", "Date"] });
+  let renderCalls = 0;
+  let finishWrite: (() => void) | undefined;
+  const term = {
+    rows: 24,
+    buffer: { active: { type: "normal" } },
+    _core: { _renderService: { _renderRows() { renderCalls += 1; } } },
+  } as unknown as XTerm;
+
+  withDocumentVisibility("visible", () => {
+    enqueueTerminalWrite(term, 10, (done) => { finishWrite = done; });
+    scheduleTerminalRepaintWhenUnfocused(term);
+    t.mock.timers.tick(16);
+    assert.equal(renderCalls, 0);
+    finishWrite?.();
+    t.mock.timers.tick(16);
+    assert.equal(renderCalls, 1);
+  }, { hasFocus: false });
+  cancelScheduledUnfocusedRepaint(term);
+});
+
+test("unfocused repaint makes progress during sustained pending output", (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout", "Date"] });
+  let renderCalls = 0;
+  const term = {
+    rows: 24,
+    buffer: { active: { type: "normal" } },
+    _core: {
+      _writeBuffer: { _pendingData: 10 },
+      _renderService: { _renderRows() { renderCalls += 1; } },
+    },
+  } as unknown as XTerm;
+
+  withDocumentVisibility("visible", () => {
+    scheduleTerminalRepaintWhenUnfocused(term);
+    for (let index = 0; index < 7; index += 1) t.mock.timers.tick(16);
+    assert.equal(renderCalls, 1, "continuous output must not freeze the background terminal");
+    cancelScheduledUnfocusedRepaint(term);
+    t.mock.timers.tick(1000);
+    assert.equal(renderCalls, 1);
+  }, { hasFocus: false });
+});
+
+test("canceling an unfocused repaint also cancels its pending-write retry", (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout", "Date"] });
+  let renderCalls = 0;
+  const writeBuffer = { _pendingData: 10 };
+  const term = {
+    rows: 24,
+    buffer: { active: { type: "normal" } },
+    _core: {
+      _writeBuffer: writeBuffer,
+      _renderService: { _renderRows() { renderCalls += 1; } },
+    },
+  } as unknown as XTerm;
+
+  withDocumentVisibility("visible", () => {
+    scheduleTerminalRepaintWhenUnfocused(term);
+    t.mock.timers.tick(16);
+    cancelScheduledUnfocusedRepaint(term);
+    writeBuffer._pendingData = 0;
+    t.mock.timers.tick(1000);
+    assert.equal(renderCalls, 0);
+  }, { hasFocus: false });
+});
+
 test("writeSessionData bypasses animation-frame coalescing for background output", () => {
   const source = readFileSync(
     new URL("./terminalSessionAttachment.ts", import.meta.url),
@@ -468,4 +562,17 @@ test("app resume recovery flushes pending writes before WebGL recovery", () => {
   assert.match(source, /const recoverTerminalOnAppResume = \(\) => \{/);
   assert.match(source, /flushPendingTerminalWritesOnResume\(term\)/);
   assert.match(source, /recoverWebglRendererOnAppResume\(\)/);
+});
+
+test("window focus preserves output batching and avoids forced layout recovery", () => {
+  const source = readFileSync(new URL("../useTerminalEffects.ts", import.meta.url), "utf8");
+  const handler = source.slice(
+    source.indexOf("const handleWindowFocus = () => {"),
+    source.indexOf("document.addEventListener('visibilitychange', handleVisibilityChange)"),
+  );
+  assert.match(handler, /cancelScheduledUnfocusedRepaint\(term\)/);
+  assert.match(handler, /recoverWebglRendererOnAppResume\(\)/);
+  assert.match(handler, /safeFit\(\{ requireVisible: true \}\)/);
+  assert.match(handler, /refreshTerminalViewport\(term\)/);
+  assert.doesNotMatch(handler, /recoverTerminalOnAppResume|scheduleLayoutRecoveryRefit|flushPendingTerminalWritesOnResume|forceTerminalRepaint|clearTextureAtlas|force: true/);
 });

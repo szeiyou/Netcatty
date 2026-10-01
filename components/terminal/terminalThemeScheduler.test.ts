@@ -5,6 +5,7 @@ import {
   cancelTerminalThemeUpdate,
   resetTerminalThemeSchedulerForTests,
   scheduleTerminalThemeUpdate,
+  applyTerminalThemeSync,
 } from './terminalThemeScheduler';
 import type { TerminalTheme } from '../../domain/models';
 
@@ -79,4 +80,30 @@ test('hidden terminal theme updates do not wait for browser idle time', async ()
 
   await Promise.resolve();
   assert.equal(fakeTerm.options.theme.background, '#111111');
+});
+
+test('unchanged focus and tab theme updates do not rebuild renderer colors', () => {
+  let changes = 0;
+  let currentTheme = {};
+  const fakeTerm = {
+    options: {
+      allowTransparency: false,
+      get theme() { return currentTheme; },
+      set theme(value) { currentTheme = value; changes += 1; },
+    },
+  };
+  applyTerminalThemeSync(fakeTerm as never, theme('same'));
+  applyTerminalThemeSync(fakeTerm as never, theme('same'));
+  assert.equal(changes, 1);
+  const changed = theme('same');
+  changed.colors.red = '#ff0000';
+  applyTerminalThemeSync(fakeTerm as never, changed);
+  assert.equal(changes, 2, 'ANSI palette changes still apply even when the theme ID is unchanged');
+  fakeTerm.options.allowTransparency = true;
+  applyTerminalThemeSync(fakeTerm as never, changed);
+  assert.equal(changes, 3, 'transparency changes still restore the background');
+  changed.colors.foregroundIntense = '#ffffff';
+  applyTerminalThemeSync(fakeTerm as never, changed);
+  applyTerminalThemeSync(fakeTerm as never, theme('same'));
+  assert.equal(changes, 5, 'removing optional colors must not leave stale palette overrides');
 });

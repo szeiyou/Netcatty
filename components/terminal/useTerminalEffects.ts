@@ -43,6 +43,7 @@ import { injectTerminalPaneAppearanceVars } from '../../infrastructure/theme/ter
 import {
   isTerminalAlternateScreenActive,
   nudgeAlternateScreenRedraw,
+  refreshTerminalViewport,
 } from './terminalHibernateRuntime';
 import {
   cancelScheduledUnfocusedRepaint,
@@ -1223,9 +1224,8 @@ export function useTerminalEffects(ctx: TerminalEffectsContext) {
   const runImmediateRefit = (options?: { force?: boolean; repeatOnNextFrame?: boolean }) => {
     const force = options?.force === true;
     const repeatOnNextFrame = options?.repeatOnNextFrame ?? force;
-    if (force) {
-      lastFittedSizeRef.current = null;
-    }
+    // force already bypasses safeFit's size cache; retain the previous bounds
+    // so it can distinguish a real pixel resize from a recovery-only redraw.
     safeFit({ force, requireVisible: true, immediate: true });
     if (force && repeatOnNextFrame && typeof requestAnimationFrame === 'function') {
       requestAnimationFrame(() => {
@@ -1450,15 +1450,11 @@ export function useTerminalEffects(ctx: TerminalEffectsContext) {
   useEffect(() => {
     if (!isVisible) return;
 
-    const hiddenMs = hiddenAtRef.current
-      ? Date.now() - hiddenAtRef.current
-      : Number.POSITIVE_INFINITY;
     hiddenAtRef.current = null;
 
-    if (
-      lastWebglRecoveryLayoutKeyRef.current === paneLayoutKey
-      && hiddenMs < CSS_ONLY_TAB_REVEAL_MAX_HIDDEN_MS
-    ) {
+    // The layout effect already recovered this reveal, regardless of how long
+    // the tab was hidden. Do not clear the atlas again in the delayed pass.
+    if (lastWebglRecoveryLayoutKeyRef.current === paneLayoutKey) {
       flushPendingOutputScroll();
       return;
     }
@@ -1952,7 +1948,22 @@ export function useTerminalEffects(ctx: TerminalEffectsContext) {
     };
 
     const handleWindowFocus = () => {
-      recoverTerminalOnAppResume();
+      if (document.visibilityState !== 'visible') return;
+
+      // Focus alone does not mean the window's layout or GPU context changed.
+      // Keep normal output batching intact and fit only if the bounds changed;
+      // forced recovery clears the WebGL atlas even for a same-size terminal.
+      syncOutputPressureVisibility();
+      const term = termRef.current;
+      if (term) {
+        cancelScheduledUnfocusedRepaint(term);
+      }
+      recoverWebglRendererOnAppResume();
+      safeFit({ requireVisible: true });
+      if (term) {
+        refreshTerminalViewport(term);
+      }
+      flushPendingOutputScroll();
     };
 
     document.addEventListener('visibilitychange', handleVisibilityChange);

@@ -17,8 +17,13 @@ if (!process.versions.electron) {
   let win;
   const cleanup = (code) => {
     win?.destroy();
-    fs.rmSync(userData, { recursive: true, force: true });
-    app.exit(code);
+    try {
+      fs.rmSync(userData, { recursive: true, force: true });
+    } catch (error) {
+      console.warn("Test user-data cleanup failed:", error.message);
+    } finally {
+      app.exit(code);
+    }
   };
   let bundle;
   try {
@@ -88,6 +93,29 @@ if (!process.versions.electron) {
       }
       assert.ok(root.querySelector('canvas'),'exercise WebGL, not only a fake renderer');
       const write=(pane,data)=>new Promise(resolve=>pane.r.term.write(data,resolve));
+      // Retained WebGL pixels survive compositor passes, while transparent
+      // redraws explicitly clear the old frame rather than leaving ghost text.
+      const retainedPane=panes[0];
+      const gl=retainedPane.r.term._core._renderService._renderer.value._gl;
+      assert.ok(gl,'test requires an active WebGL renderer');
+      assert.equal(gl.getContextAttributes().preserveDrawingBuffer,true);
+      retainedPane.r.term.options.allowTransparency=true;
+      retainedPane.r.term.options.theme={background:'#00000000',foreground:'#eeeeee'};
+      const alphaPixels=()=>{
+        const pixels=new Uint8Array(gl.drawingBufferWidth*gl.drawingBufferHeight*4);
+        gl.readPixels(0,0,gl.drawingBufferWidth,gl.drawingBufferHeight,gl.RGBA,gl.UNSIGNED_BYTE,pixels);
+        let count=0;for(let i=3;i<pixels.length;i+=4)if(pixels[i])count++;
+        return count;
+      };
+      await write(retainedPane,'\\x1b[?25l\\x1b[2J\\x1b[Hretained frame');await wait(100);
+      const retainedPixels=alphaPixels();
+      assert.ok(retainedPixels>0,'glyph pixels remain available after browser compositing');
+      await wait(100);
+      assert.equal(alphaPixels(),retainedPixels,'idle compositing preserves the last frame');
+      await write(retainedPane,'\\x1b[2J\\x1b[H');await wait(100);
+      assert.equal(alphaPixels(),0,'erasing a transparent terminal leaves no retained glyphs');
+      retainedPane.r.term.options.allowTransparency=false;
+      retainedPane.r.term.options.theme={background:'#111111',foreground:'#eeeeee'};
       const size=pane=>[pane.r.term.cols,pane.r.term.rows];
       const beforeSizes=panes.map(size);
       for(let i=1;i<5;i++)apply(panes[i],false);

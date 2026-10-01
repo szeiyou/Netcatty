@@ -187,6 +187,8 @@ import { getFlowControllerForTerm } from "./terminalSessionAttachment";
 import { createTerminalResizeScheduler } from "./terminalResizeScheduler";
 import { createTerminalLinkHandler } from "./terminalLinkHandler";
 import { writeLocalTerminalDataInOrder } from "./terminalUnfocusedRepaint";
+import { attachTerminalRenderDiagnostics } from "./terminalRenderDiagnostics";
+import { installRetainedWebglFrameClear } from "./retainedWebglFrame";
 import {
   prioritizeTerminalInput,
   shouldArmTerminalInterruptDisplayGateForProtocol,
@@ -852,10 +854,17 @@ export const createXTermRuntime = (ctx: CreateXTermRuntimeContext): XTermRuntime
     }
   };
 
+  let restoreWebglFrameRenderer: (() => void) | undefined;
   const webglController = createWebglRendererController({
     enabled: performanceConfig.useWebGLAddon,
-    createAddon: () => new WebglAddon(),
-    loadAddon: (addon) => term.loadAddon(addon),
+    // Background output is also painted outside rAF. Keep the last complete
+    // frame across compositor passes and tab visibility transitions.
+    createAddon: () => new WebglAddon({ preserveDrawingBuffer: true }),
+    loadAddon: (addon) => {
+      term.loadAddon(addon);
+      restoreWebglFrameRenderer?.();
+      restoreWebglFrameRenderer = installRetainedWebglFrameClear(term);
+    },
     repaint: repaintTerminal,
     setLoaded: (loaded) => {
       webglLoaded = loaded;
@@ -916,10 +925,17 @@ export const createXTermRuntime = (ctx: CreateXTermRuntimeContext): XTermRuntime
   // report in issue #1049 where only opening a brand-new terminal helps. Clearing
   // the atlas forces glyphs to re-rasterize at the correct scale on the next
   // frame. No-op for the DOM renderer.
+  const renderDiagnostics = attachTerminalRenderDiagnostics(term, {
+    sessionId: ctx.sessionId,
+    getRenderer: () => webglController.getAddon() ? "webgl" : "dom",
+    document: ctx.container.ownerDocument,
+    window: ctx.container.ownerDocument.defaultView ?? window,
+  });
   const clearWebglTextureAtlas = () => {
     const webglAddon = webglController.getAddon();
     if (!webglAddon) return;
     try {
+      renderDiagnostics.record("atlas-clear");
       webglAddon.clearTextureAtlas();
     } catch (err) {
       logger.warn("[XTerm] clearTextureAtlas failed", err);
@@ -3467,6 +3483,8 @@ export const createXTermRuntime = (ctx: CreateXTermRuntimeContext): XTermRuntime
     invalidatePendingPasteDraft,
     dispose: () => {
       runtimeDisposed = true;
+      renderDiagnostics.dispose();
+      restoreWebglFrameRenderer?.();
       disposeLinePasteHandler?.();
       disposePasteWriteReceipts?.();
       pendingLinePastes.clear();
