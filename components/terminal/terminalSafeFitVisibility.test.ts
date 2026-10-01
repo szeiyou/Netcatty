@@ -25,8 +25,9 @@ test('safeFit clears the WebGL atlas on pixel-only layout changes', () => {
   // this else-branch recovery, WebGL paints stale glyphs as black squares (#2013).
   assert.match(
     source,
-    /if \(term\.cols !== dimensions\.cols \|\| term\.rows !== dimensions\.rows\) \{\s*term\.resize\(dimensions\.cols, dimensions\.rows\);\s*forceSyncRenderAfterResize\(term\);\s*\} else \{\s*[\s\S]*?xtermRuntimeRef\.current\?\.clearTextureAtlas\(\);\s*forceSyncRenderAfterResize\(term\);\s*\}/,
+    /if \(term\.cols !== dimensions\.cols \|\| term\.rows !== dimensions\.rows\) \{\s*term\.resize\(dimensions\.cols, dimensions\.rows\);\s*forceSyncRenderAfterResize\(term\);\s*\} else \{\s*[\s\S]*?if \(pixelSizeChanged\) xtermRuntimeRef\.current\?\.clearTextureAtlas\(\);\s*forceSyncRenderAfterResize\(term\);\s*\}/,
   );
+  assert.match(source, /const pixelSizeChanged = !previousSize \|\| previousSize.width !== width \|\| previousSize.height !== height/);
 });
 
 test('safeFit waits for normal xterm callbacks before resizing', () => {

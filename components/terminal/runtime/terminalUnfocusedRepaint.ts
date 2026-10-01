@@ -16,6 +16,7 @@ import {
 } from "./terminalWriteQueue";
 
 const UNFOCUSED_REPAINT_DEBOUNCE_MS = 16;
+const UNFOCUSED_REPAINT_MAX_WAIT_MS = 100;
 const UNFOCUSED_FLUSH_DEBOUNCE_MS = 67;
 export const TERMINAL_WRITE_SETTLE_TIMEOUT_MS = 750;
 const TERMINAL_WRITE_SETTLE_POLL_MS = 8;
@@ -128,12 +129,25 @@ export function scheduleTerminalRepaintWhenUnfocused(term: XTerm): void {
 
   if (unfocusedRepaintTimers.has(term)) return;
 
-  const timer = setTimeout(() => {
-    unfocusedRepaintTimers.delete(term);
-    if (!isTerminalWindowUnfocusedButVisible()) return;
-    forceTerminalRepaintBypassingAnimationFrame(term);
-  }, UNFOCUSED_REPAINT_DEBOUNCE_MS);
-  unfocusedRepaintTimers.set(term, timer);
+  const deadline = Date.now() + UNFOCUSED_REPAINT_MAX_WAIT_MS;
+  const schedule = () => {
+    const timer = setTimeout(() => {
+      unfocusedRepaintTimers.delete(term);
+      if (!isTerminalWindowUnfocusedButVisible()) return;
+
+      // A write callback completes a queue item, not necessarily a whole TUI
+      // update. Do not paint a cleared/partly rewritten screen while more data
+      // is waiting in the coalescer, serial queue or xterm parser. Bound the
+      // wait so continuous background output still makes visible progress.
+      if (hasPendingTerminalWrites(term) && Date.now() < deadline) {
+        schedule();
+        return;
+      }
+      forceTerminalRepaintBypassingAnimationFrame(term);
+    }, Math.min(UNFOCUSED_REPAINT_DEBOUNCE_MS, Math.max(0, deadline - Date.now())));
+    unfocusedRepaintTimers.set(term, timer);
+  };
+  schedule();
 }
 
 export function cancelScheduledUnfocusedRepaint(term: XTerm): void {

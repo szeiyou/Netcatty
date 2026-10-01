@@ -37,12 +37,18 @@ export function buildXTermTheme(theme: TerminalTheme, transparentBackground: boo
 
 function applyThemeToTerminal(term: Terminal, theme: TerminalTheme): void {
   const transparentBackground = isAppBackgroundActiveNow();
+  const nextTheme = buildXTermTheme(theme, transparentBackground);
+  if (
+    term.options.allowTransparency === transparentBackground
+    && Object.keys({ ...term.options.theme, ...nextTheme }).every((key) =>
+      term.options.theme?.[key as keyof ITheme] === nextTheme[key as keyof ITheme])
+  ) return;
   // WebGL and DOM renderers both pick up allowTransparency at runtime (the
   // WebGL addon rebuilds its glyph atlas on any option change).
   if (term.options.allowTransparency !== transparentBackground) {
     term.options.allowTransparency = transparentBackground;
   }
-  term.options.theme = buildXTermTheme(theme, transparentBackground);
+  term.options.theme = nextTheme;
   forceSyncRenderAfterResize(term);
 }
 
