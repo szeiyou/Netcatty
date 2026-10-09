@@ -1,3 +1,5 @@
+> **關於此倉庫：** 這是 szeiyou 基於 [binaricat/Netcatty](https://github.com/binaricat/Netcatty) 修改的版本，開源於 [szeiyou/Netcatty](https://github.com/szeiyou/Netcatty)。修改包含自訂應用程式背景、Windows 建置輔助腳本、支援串列埠的新版主機對話框及終端渲染修正。保留上游提交歷史、作者署名和 [GPL v3 授權條款](LICENSE)。下文的下載連結、捐贈連結與更新設定指向上游專案；本修改版尚未發布安裝套件。
+
 <p align="center">
   <img src="public/icon.png" alt="Netcatty" width="128" height="128">
 </p>

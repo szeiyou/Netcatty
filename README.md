@@ -1,3 +1,5 @@
+> **About this repository:** This is szeiyou's modified version of [binaricat/Netcatty](https://github.com/binaricat/Netcatty), published at [szeiyou/Netcatty](https://github.com/szeiyou/Netcatty). It includes custom application backgrounds, Windows build helpers, a redesigned host dialog with serial support, and terminal rendering fixes. The upstream commit history, author credits, and [GPL v3 license](LICENSE) are preserved. Download links, donations, and update configuration below refer to the upstream project; releases for this version are not yet available.
+
 <p align="center">
   <img src="public/icon.png" alt="Netcatty" width="128" height="128">
 </p>

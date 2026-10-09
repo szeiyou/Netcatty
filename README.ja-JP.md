@@ -1,3 +1,5 @@
+> **このリポジトリについて：** [szeiyou/Netcatty](https://github.com/szeiyou/Netcatty) は [binaricat/Netcatty](https://github.com/binaricat/Netcatty) をベースにした szeiyou の変更版です。背景のカスタマイズ、Windows ビルド補助スクリプト、シリアル接続に対応したホストダイアログ、ターミナル描画の修正を含みます。上流のコミット履歴、著作者の表記、[GPL v3 ライセンス](LICENSE) を保持しています。以下のダウンロード、寄付リンクおよび更新設定は上流プロジェクトを参照します。この変更版のインストーラーはまだ公開していません。
+
 <p align="center">
   <img src="public/icon.png" alt="Netcatty" width="128" height="128">
 </p>
