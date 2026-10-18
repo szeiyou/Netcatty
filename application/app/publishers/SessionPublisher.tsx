@@ -9,6 +9,7 @@ import {
   registerSessionSnapshotActions,
 } from '../../state/sessionSnapshotStore';
 import { useSessionState } from '../../state/useSessionState';
+import { useLocalShellHostRegistration } from '../../state/useLocalShellHostRegistration';
 import type { ReactNode } from 'react';
 
 export type SessionPublisherProps = {
@@ -24,6 +25,7 @@ export type SessionPublisherProps = {
  */
 export function SessionPublisher({ persistSessionRestore, children }: SessionPublisherProps) {
   const session = useSessionState({ persistSessionRestore });
+  useLocalShellHostRegistration(session.sessions);
   const {
     sessions,
     orphanSessions,

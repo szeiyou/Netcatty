@@ -184,3 +184,25 @@ test("local sessions preserve intentionally absent display metadata when the sav
   assert.equal(named.localShellName, "Zsh");
   assert.equal(named.localShellIcon, "zsh");
 });
+
+test("saved local hosts retain launch configuration in standalone and workspace sessions", () => {
+  const localHost = host({
+    protocol: "local", label: "Ubuntu", localShell: "wsl.exe",
+    localShellArgs: ["-d", "Ubuntu"], localShellName: "Ubuntu (WSL)",
+    localShellIcon: "ubuntu", localStartDir: "/work",
+  });
+  for (const session of [
+    createHostTerminalSession("local-one", localHost),
+    createWorkspaceHostTerminalSession("local-two", localHost, "workspace-one"),
+  ]) {
+    assert.equal(session.protocol, "local");
+    assert.equal(session.hostId, localHost.id);
+    assert.equal(session.hostLabel, "Ubuntu");
+    assert.equal(session.localShell, "wsl.exe");
+    assert.deepEqual(session.localShellArgs, ["-d", "Ubuntu"]);
+    assert.notEqual(session.localShellArgs, localHost.localShellArgs);
+    assert.equal(session.localShellName, "Ubuntu (WSL)");
+    assert.equal(session.localShellIcon, "ubuntu");
+    assert.equal(session.localStartDir, "/work");
+  }
+});
