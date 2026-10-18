@@ -103,6 +103,8 @@ export interface ModelInfo {
 // Chat types
 export interface ChatMessageAttachment {
   base64Data: string;
+  /** Synced attachment metadata whose content is only available on the source device. */
+  contentUnavailable?: boolean;
   mediaType: string;
   filename?: string;
   filePath?: string;    // original filesystem path, when available
@@ -162,6 +164,8 @@ export interface ChatMessage {
   providerContinuation?: ProviderContinuation;
   toolCalls?: ToolCall[];
   toolResults?: ToolResult[];
+  /** User-skill pills selected for this turn (user messages); restored on undo. */
+  selectedUserSkillSlugs?: string[];
   agentActivities?: AgentActivity[];
   usage?: AgentUsage;
   timestamp: number;
@@ -559,25 +563,76 @@ export interface AgentModelPreset {
 
 const CLAUDE_REASONING_LEVELS = ['low', 'medium', 'high', 'max'] as const;
 
+// Fallback presets used when the live catalog (SDK listModels) is unavailable.
+// Mirrors the live model picker catalog observed 2026-10-10 (claude CLI
+// 2.1.296); ids are explicit model ids sent to the CLI verbatim and were
+// verified against the binary's model-id strings and alias table
+// (opus/sonnet/haiku → claude-*-5-5, fable → claude-fable-5-1). Live
+// discovery supersedes this list whenever it succeeds. `default` has no
+// fixed alias target and keeps the CLI's own neutral label. Explicit IDs
+// preserve a saved bare selection so CLI/settings effort remains in control.
 export const CLAUDE_MODEL_PRESETS: AgentModelPreset[] = [
   {
     id: 'default',
-    name: 'Opus 4.6',
+    name: 'Default (recommended)',
     description: 'Recommended',
     thinkingLevels: [...CLAUDE_REASONING_LEVELS],
     defaultThinkingLevel: 'medium',
   },
   {
-    id: 'sonnet',
-    name: 'Sonnet 4.6',
+    id: 'claude-opus-5-5',
+    name: 'Opus 5.5',
+    description: 'Flagship',
+    thinkingLevels: [...CLAUDE_REASONING_LEVELS],
+    defaultThinkingLevel: 'medium',
+    encodeDefaultThinking: false,
+  },
+  {
+    id: 'claude-fable-5-1',
+    name: 'Fable 5.1',
+    description: 'Latest Fable',
+  },
+  {
+    id: 'claude-sonnet-5-5',
+    name: 'Sonnet 5.5',
     description: 'Everyday tasks',
+    thinkingLevels: [...CLAUDE_REASONING_LEVELS],
+    defaultThinkingLevel: 'medium',
+    encodeDefaultThinking: false,
+  },
+  {
+    id: 'claude-haiku-5-5',
+    name: 'Haiku 5.5',
+    description: 'Fastest current',
+    thinkingLevels: [...CLAUDE_REASONING_LEVELS],
+    defaultThinkingLevel: 'low',
+    encodeDefaultThinking: false,
+  },
+  {
+    id: 'claude-haiku-4-5',
+    name: 'Haiku 4.5',
+    thinkingLevels: [...CLAUDE_REASONING_LEVELS],
+    defaultThinkingLevel: 'low',
+    encodeDefaultThinking: false,
+  },
+  { id: 'claude-sonnet-5', name: 'Sonnet 5' },
+  { id: 'claude-opus-5', name: 'Opus 5' },
+  { id: 'claude-fable-5', name: 'Fable 5' },
+  { id: 'claude-opus-4-8', name: 'Opus 4.8' },
+  { id: 'claude-opus-4-7', name: 'Opus 4.7' },
+  { id: 'claude-opus-4-6', name: 'Opus 4.6' },
+  { id: 'claude-sonnet-4-6', name: 'Sonnet 4.6' },
+  // Keep persisted pre-expansion selections valid. The installed CLI resolves
+  // these aliases, so their labels must not claim a particular generation.
+  {
+    id: 'sonnet',
+    name: 'Sonnet',
     thinkingLevels: [...CLAUDE_REASONING_LEVELS],
     defaultThinkingLevel: 'medium',
   },
   {
     id: 'haiku',
-    name: 'Haiku 4.5',
-    description: 'Fastest',
+    name: 'Haiku',
     thinkingLevels: [...CLAUDE_REASONING_LEVELS],
     defaultThinkingLevel: 'low',
   },
@@ -836,14 +891,24 @@ export const OPENCODE_MODEL_PRESETS: AgentModelPreset[] = [
   { id: 'ollama/llama3.3', name: 'Ollama Llama 3.3' },
 ];
 
-// Curated MiMo Code models when live discovery is unavailable. IDs read from
-// the CLI's own catalog (`mimo serve` + `config.providers()`) on v0.1.15: the
-// vendor provider is `xiaomi` and ids are lower-case, provider-prefixed.
-// Live discovery still overrides.
+// First-time fallback for the GitHub Copilot backend. Copilot's live catalog
+// (SDK listModels) exposes the implicit `auto` model; without any preset a
+// live-listModels failure (CLI missing, not logged in, slow native CLI) left
+// the picker empty and the agent unusable. Live discovery still overrides.
+export const COPILOT_MODEL_PRESETS: AgentModelPreset[] = [
+  { id: 'auto', name: 'Auto', description: 'Automatic model selection' },
+];
+
+// Curated MiMo Code models when live discovery is unavailable. Verified
+// against the live catalog on 2026-10-10 (user-observed picker + harness);
+// the `auto` channel is excluded — the mimo driver filters it driver-side.
 export const MIMO_MODEL_PRESETS: AgentModelPreset[] = [
-  { id: 'xiaomi/mimo-v2.5', name: 'MiMo V2.5' },
+  { id: 'xiaomi/mimo-v2.6-pro-ultraspeed', name: 'MiMo V2.6 Pro UltraSpeed' },
   { id: 'xiaomi/mimo-v2.6-pro', name: 'MiMo V2.6 Pro' },
   { id: 'xiaomi/mimo-v2.6-flash', name: 'MiMo V2.6 Flash' },
+  { id: 'xiaomi/mimo-v2.5-pro-ultraspeed', name: 'MiMo V2.5 Pro UltraSpeed' },
+  { id: 'xiaomi/mimo-v2.5-pro', name: 'MiMo V2.5 Pro' },
+  { id: 'xiaomi/mimo-v2.5', name: 'MiMo V2.5' },
 ];
 
 // Curated Grok Build models when `grok models` is unavailable. IDs mirror the
@@ -891,6 +956,7 @@ export function getAgentModelPresets(
   if (backend === 'opencode') return OPENCODE_MODEL_PRESETS;
   if (backend === 'grok') return GROK_MODEL_PRESETS;
   if (backend === 'mimo') return MIMO_MODEL_PRESETS;
+  if (backend === 'copilot') return COPILOT_MODEL_PRESETS;
 
   if (!agentCommand) return [];
   // Split on both POSIX (/) and Windows (\) separators so command paths like
@@ -911,6 +977,7 @@ export function getAgentModelPresets(
   if (basename.startsWith('opencode')) return OPENCODE_MODEL_PRESETS;
   if (basename.startsWith('grok')) return GROK_MODEL_PRESETS;
   if (basename.startsWith('mimo')) return MIMO_MODEL_PRESETS;
+  if (basename.startsWith('copilot')) return COPILOT_MODEL_PRESETS;
   return [];
 }
 

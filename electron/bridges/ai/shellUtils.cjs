@@ -13,7 +13,7 @@ const path = require("node:path");
 // ── ANSI / URL regexes ──
 
 const ANSI_ESCAPE_REGEX = /\u001B\[[0-?]*[ -/]*[@-~]/g;
-const ANSI_OSC_REGEX = /\u001B\][^\u0007]*(?:\u0007|\u001B\\)/g;
+const ANSI_OSC_REGEX = /\u001B\][^\u0007]*?(?:\u0007|\u001B\\)/g;
 const URL_CANDIDATE_REGEX = /https?:\/\/[^\s]+/g;
 const WINDOWS_RUNNABLE_EXTENSIONS = [".exe", ".cmd", ".bat", ".com"];
 const MAX_PROMPT_TRACK_TAIL = 4096;
@@ -620,6 +620,81 @@ function resolveCodebuddyExecutableForSdk(codebuddyExecutablePath, platform = pr
   return ext === ".cmd" || ext === ".bat" || ext === ".ps1" ? null : normalized;
 }
 
+function resolveCopilotExecutableForSdk(copilotExecutablePath, platform = process.platform) {
+  const normalized = String(copilotExecutablePath || "").trim();
+  if (!normalized) return null;
+  if (platform !== "win32") return normalized;
+
+  const ext = path.extname(normalized).toLowerCase();
+  // A native exe or an explicit .js entry can be launched by the SDK as-is.
+  if (ext === ".exe" || ext === ".js") return normalized;
+  // Any other concrete, non-shim extension: leave it untouched. npm also
+  // writes a copilot.ps1 wrapper next to the .cmd one; it cannot be spawned
+  // without a shell either, so it resolves to the JS entry the same way.
+  if (ext && ext !== ".cmd" && ext !== ".bat" && ext !== ".ps1") return normalized;
+
+  // Windows npm globals expose `copilot.cmd` shims that launch node with the
+  // package's npm-loader.js. The Copilot SDK spawns `path` through node
+  // WITHOUT shell:true, and Node >= 18.20 refuses to spawn .cmd/.bat shims
+  // (EINVAL), so resolve the shim to the real JS entry before handing it to
+  // RuntimeConnection.forStdio — same treatment as the other per-CLI resolvers.
+  const shimCandidates = [normalized];
+  if (!ext) shimCandidates.push(`${normalized}.cmd`, `${normalized}.bat`);
+
+  const shimDir = path.dirname(normalized);
+  // npm global layout: <prefix>\copilot.cmd + <prefix>\node_modules\@github\copilot\
+  // Local project layout: node_modules\.bin\copilot.cmd + ..\@github\copilot\
+  const packageRoots = [
+    path.join(shimDir, "node_modules", "@github", "copilot"),
+    path.join(shimDir, "..", "@github", "copilot"),
+  ];
+  // Loader-first is the default for npm shim resolution. The official 1.0.59
+  // loader forwards unchanged arguments to the same platform executable via
+  // spawnSync without windowsHide; it does not add runtime initialization.
+  // The Copilot SDK driver resolves that installed executable after this step
+  // so the SDK can hide and own it directly, retaining the loader as fallback.
+  // This opt-in still selects the native entry at the resolver boundary.
+  const preferNative = process.env.NETCATTY_COPILOT_PREFER_NATIVE === "1";
+  for (const root of packageRoots) {
+    if (preferNative) {
+      const nativeExe = path.join(
+        root, "..", `copilot-${platform}-${process.arch}`, "copilot.exe",
+      );
+      if (existsSync(nativeExe)) return nativeExe;
+    }
+    const loaderJs = path.join(root, "npm-loader.js");
+    if (existsSync(loaderJs)) return loaderJs;
+  }
+
+  // Fall back to parsing the shim for the npm-loader.js path it references.
+  for (const shimPath of shimCandidates) {
+    try {
+      if (!existsSync(shimPath)) continue;
+      const contents = readFileSync(shimPath, "utf8");
+      const match = contents.match(/node_modules[\\/]+@github[\\/]copilot[\\/][\w\\/.-]+\.js/i);
+      if (match) {
+        const loaderJs = path.resolve(path.dirname(shimPath), match[0]);
+        if (existsSync(loaderJs)) {
+          // Same opt-in native preference as the package-root path above.
+          if (preferNative) {
+            const nativeExe = path.join(
+              path.dirname(loaderJs), "..", `copilot-${platform}-${process.arch}`, "copilot.exe",
+            );
+            if (existsSync(nativeExe)) return nativeExe;
+          }
+          return loaderJs;
+        }
+      }
+    } catch {
+      // Try the next shim candidate.
+    }
+  }
+
+  // Could not locate the JS entry — return the original path unchanged so the
+  // caller keeps its previous behavior instead of losing the custom path.
+  return normalized;
+}
+
 function resolveSdkBinPath(command, shellEnv, platform = process.platform) {
   const raw = resolveCliFromPath(command, shellEnv);
   if (!raw) return null;
@@ -832,92 +907,97 @@ function getWindowsKnownCliPathDirs(env = process.env) {
   return dirs.filter((dir) => existsSync(dir));
 }
 
-// The hives a brand-new shell reads its PATH from, in Windows' own order:
-// user scope first, then machine scope.
+// Windows appends the user PATH to the machine PATH. Keep that ordering even
+// though both registry queries run concurrently.
 const WINDOWS_PATH_HIVES = [
-  "HKCU\\Environment",
   "HKLM\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment",
+  "HKCU\\Environment",
 ];
 
-function collectWindowsRegistryPath(stdout, env, parts) {
-  const raw = parseRegQueryPath(stdout);
-  if (raw) parts.push(expandWindowsEnvRefs(raw, env));
-}
-
-async function readWindowsRegistryPath({ exec = execFileAsync, env = process.env } = {}) {
-  const parts = [];
-  for (const hive of WINDOWS_PATH_HIVES) {
-    try {
-      const { stdout } = await exec("reg", ["query", hive, "/v", "Path"], {
-        encoding: "utf8",
-        timeout: 3000,
-      });
-      collectWindowsRegistryPath(stdout, env, parts);
-    } catch {
-      // Hive unreadable / value missing — skip and rely on other sources.
-    }
-  }
-  return parts.join(";");
-}
-
-/**
- * Synchronous twin of readWindowsRegistryPath() for callers that cannot await,
- * such as local terminal startup, which spawns the PTY inline.
- */
-function readWindowsRegistryPathSync({ exec = execFileSync, env = process.env } = {}) {
-  const parts = [];
-  for (const hive of WINDOWS_PATH_HIVES) {
-    try {
-      const stdout = exec("reg", ["query", hive, "/v", "Path"], {
-        encoding: "utf8",
-        timeout: 3000,
-        windowsHide: true,
-      });
-      collectWindowsRegistryPath(stdout, env, parts);
-    } catch {
-      // Hive unreadable / value missing — skip and rely on other sources.
-    }
-  }
-  return parts.join(";");
-}
-
-/**
- * Windows only: put the live registry PATH ahead of an already-captured PATH.
- *
- * Long-lived processes keep the PATH they were launched with, so anything the
- * user installs or upgrades afterwards is invisible to them — including tools
- * whose installer rewrites a versioned user-PATH entry, where the stale entry
- * points at a directory the upgrade removed. Merging the registry value (what
- * a fresh shell inherits) ahead of the captured one resolves those CLIs
- * without a restart. Returns `basePath` unchanged off Windows, or when the
- * registry cannot be read.
- */
-function resolveWindowsLivePath({
-  basePath,
-  exec,
+async function readWindowsRegistryPaths({
+  exec = execFileAsync,
   env = process.env,
-  platform = process.platform,
-  knownCliDirs = getWindowsKnownCliPathDirs,
+  timeoutMs = 1000,
 } = {}) {
-  if (platform !== "win32") return basePath;
-
-  let registryPath = "";
-  try {
-    registryPath = readWindowsRegistryPathSync({ exec, env });
-  } catch {
-    registryPath = "";
-  }
-
-  let knownDirs = "";
-  try {
-    knownDirs = (knownCliDirs(env) || []).join(";");
-  } catch {
-    knownDirs = "";
-  }
-
-  if (!registryPath && !knownDirs) return basePath;
-  return mergeWindowsPath(registryPath, knownDirs, basePath || "");
+  return Promise.all(WINDOWS_PATH_HIVES.map(async (hive) => {
+    let timer;
+    try {
+      // The JS deadline also bounds an unresponsive process callback. The
+      // child-process timeout remains responsible for terminating reg.exe.
+      const result = await Promise.race([
+        exec("reg", ["query", hive, "/v", "Path"], {
+          encoding: "utf8",
+          timeout: timeoutMs,
+          windowsHide: true,
+        }),
+        new Promise((resolve) => {
+          timer = setTimeout(() => resolve(null), timeoutMs);
+        }),
+      ]);
+      return result ? expandWindowsEnvRefs(parseRegQueryPath(result.stdout), env) : null;
+    } catch {
+      return null;
+    } finally {
+      clearTimeout(timer);
+    }
+  }));
 }
+
+async function readWindowsRegistryPath(options) {
+  return mergeWindowsPath(...await readWindowsRegistryPaths(options));
+}
+
+// Share a short-lived registry snapshot across simultaneous local terminals.
+// Cache raw values so each terminal expands references using its own env.
+function createWindowsLivePathResolver({
+  exec = execFileAsync,
+  now = Date.now,
+  ttlMs = 5000,
+  timeoutMs = 1000,
+} = {}) {
+  const cachedPaths = [null, null];
+  let refreshedAt = -Infinity;
+  let pending = null;
+
+  return async function resolveWindowsLivePath({
+    basePath,
+    env = process.env,
+    platform = process.platform,
+    knownCliDirs = getWindowsKnownCliPathDirs,
+  } = {}) {
+    if (platform !== "win32") return basePath;
+    if (!pending && now() - refreshedAt >= ttlMs) {
+      pending = readWindowsRegistryPaths({ exec, env: {}, timeoutMs })
+        .then((paths) => {
+          // A failed hive retains its last successful value; one unavailable
+          // hive must not discard the other half of a cached PATH.
+          paths.forEach((value, index) => {
+            if (value !== null) cachedPaths[index] = value;
+          });
+          refreshedAt = now();
+        })
+        .finally(() => { pending = null; });
+    }
+    if (pending) await pending;
+
+    let knownDirs = "";
+    try {
+      knownDirs = (knownCliDirs(env) || []).join(";");
+    } catch { /* Best-effort fallback only. */ }
+
+    const registryPath = expandWindowsEnvRefs(mergeWindowsPath(...cachedPaths), env);
+    if (!registryPath && !knownDirs) return basePath;
+    // Registry order reflects a fresh shell; inherited entries remain a
+    // fallback, and guessed package-manager bins must never take precedence.
+    // With no machine snapshot, retain inherited system precedence rather
+    // than accidentally promoting user directories above system binaries.
+    return cachedPaths[0] === null
+      ? mergeWindowsPath(basePath || "", registryPath, knownDirs)
+      : mergeWindowsPath(registryPath, basePath || "", knownDirs);
+  };
+}
+
+const resolveWindowsLivePath = createWindowsLivePathResolver();
 
 async function getShellEnv() {
   if (_cachedShellEnv) return _cachedShellEnv;
@@ -946,7 +1026,7 @@ async function getShellEnv() {
       const knownDirs = getWindowsKnownCliPathDirs().join(path.delimiter);
       const nextEnv = {
         ...process.env,
-        PATH: mergeWindowsPath(registryPath, knownDirs, process.env.PATH || ""),
+        PATH: mergeWindowsPath(registryPath, process.env[getPathEnvKey(process.env, "win32")] || "", knownDirs),
       };
       if (generation === _shellEnvGeneration) {
         _cachedShellEnv = nextEnv;
@@ -1050,6 +1130,7 @@ module.exports = {
   resolveCodexExecutableForSdk,
   addCodexExecutableEnvForSdk,
   resolveCodebuddyExecutableForSdk,
+  resolveCopilotExecutableForSdk,
   resolveSdkBinPath,
   resolveSdkBinPathAsync,
   resolveCliFromPath,
@@ -1062,7 +1143,7 @@ module.exports = {
   expandWindowsEnvRefs,
   mergeWindowsPath,
   readWindowsRegistryPath,
-  readWindowsRegistryPathSync,
+  createWindowsLivePathResolver,
   resolveWindowsLivePath,
   getShellEnv,
   invalidateShellEnvCache,

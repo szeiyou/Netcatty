@@ -26,8 +26,10 @@ import {
   isTransferControlEpochCurrent,
   settleTransferControlEpochTree,
 } from "./sftp/transferControlEpoch";
-import { isTransferWalkInFlight } from "./sftp/transferWalkRegistry";
+import { isTransferWalkInFlight, waitForTransferWalkSettled } from "./sftp/transferWalkRegistry";
+import { settleCancelledTransferTree } from "./sftp/transferCancelOutcome";
 import {
+  clearTransferCancelledTree,
   isTransferOrRootCancelled,
   markTransferCancelledTree,
   settleTransferCancelTree,
@@ -93,6 +95,12 @@ export type DedicatedTransferResumeHandler = (task: TransferTask) => Promise<{
   resetCheckpoint?: boolean;
 }>;
 
+interface RetainedCancellationTask {
+  task: TransferTask;
+  read(): TransferTask | undefined;
+  dispose(): void;
+}
+
 export interface SftpTransferCenterStore {
   subscribe(listener: Listener): () => void;
   /**
@@ -101,6 +109,8 @@ export interface SftpTransferCenterStore {
    */
   subscribeProgress(listener: Listener): () => void;
   getSnapshot(): SftpTransferCenterSnapshot;
+  /** Stable task hierarchy between lifecycle changes; live rows read getTask. */
+  getLifecycleSnapshot(): SftpTransferCenterSnapshot;
   /** Stable identity when badge counts are unchanged (avoids TopTabs thrash). */
   getBadgeSnapshot(): { count: number; hasAttention: boolean };
   /** Single task row — same object identity until that row is patched. */
@@ -121,7 +131,10 @@ export interface SftpTransferCenterStore {
   isResuming(taskId: string): boolean;
   pause(taskId: string): Promise<void>;
   resume(taskId: string): Promise<void>;
+  /** Wait for backend cancellation requests; live walks settle separately. */
   cancel(taskId: string): Promise<void>;
+  /** Publish one cancellation outcome after the old execution has settled. */
+  settleCancellation(taskId: string, taskIds: ReadonlySet<string>, failedIds: ReadonlySet<string>, retainedTasks: readonly RetainedCancellationTask[], onSettled: () => Promise<void>): Promise<void>;
   retry(taskId: string): Promise<void>;
   prioritize(taskId: string): Promise<void>;
   dismiss(taskId: string): void;
@@ -200,6 +213,21 @@ function buildBadgeSnapshot(tasks: readonly TransferTask[]): { count: number; ha
       || task.reconnectRequired === true
     ),
   };
+}
+
+/** Fields used by grouping, ordering and batch-action eligibility. */
+function hasTransferListMetadataChange(before: TransferTask | undefined, after: TransferTask | undefined): boolean {
+  if (!before || !after) return before !== after;
+  return before.status !== after.status
+    || before.parentTaskId !== after.parentTaskId
+    || before.background !== after.background
+    || before.startTime !== after.startTime
+    || before.priority !== after.priority
+    || before.ownerId !== after.ownerId
+    || before.resumable !== after.resumable
+    || before.reconnectRequired !== after.reconnectRequired
+    || Boolean(before.conflict) !== Boolean(after.conflict)
+    || (before.status === "failed" && ((before.checkpointBytes ?? 0) > 0) !== ((after.checkpointBytes ?? 0) > 0));
 }
 
 const TERMINAL_OWNER_STATUSES = new Set<TransferTask["status"]>([
@@ -409,6 +437,7 @@ export function createSftpTransferCenterStore(persistence?: StorePersistence): S
     event: BackgroundTransferEvent;
   }>>();
   let snapshot = tasks.length > 0 ? buildSnapshot(tasks) : EMPTY_SNAPSHOT;
+  let lifecycleSnapshot = snapshot;
   let badgeSnapshot = buildBadgeSnapshot(tasks);
   let snapshotDirty = false;
   const listeners = new Set<Listener>();
@@ -464,6 +493,8 @@ export function createSftpTransferCenterStore(persistence?: StorePersistence): S
   let persistenceDirty = false;
   let persistenceTimer: ReturnType<typeof setTimeout> | null = null;
   const resumeInvocations = new Map<string, Promise<void>>();
+  const cancelInvocations = new Map<string, Promise<void>>();
+  const cancelSettlements = new Map<string, Promise<void>>();
   // Ephemeral control intent: never serialize this or change bridge lifecycle epochs.
   const resumeRequests = new Map<string, symbol>();
   const resumeListeners = new Set<Listener>();
@@ -682,6 +713,7 @@ export function createSftpTransferCenterStore(persistence?: StorePersistence): S
     }
     snapshotDirty = false;
     snapshot = buildSnapshot(tasks);
+    lifecycleSnapshot = snapshot;
     refreshBadgeSnapshot();
     persist(shouldPersistImmediately);
     notifyDedicatedResumeWaiters();
@@ -694,19 +726,24 @@ export function createSftpTransferCenterStore(persistence?: StorePersistence): S
   };
 
   /** Progress-only: mutate tasks, defer snapshot rebuild, wake progress UI only. */
-  const emitProgress = (persistImmediately = false) => {
+  const emitProgress = (persistImmediately = false, lifecycleChanged = false) => {
     if (deferRestoreReplayEmits) {
       snapshotDirty = true;
       persistenceDirty = persistenceDirty || persistImmediately;
       return;
     }
     snapshotDirty = true;
+    // Admission/late progress may change a row's lifecycle without the costly
+    // prune/persist path. Keep the list hierarchy current, coalescing its UI
+    // notification with progress instead of waking owner lifecycle listeners.
+    if (lifecycleChanged) lifecycleSnapshot = buildSnapshot(tasks);
     // Never JSON.stringify/localStorage on the pure-progress path. Sync storage
     // on large directory histories freezes CSS spinners every few seconds.
     // Pause / complete / fingerprint / lifecycle still force persist below.
     if (persistImmediately) {
       snapshotDirty = false;
       snapshot = buildSnapshot(tasks);
+      lifecycleSnapshot = snapshot;
       refreshBadgeSnapshot();
       persist(true);
       notifyDedicatedResumeWaiters();
@@ -818,8 +855,7 @@ export function createSftpTransferCenterStore(persistence?: StorePersistence): S
     // Compressed soft-control is process-global: do not gate on a live panel owner.
     const liveCompressedJob = task?.controlKind === "compressed-upload"
       && task.reconnectRequired !== true
-      && task.status !== "interrupted"
-      && task.status !== "attention";
+      && task.status !== "interrupted";
     if (liveCompressedJob && (action === "pause" || action === "resume" || action === "cancel")) {
       const bridge = netcattyBridge.get();
       if (action === "pause") {
@@ -879,8 +915,17 @@ export function createSftpTransferCenterStore(persistence?: StorePersistence): S
         if (!result.success && result.reason) notify.warning(result.reason, "SFTP");
         return;
       }
-      const result = await (bridge?.cancelCompressedUpload?.(taskId)
-        ?? { success: false });
+      const result = await Promise.resolve(bridge?.cancelCompressedUpload?.(taskId)
+        ?? { success: false }).catch(() => ({ success: false }));
+      // The upload may finish while this cancel is still awaiting IPC: its
+      // completion event has already repainted the row terminal. The new
+      // inactive-compression response still reports success, so recheck the
+      // latest row before applying the cancellation result — otherwise Cancel
+      // all misreports a successfully completed upload as cancelled.
+      const latestAfterCancelIpc = tasks.find((candidate) => candidate.id === taskId);
+      if (latestAfterCancelIpc && ["completed", "failed", "cancelled"].includes(latestAfterCancelIpc.status)) {
+        return;
+      }
       if (!result.success) {
         const reason = "Could not cancel the compressed upload.";
         tasks = tasks.map((candidate) => candidate.id === taskId ? {
@@ -889,6 +934,13 @@ export function createSftpTransferCenterStore(persistence?: StorePersistence): S
           error: reason,
           speed: 0,
         } : candidate);
+        if (isTransferOrRootCancelled(taskId)) {
+          // The row is kept in attention for recovery instead of settling as
+          // cancelled. Drop the pre-installed cancellation latch now, or a
+          // later Resume is rejected outright by admitTaskRun's cancelled-root
+          // check (compressed uploads have no runWalk settlement to clear it).
+          clearTransferCancelledTree(taskId);
+        }
         emit();
         notify.warning(reason, "SFTP");
         return;
@@ -1301,9 +1353,9 @@ export function createSftpTransferCenterStore(persistence?: StorePersistence): S
         emit();
       }
     }
-    if (!controller && action === "cancel" && task && ["paused", "interrupted", "attention", "pending", "queued", "transferring", "pausing"].includes(task.status)) {
+    if (!controller && action === "cancel" && task && !["completed", "cancelled"].includes(task.status)) {
       const childIds = tasks
-        .filter((candidate) => candidate.parentTaskId === taskId)
+        .filter((candidate) => candidate.parentTaskId === taskId && !["completed", "cancelled", "failed"].includes(candidate.status))
         .map((candidate) => candidate.id);
       // Stop surviving processTransfer walks immediately (panel-local
       // cancelledTasksRef is gone after unmount).
@@ -1315,33 +1367,43 @@ export function createSftpTransferCenterStore(persistence?: StorePersistence): S
       } catch {
         // best-effort
       }
-      try {
-        await netcattyBridge.get()?.cancelTransfer?.(taskId);
-        for (const childId of childIds) {
-          try { await netcattyBridge.get()?.cancelTransfer?.(childId); } catch { /* best-effort */ }
+      const failedIds = new Set<string>();
+      const cancelIds = [taskId, ...childIds];
+      const cancelledIdSet = new Set(cancelIds);
+      const retainedTasks = tasks.filter((candidate) => cancelledIdSet.has(candidate.id))
+        .map((task) => ({ task, ...store.observeTaskSettlement(task) }));
+      for (let offset = 0; offset < cancelIds.length; offset += 32) {
+        await Promise.all(cancelIds.slice(offset, offset + 32).map(async (id) => {
+          try {
+            const result: unknown = await netcattyBridge.get()?.cancelTransfer?.(id);
+            if (result && typeof result === "object" && "success" in result && result.success === false) {
+              failedIds.add(id);
+            }
+          } catch {
+            failedIds.add(id);
+          }
+        }));
+      }
+      await store.settleCancellation(taskId, cancelledIdSet, failedIds, retainedTasks, async () => {
+        clearTransferCancelledTree(taskId, childIds);
+        if (failedIds.size > 0) {
+          const recoveryIds = cancelIds;
+          for (let offset = 0; offset < recoveryIds.length; offset += 32) {
+            await Promise.all(recoveryIds.slice(offset, offset + 32).map(async (id) => {
+              try { await netcattyBridge.get()?.clearPendingTransferCancel?.(id); } catch { /* best-effort */ }
+            }));
+          }
+        } else if (tasks.find((candidate) => candidate.id === taskId)?.status === "cancelled") {
+          try {
+            await netcattyBridge.get()?.cleanupTransferArtifacts?.({
+              transferId: taskId,
+              sourcePath: task.sourcePath,
+              targetPath: task.targetPath,
+              stagedTargetPath: task.stagedTargetPath,
+            });
+          } catch { /* best-effort */ }
         }
-      } catch {
-        // Best-effort backend cancel when the owning panel is gone / no window.
-      }
-      try {
-        await netcattyBridge.get()?.cleanupTransferArtifacts?.({
-          transferId: taskId,
-          sourcePath: task.sourcePath,
-          targetPath: task.targetPath,
-          stagedTargetPath: task.stagedTargetPath,
-        });
-      } catch {
-        // best-effort temp/.part cleanup
-      }
-      const cancelIds = new Set([taskId, ...childIds]);
-      tasks = tasks.map((candidate) => cancelIds.has(candidate.id) ? {
-        ...candidate,
-        status: "cancelled",
-        error: undefined,
-        endTime: Date.now(),
-        speed: 0,
-        conflict: undefined,
-      } : candidate);
+      });
       emit();
       return;
     }
@@ -1363,6 +1425,7 @@ export function createSftpTransferCenterStore(persistence?: StorePersistence): S
       return () => progressListeners.delete(listener);
     },
     getSnapshot: () => ensureSnapshot(),
+    getLifecycleSnapshot: () => lifecycleSnapshot,
     getBadgeSnapshot: () => badgeSnapshot,
     admitTaskRun(incoming, pausedAtResume, completedAtRestart) {
       const rootId = incoming.parentTaskId ?? incoming.id;
@@ -1416,7 +1479,7 @@ export function createSftpTransferCenterStore(persistence?: StorePersistence): S
       };
       tasks = next;
       captureObservedTask(next[index]);
-      emitProgress(false);
+      emitProgress(false, hasTransferListMetadataChange(existing, next[index]));
       return "ready";
     },
     observeTaskSettlement(expected, ignoredCompletion, onIdentityConflict) {
@@ -1735,7 +1798,7 @@ export function createSftpTransferCenterStore(persistence?: StorePersistence): S
         if (fingerprintChanged) emit(true);
         else if (directoryCheckpointChanged) emit(true);
         else if (lifecycleChanged) emit();
-        else emitProgress(false);
+        else emitProgress(false, hasTransferListMetadataChange(task, nextTask));
       }
     },
     upsertTasks(incoming) {
@@ -1794,10 +1857,28 @@ export function createSftpTransferCenterStore(persistence?: StorePersistence): S
         && ["paused", "interrupted", "attention", "pending", "queued"].includes(task.status);
     },
     pause(taskId) {
+      if (cancelInvocations.has(taskId) || isTransferOrRootCancelled(taskId)) return Promise.resolve();
       clearResumeRequest(taskId);
       return invoke(taskId, "pause");
     },
     async resume(taskId) {
+      // A cancelled scheduler job cannot be soft-resumed. Wait for the cancel
+      // outcome and fresh re-walk rather than unlatching the old walk.
+      const cancelling = cancelInvocations.get(taskId);
+      if (cancelling) {
+        await cancelling;
+        const task = tasks.find((candidate) => candidate.id === taskId);
+        if (!task || ["completed", "cancelled", "failed"].includes(task.status)) return;
+      }
+      // Failed cancellation reports immediately, but its old walk must still
+      // settle before Resume can start a fresh scan. A retried Cancel may have
+      // replaced the awaited outcome, so drain the latest settlement as well.
+      while (cancelSettlements.has(taskId)) await cancelSettlements.get(taskId);
+      const afterCancellation = tasks.find((candidate) => candidate.id === taskId);
+      if (!afterCancellation || ["completed", "cancelled"].includes(afterCancellation.status)) return;
+      // Cancel all latches every selected tree before its bounded IPC batches.
+      // A row-level Resume must not revive a tree whose batch has not run yet.
+      if (isTransferOrRootCancelled(taskId)) return;
       const request = Symbol("resume");
       resumeRequests.set(taskId, request);
       notifyResume();
@@ -1913,9 +1994,52 @@ export function createSftpTransferCenterStore(persistence?: StorePersistence): S
         if (resumeRequests.get(taskId) === request) clearResumeRequest(taskId);
       }
     },
+    async settleCancellation(taskId, taskIds, failedIds, retainedTasks, onSettled) {
+      const walkStillRunning = isTransferWalkInFlight(taskId);
+      const settlement = (async () => {
+        await waitForTransferWalkSettled(taskId);
+        // A later cancel attempt owns the outcome, even if this older attempt
+        // failed. Never repaint a successful retry as a failed cancellation.
+        if (cancelSettlements.get(taskId) !== settlement) return;
+        tasks = settleCancelledTransferTree(
+          tasks, taskId, taskIds, failedIds,
+          retainedTasks.map((retained) => retained.read() ?? retained.task),
+        );
+        await onSettled();
+        emit();
+      })().finally(() => {
+        for (const retained of retainedTasks) retained.dispose();
+        if (cancelSettlements.get(taskId) === settlement) cancelSettlements.delete(taskId);
+      });
+      cancelSettlements.set(taskId, settlement);
+      if (walkStillRunning) {
+        if (failedIds.size > 0) {
+          tasks = tasks.map((task) => task.id === taskId
+            && !["completed", "failed"].includes(task.status)
+            ? { ...task, status: "attention", error: "Could not cancel transfer. Please try again.", speed: 0 }
+            : task);
+          emit();
+        }
+        // Backend requests are done: let Cancel all dispatch its next batch.
+        // Resume, final status, and cleanup still wait on this settlement.
+        void settlement.catch(() => {});
+        return;
+      }
+      await settlement;
+    },
     cancel(taskId) {
       clearResumeRequest(taskId);
-      return invoke(taskId, "cancel");
+      const existing = cancelInvocations.get(taskId);
+      if (existing) return existing;
+      bumpTransferControlEpoch(taskId);
+      for (const task of tasks) {
+        if (task.parentTaskId === taskId) bumpTransferControlEpoch(task.id);
+      }
+      const running = invoke(taskId, "cancel").finally(() => {
+        if (cancelInvocations.get(taskId) === running) cancelInvocations.delete(taskId);
+      });
+      cancelInvocations.set(taskId, running);
+      return running;
     },
     async retry(taskId) {
       const ownerId = findOwner(taskId);
@@ -2074,6 +2198,8 @@ export function createSftpTransferCenterStore(persistence?: StorePersistence): S
       }
       let existingIndex = tasks.findIndex((task) => task.id === event.transferId);
       let existing = tasks[existingIndex];
+      const beforeEvent = existing;
+      let parentControlsChanged = false;
       const eventParent = event.parentTaskId
         ? tasks.find((task) => task.id === event.parentTaskId)
         : undefined;
@@ -2091,7 +2217,16 @@ export function createSftpTransferCenterStore(persistence?: StorePersistence): S
         } : task);
         existing = tasks[existingIndex];
         captureObservedTask(existing);
+        // Structural recovery must survive restart even if an unchanged or
+        // already-terminal event returns before the normal persistence path.
+        persist();
       }
+      // Hierarchy repair has already changed the live row. Even an otherwise
+      // ignored event must publish that change; ordinary progress still emits
+      // only once at the end, without a second directory-sized snapshot build.
+      const publishRepairedHierarchy = () => {
+        if (existing !== beforeEvent) emitProgress(false, true);
+      };
       // A delayed child progress event can arrive after the renderer compacted
       // that completed child into its parent checkpoint. Never resurrect it as
       // a live row, especially after the parent itself has finished.
@@ -2117,9 +2252,11 @@ export function createSftpTransferCenterStore(persistence?: StorePersistence): S
         // Allow a late explicit cancel to stick; ignore everything else.
         if (event.type === "completed" || event.type === "failed") {
           // Keep existing terminal state (prefer cancelled over late completed).
+          publishRepairedHierarchy();
           return;
         }
         if (event.type === "queued" || event.type === "started" || event.type === "progress" || event.type === "pausing" || event.type === "resumed" || event.type === "paused") {
+          publishRepairedHierarchy();
           return;
         }
       }
@@ -2164,6 +2301,7 @@ export function createSftpTransferCenterStore(persistence?: StorePersistence): S
           && sameOptional(event.resumable, existing.resumable)
           && sameOptional(event.pauseUnavailableReason, existing.pauseUnavailableReason)
         ) {
+          publishRepairedHierarchy();
           return;
         }
       }
@@ -2353,6 +2491,8 @@ export function createSftpTransferCenterStore(persistence?: StorePersistence): S
           };
         });
         if (event.resumable === false && existing.parentTaskId) {
+          const parent = tasks.find((task) => task.id === existing.parentTaskId);
+          parentControlsChanged = parent !== undefined && parent.resumable !== false;
           tasks = tasks.map((task) => task.id === existing.parentTaskId ? {
             ...task,
             resumable: false,
@@ -2409,8 +2549,11 @@ export function createSftpTransferCenterStore(persistence?: StorePersistence): S
       if (existingIndex >= 0) captureObservedTask(tasks[existingIndex]);
       // Progress-only ticks skip prune + coalesce listener paints; lifecycle
       // events still take the full emit path so UI never lags on pause/cancel.
+      const currentTask = tasks[existingIndex];
+      const hierarchyOrLifecycleChanged = parentControlsChanged
+        || hasTransferListMetadataChange(beforeEvent, currentTask);
       if (event.type === "progress" && !persistImmediately) {
-        emitProgress(false);
+        emitProgress(false, hierarchyOrLifecycleChanged);
       } else {
         emit(persistImmediately);
       }

@@ -5,6 +5,7 @@ import {
   EyeOff,
   FileText,
   FolderPlus,
+  PlugZap,
   Plus,
   Settings2,
   Tag,
@@ -24,6 +25,7 @@ import {
   updateProxyConfigField,
 } from "../domain/proxyProfiles";
 import { hasRequiredHostAuthCredential, resolveHostAuth, resolveHostAuthMethodForPersistence } from "../domain/sshAuth";
+import { canServeAsSshJumpHost } from "../domain/terminalProtocol";
 import { customThemeStore } from "../application/state/customThemeStore";
 import {
   hasHostFontSizeOverride,
@@ -31,7 +33,7 @@ import {
   resolveHostTerminalFontSize,
   resolveHostTerminalThemeId,
 } from "../domain/terminalAppearance";
-import { EnvVar, GroupConfig, Host, Identity, ManagedSource, ProxyConfig, ProxyProfile, Snippet, SSHKey } from "../types";
+import { EnvVar, GroupConfig, Host, Identity, KnownHost, ManagedSource, ProxyConfig, ProxyProfile, Snippet, SSHKey, TerminalSettings } from "../types";
 import { DISTRO_COLORS, DISTRO_LOGOS } from "./DistroAvatar";
 import SerialHostDetailsPanel from "./SerialHostDetailsPanel";
 import { HostCreationProtocolSelect } from "./host-details/HostCreationProtocolSelect";
@@ -68,6 +70,7 @@ import { Dialog, DialogContent, DialogTitle } from "./ui/dialog";
 import { PortalContainerProvider } from "./ui/portal-container";
 import { Switch } from "./ui/switch";
 import { toast } from "./ui/toast";
+import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
 
 import {
   ChainPanel,
@@ -85,6 +88,8 @@ import {
   stripBuiltInConnectionFieldsForPluginHost,
 } from "../domain/pluginConnection";
 import { PluginConnectionSection } from "./PluginConnectionSection";
+import { useHostConnectionTest } from "../application/state/useHostConnectionTest";
+import { HostConnectionTestDialog } from "./host-details/HostConnectionTestDialog";
 
 type CredentialType = "sshid" | "key" | "certificate" | "localKeyFile" | null;
 type SubPanel =
@@ -119,6 +124,9 @@ interface HostDetailsPanelProps {
   snippets?: Snippet[];
   onSnippetsChange?: (snippets: Snippet[]) => void;
   onHostsChange?: (hosts: Host[] | ((prev: Host[]) => Host[])) => void;
+  knownHosts?: KnownHost[];
+  onAddKnownHost?: (knownHost: KnownHost) => void;
+  terminalSettings?: TerminalSettings;
   className?: string;
 }
 
@@ -147,6 +155,9 @@ const HostDetailsPanelContent: React.FC<HostDetailsPanelPropsWithResize> = ({
   snippets = [],
   onSnippetsChange,
   onHostsChange,
+  knownHosts,
+  onAddKnownHost,
+  terminalSettings,
   className,
   resizable,
   persistWidthStorageKey,
@@ -209,6 +220,28 @@ const HostDetailsPanelContent: React.FC<HostDetailsPanelPropsWithResize> = ({
 
   const [sshAgentStatus, setSshAgentStatus] = useState<SshAgentStatus | null>(null);
   const [sshForwardingAgentStatus, setSshForwardingAgentStatus] = useState<SshAgentStatus | null>(null);
+
+  const [testOpen, setTestOpen] = useState(false);
+  const hostConnectionTest = useHostConnectionTest({
+    host: form,
+    hosts: allHosts,
+    keys: availableKeys,
+    identities,
+    knownHosts,
+    groupConfigs,
+    proxyProfiles,
+    terminalSettings,
+    onAddKnownHost,
+  });
+
+  const handleStartTest = () => {
+    setTestOpen(true);
+    void hostConnectionTest.startTest();
+  };
+
+  const handleCloseTest = () => {
+    setTestOpen(false);
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -731,7 +764,13 @@ const HostDetailsPanelContent: React.FC<HostDetailsPanelPropsWithResize> = ({
 
   const availableHostsForChain = useMemo(() => {
     const chainedIds = new Set(form.hostChain?.hostIds || []);
-    return allHosts.filter((h) => h.id !== form.id && !chainedIds.has(h.id));
+    // Chain hops are SSH ProxyJump hops; never offer local/serial/telnet/plugin
+    // entries (e.g. saved local shells) as jump hosts.
+    return allHosts.filter((h) =>
+      h.id !== form.id
+      && !chainedIds.has(h.id)
+      && canServeAsSshJumpHost(h),
+    );
   }, [allHosts, form.id, form.hostChain?.hostIds]);
 
   const chainedHosts = useMemo(() => {
@@ -1113,17 +1152,40 @@ const HostDetailsPanelContent: React.FC<HostDetailsPanelPropsWithResize> = ({
       title={
         initialData ? t("hostDetails.title.details") : t("hostDetails.title.new")
       }
-      actions={!isCreating &&
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-8 w-8"
-          onClick={handleSubmit}
-          disabled={!canSaveHost}
-          aria-label={t("hostDetails.saveAria")}
-        >
-          <Check size={16} />
-        </Button>
+      actions={
+        <>
+          {!pluginProtocolActive && form.protocol !== "telnet" && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="inline-flex">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8"
+                    onClick={handleStartTest}
+                    disabled={!canSaveHost}
+                    aria-label={t("hostConnectionTest.title")}
+                  >
+                    <PlugZap size={16} />
+                  </Button>
+                </span>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">
+                {t("hostConnectionTest.title")}
+              </TooltipContent>
+            </Tooltip>
+          )}
+          {!isCreating && <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8"
+            onClick={handleSubmit}
+            disabled={!canSaveHost}
+            aria-label={t("hostDetails.saveAria")}
+          >
+            <Check size={16} />
+          </Button>}
+        </>
       }
     >
       <AsidePanelContent className={isCreating ? "[&_[data-radix-scroll-area-viewport]>div>div]:space-y-2 [&_[data-radix-scroll-area-viewport]>div>div]:py-3" : undefined}>
@@ -1479,6 +1541,13 @@ const HostDetailsPanelContent: React.FC<HostDetailsPanelPropsWithResize> = ({
           {t("common.save")}
         </Button>
       </AsidePanelFooter>
+      <HostConnectionTestDialog
+        open={testOpen}
+        onClose={handleCloseTest}
+        host={form}
+        keys={availableKeys}
+        test={hostConnectionTest}
+      />
     </AsidePanel>
   );
 

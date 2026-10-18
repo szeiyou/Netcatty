@@ -61,7 +61,6 @@ const toolbarIconButtonClass =
   'h-7 w-7 shrink-0 flex items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors disabled:opacity-40 disabled:pointer-events-none';
 
 const SCRIPT_ROW_HEIGHT = 34;
-
 const isRootPackagePath = (path: string): boolean => {
   const body = path.startsWith('/') ? path.slice(1) : path;
   return body.length > 0 && !body.includes('/');
@@ -227,6 +226,11 @@ export function buildScriptsSidePanelRows({
   const snippetsIn = (pkg: string | null): Snippet[] =>
     sortByVaultOrder(snippetsByPackage.get(pkg ?? '') ?? []);
 
+  const emitSnippets = (localSnippets: Snippet[], pkg: string, depth: number) =>
+    localSnippets.forEach((snippet) =>
+      rows.push({ type: 'snippet', id: snippet.id, depth: depth + 1, snippet, packagePath: pkg }),
+    );
+
   const rows: TreeRow[] = [];
   const walk = (pkg: string, depth: number) => {
     const children = childPackagesOf(pkg);
@@ -247,9 +251,7 @@ export function buildScriptsSidePanelRows({
 
     if (!isExpanded) return;
     children.forEach((child) => walk(child, depth + 1));
-    localSnippets.forEach((snippet) =>
-      rows.push({ type: 'snippet', id: snippet.id, depth: depth + 1, snippet, packagePath: pkg }),
-    );
+    emitSnippets(localSnippets, pkg, depth);
   };
 
   snippetsIn(null).forEach((snippet) =>
@@ -481,7 +483,11 @@ const ScriptsSidePanelInner: React.FC<ScriptsSidePanelProps> = ({
     if (!isVisible) return [];
     if (searchMatches !== null) return [];
 
-    return buildScriptsSidePanelRows({ snippets, packages, expandedPaths });
+    return buildScriptsSidePanelRows({
+      snippets,
+      packages,
+      expandedPaths,
+    });
   }, [snippets, packages, expandedPaths, searchMatches, isVisible]);
 
   type ScriptsListItem =

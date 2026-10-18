@@ -457,6 +457,11 @@ function createBridgeRegistrar(context) {
   
     // Register all IPC handlers
     sshBridge.registerHandlers(ipcMain, { terminalWorkerManager });
+    const stopMonitoring = () => terminalWorkerManager
+      ? terminalWorkerManager.request("netcatty:monitor:stop-all", {}, {}).catch(() => {})
+      : sshBridge.stopAllMonitoring();
+    electronModule.powerMonitor?.on("suspend", stopMonitoring);
+    require("../plugins/shutdownCoordinator.cjs").registerPluginShutdown(stopMonitoring);
     sftpBridge.registerHandlers(ipcMain, { terminalWorkerManager });
     localFsBridge.registerHandlers(ipcMain);
     require("../bridges/localFileDragBridge.cjs").registerHandlers(ipcMain, {
@@ -466,6 +471,25 @@ function createBridgeRegistrar(context) {
     });
     transferBridge.registerHandlers(ipcMain, { terminalWorkerManager });
     portForwardingBridge.registerHandlers(ipcMain, { terminalWorkerManager });
+    if (electronModule.WebContentsView && electronModule.session?.fromPartition) {
+      const { createHostBrowserManager } = require("../hostBrowser/hostBrowserManager.cjs");
+      const hostBrowserManager = createHostBrowserManager({
+        electron: electronModule,
+        app,
+        portForwardingBridge,
+      });
+      ipcMain.handle("netcatty:host-browser:request-panel", (event, request) => {
+        const senderWindow = BrowserWindow.fromWebContents(event.sender);
+        const mainWindow = getWindowManager().getMainWindow?.();
+        if (!senderWindow || senderWindow.webContents !== event.sender || !mainWindow || mainWindow.isDestroyed()
+          || typeof request?.host?.id !== "string") throw new Error("Browser opener is unavailable");
+        mainWindow.webContents.send("netcatty:host-browser:request-panel", request);
+        mainWindow.show();
+        mainWindow.focus();
+        return true;
+      });
+      app.once?.("will-quit", () => hostBrowserManager.closeAll());
+    }
     terminalBridge.registerHandlers(ipcMain, { terminalWorkerManager });
 
     const scriptBridge = require("../bridges/scriptBridge.cjs");
@@ -787,6 +811,81 @@ function createBridgeRegistrar(context) {
         });
         console.error("[Main] Failed to open terminal popup:", err);
         return { success: false, error: err?.message || "Failed to open terminal popup" };
+      }
+    });
+
+    ipcMain.handle("netcatty:window:openEditor", async (event, payload) => {
+      try {
+        const sourceWindow = BrowserWindow.fromWebContents(event.sender);
+        return await getWindowManager().openEditorWindow(electronModule, {
+          preload,
+          devServerUrl: effectiveDevServerUrl,
+          isDev,
+          appIcon: getAppIconPath(),
+          isMac,
+          electronDir,
+          sourceWindow,
+          sourceWebContents: event.sender,
+        }, payload);
+      } catch (err) {
+        console.error("[Main] Failed to open editor window:", err);
+        return { success: false, error: err?.message || "Failed to open editor window" };
+      }
+    });
+
+    ipcMain.handle("netcatty:window:focusEditor", async (_event, payload) => {
+      try {
+        return getWindowManager().focusEditorTab(electronModule, payload?.editorId);
+      } catch (err) {
+        return { success: false, error: err?.message || "Failed to focus editor window" };
+      }
+    });
+
+    ipcMain.handle("netcatty:window:closeEditorTabs", async (_event, payload) => {
+      try {
+        return await getWindowManager().closeEditorWindowTabs(electronModule, payload);
+      } catch (err) {
+        return { success: false, cancelled: true, closedIds: [], error: err?.message || "Failed to close editor tabs" };
+      }
+    });
+
+    ipcMain.handle("netcatty:editorWindow:save", async (_event, payload) => {
+      try {
+        return await getWindowManager().saveEditorWindowTab(electronModule, payload);
+      } catch (err) {
+        return { ok: false, error: err?.message || "Save failed" };
+      }
+    });
+
+    ipcMain.handle("netcatty:editorWindow:dock", async (_event, payload) => {
+      try {
+        return await getWindowManager().dockEditorTab(electronModule, payload);
+      } catch (err) {
+        return { success: false, error: err?.message || "Failed to dock editor tab" };
+      }
+    });
+
+    ipcMain.on("netcatty:editorWindow:dirty", (_event, payload) => {
+      try {
+        getWindowManager().reportEditorDirty(electronModule, payload);
+      } catch {
+        // ignore
+      }
+    });
+
+    ipcMain.on("netcatty:editorWindow:tabsClosed", (_event, payload) => {
+      try {
+        getWindowManager().reportEditorTabsClosed(electronModule, payload);
+      } catch {
+        // ignore
+      }
+    });
+
+    ipcMain.on("netcatty:editorWindow:remapSession", (_event, payload) => {
+      try {
+        getWindowManager().remapEditorSession(electronModule, payload);
+      } catch {
+        // ignore
       }
     });
   

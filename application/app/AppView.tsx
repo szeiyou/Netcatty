@@ -2,8 +2,9 @@
 import React, { Suspense, lazy, memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, Download, Trash2 } from 'lucide-react';
 import { activeTabStore, toEditorTabId, useIsEditorTabActive } from '../state/activeTabStore';
-import { editorTabStore } from '../state/editorTabStore';
+import { editorTabStore, tabIsDirty } from '../state/editorTabStore';
 import { releaseEditorTabSaveCoordinator, saveEditorTab } from '../state/editorTabSave';
+import { focusEditorInWindow, popOutEditorTab } from '../state/editorWindowClient';
 import { useTerminalHostTreeLayoutWidth } from '../state/terminalHostTreeStore';
 import { TopTabs } from '../../components/TopTabs';
 import { VaultView } from '../../components/VaultView';
@@ -12,6 +13,7 @@ import { QuickScriptEditorDialog } from '../../components/scripts/QuickScriptEdi
 import { AddToWorkspaceDialog } from '../../components/workspace/AddToWorkspaceDialog';
 import { KeyboardInteractiveModal } from '../../components/KeyboardInteractiveModal';
 import { PassphraseModal } from '../../components/PassphraseModal';
+import { FidoPromptModal } from '../../components/FidoPromptModal';
 import { UnsavedChangesProvider, promptUnsavedChanges } from '../../components/editor/UnsavedChangesDialog';
 import { SnippetExecutionProvider } from '../../components/SnippetExecutionProvider';
 import { Button } from '../../components/ui/button';
@@ -36,6 +38,7 @@ import { useExternalMcpToggleState } from '../state/useExternalMcpToggleState';
 import { selectPluginThemeTokens } from '../state/pluginContributionEnvironment';
 import { netcattyBridge } from '../../infrastructure/services/netcattyBridge';
 import { resolveEffectiveTerminalHost } from '../../domain/terminalHostResolution';
+import { useDefaultLocalShellContext } from '../../lib/useDiscoveredShells';
 import { getAvailablePaneMagnificationController } from '../../domain/paneMagnification';
 import { pluginViewTabStore, usePluginViewTabs } from '../state/pluginViewTabStore';
 import { buildPluginSettingScopeCatalog } from '../state/usePluginSettingScopeCatalog';
@@ -259,18 +262,18 @@ function AppViewInner({ domains }: AppViewProps) {
   useMainWindowInputFocusRecovery({ onPageHidden: dismissTransientOverlays });
 
   const {
-    addShellHistoryEntry, removeShellHistoryEntry, addSessionToWorkspace, addToWorkspaceDialog, appendHostToWorkspace, appendLocalTerminalToWorkspace,
+    addShellHistoryEntry, clearAllCommandHistory, removeShellHistoryEntry, addSessionToWorkspace, addToWorkspaceDialog, appendHostToWorkspace, appendLocalTerminalToWorkspace,
     clearAndRemoveSource, clearAndRemoveSources, closeLogView, closeSession, closeTabsBatch, closeWorkspace, commitPluginImporterData, commitVaultImportTransaction, commitVaultGroupMutation, copySessionToNewWindowWithCurrentShell, copySessionWithCurrentShell, duplicateSessionWithCurrentShell, copyWorkspaceWithCurrentShell,
     convertKnownHostToHost, createWorkspaceFromSessions, createWorkspaceFromTargets, createWorkspaceWithHosts,
     customGroups, currentTerminalTheme, deepLinkHostDraft, draggingSessionId, effectiveKnownHosts, editorTabs, editorWordWrap, emptyVaultConflict,
     followAppTerminalTheme,
     groupConfigs, handleAddKnownHost, handleConnectSerial, handleConnectToHost, handleCreateLocalTerminal, handleDefaultTerminalThemeChange, handleDeleteHost,
     handleEndSessionDrag, handleFollowAppTerminalThemeChange, handleHostConnectWithProtocolCheck, handleHotkeyAction, handleKeyboardInteractiveCancel, handleKeyboardInteractiveSubmit,
-    handleOpenHostFromVaultNote, handleOpenQuickSwitcher, handleOpenSettings, handleOpenVaultHostFromChat, handleOpenVaultNoteFromChat, handleOpenVaultSectionFromChat, handleOpenVaultSnippetFromChat, handleRootContextMenu, handlePassphraseCancel, handlePassphraseSkip, handlePassphraseSubmit, handleProtocolSelect,
+    handleOpenHostFromVaultNote, handleOpenQuickSwitcher, handleOpenSettings, handleOpenVaultHostFromChat, handleOpenVaultNoteFromChat, handleOpenVaultSectionFromChat, handleOpenVaultSnippetFromChat, handleRootContextMenu, handlePassphraseCancel, handlePassphraseSkip, handlePassphraseSubmit, handleFidoPromptSubmit, handleFidoPromptCancel, handleProtocolSelect,
     handleRequestCloseEditorTabRef, handleSessionStatusChange, handleSyncNowManual, handleTerminalDataCapture, handleUpdateHostFromTerminal,
     hostById, hosts, terminalHosts, updateTerminalHosts, hotkeyScheme, identities, importOrReuseKey, isBroadcastEnabled, isGlobalBroadcastEnabled, onToggleGlobalBroadcast, canUseGlobalBroadcast, isCreateWorkspaceOpen, isMacClient, isQuickSwitcherOpen,
     keyBindings, keyboardInteractiveQueue, keys, logViews, managedSources, navigateToSection, openLogView, openNoteRequest, orderedTabsWithEditors, orphanSessions,
-    passphraseQueue, protocolSelectHost, proxyProfiles, portForwardingRules, quickResults, quickSearch, removeSessionFromWorkspace, reorderWorkTabs, reorderWorkspaceSessions,
+    passphraseQueue, fidoPromptQueue, protocolSelectHost, proxyProfiles, portForwardingRules, quickResults, quickSearch, removeSessionFromWorkspace, reorderWorkTabs, reorderWorkspaceSessions,
     resolveEmptyVaultConflict, resolveSessionAppearance, runSnippet, sessionLogsDir, sessionLogsEnabled, sessionLogsFormat, sessionLogsTimestampsEnabled, sessionRenameTarget, sshDebugLogsEnabled,
     sessions, setActiveTabId, setDeepLinkHostDraft, setDraggingSessionId, setEditorWordWrap,
     setNavigateToSection, setTerminalFontFamilyId, setTerminalFontSize, setVaultFocusRequest, updateSessionFontSize, updateSessionRestoreCwd, updateSessionDynamicTitle, updateSessionCodingCliProvider, clearSessionFontSizeOverride,
@@ -353,14 +356,16 @@ function AppViewInner({ domains }: AppViewProps) {
     [proxyProfiles],
   );
 
+  const defaultLocalShell = useDefaultLocalShellContext(terminalSettings);
   const resolveWorkspaceAppendHost = useCallback((host: typeof hosts[number]) => (
     resolveEffectiveTerminalHost({
       host,
       groupConfigs,
       proxyProfiles,
       validProxyProfileIds,
+      defaultLocalShell,
     })
-  ), [groupConfigs, proxyProfiles, validProxyProfileIds]);
+  ), [groupConfigs, proxyProfiles, validProxyProfileIds, defaultLocalShell]);
 
   const handleAppendHostToWorkspace = useCallback((workspaceId: string, hostId: string) => {
     const host = hosts.find((entry) => entry.id === hostId);
@@ -420,6 +425,23 @@ function AppViewInner({ domains }: AppViewProps) {
     const tab = editorTabStore.getTab(id);
     if (!tab) return false;
 
+    if (tab.placement === "window") {
+      const result = await netcattyBridge.get()?.closeEditorWindowTabs?.({ editorIds: [id] });
+      const ok = Boolean(result?.success) && result?.cancelled !== true;
+      if (ok) {
+        const closingTabId = toEditorTabId(id);
+        const list = orderedTabsWithEditorsRef.current;
+        const idx = list.indexOf(closingTabId);
+        releaseEditorTabSaveCoordinator(id);
+        editorTabStore.close(id);
+        if (activeTabStore.getActiveTabId() === closingTabId) {
+          const next = list[idx - 1] ?? list[idx + 1] ?? 'vault';
+          activeTabStore.setActiveTabId(next === closingTabId ? 'vault' : next);
+        }
+      }
+      return ok;
+    }
+
     const closeEditorAndActivateNeighbor = () => {
       const closingTabId = toEditorTabId(id);
       const list = orderedTabsWithEditorsRef.current;
@@ -431,7 +453,7 @@ function AppViewInner({ domains }: AppViewProps) {
       activeTabStore.setActiveTabId(next === closingTabId ? 'vault' : next);
     };
 
-    const dirty = tab.content !== tab.baselineContent;
+    const dirty = tabIsDirty(tab);
     if (!dirty) {
       closeEditorAndActivateNeighbor();
       return true;
@@ -461,6 +483,16 @@ function AppViewInner({ domains }: AppViewProps) {
   // Keep the hotkey ref current during render so Cmd/Ctrl+W never sees the
   // App.tsx stub `() => false` between commit and useEffect.
   handleRequestCloseEditorTabRef.current = handleRequestCloseEditorTab;
+
+  const handlePopOutEditorTab = useCallback(async (id: string) => {
+    const tab = editorTabStore.getTab(id);
+    if (!tab || tab.placement === "window") {
+      if (tab) void focusEditorInWindow(id);
+      return;
+    }
+    const host = hostById.get(tab.hostId);
+    await popOutEditorTab(id, host?.label);
+  }, [hostById]);
 
   const handleSaveSessionRename = useCallback((name: string) => {
     if (!sessionRenameTarget) return;
@@ -538,6 +570,8 @@ function AppViewInner({ domains }: AppViewProps) {
         pluginViewTabs={pluginViewTabs}
         onClosePluginViewTab={closePluginViewTab}
         onRequestCloseEditorTab={handleRequestCloseEditorTab}
+        onPopOutEditorTab={handlePopOutEditorTab}
+        onFocusEditorWindowTab={(id) => { void focusEditorInWindow(id); }}
         hostById={hostById}
       />
 
@@ -716,6 +750,7 @@ function AppViewInner({ domains }: AppViewProps) {
           onAddKnownHost={handleAddKnownHost}
           onCommandExecuted={handleTerminalCommandExecuted}
           onDeleteShellHistoryEntry={removeShellHistoryEntry}
+          onClearCommandHistory={clearAllCommandHistory}
           onTerminalDataCapture={handleTerminalDataCapture}
           onCreateWorkspaceFromSessions={createWorkspaceFromSessions}
           onAddSessionToWorkspace={addSessionToWorkspace}
@@ -788,7 +823,7 @@ function AppViewInner({ domains }: AppViewProps) {
         ))}
 
         {/* Editor Tabs — kept mounted for Monaco instance persistence; visibility toggled via CSS */}
-        {editorTabs.map((tab) => (
+        {editorTabs.filter((tab) => tab.placement !== "window").map((tab) => (
           <LazyLoadBoundary key={tab.id} name="Editor" resetKey={tab.id}>
             <Suspense fallback={<TextEditorTabFallback tabId={tab.id} />}>
               <LazyTextEditorTabView
@@ -797,6 +832,7 @@ function AppViewInner({ domains }: AppViewProps) {
                 keyBindings={keyBindings}
                 hostById={hostById}
                 onRequestClose={(id) => handleRequestCloseEditorTabRef.current(id)}
+                onPopOut={(id) => { void handlePopOutEditorTab(id); }}
               />
             </Suspense>
           </LazyLoadBoundary>
@@ -1000,6 +1036,13 @@ function AppViewInner({ domains }: AppViewProps) {
         onSubmit={handlePassphraseSubmit}
         onCancel={handlePassphraseCancel}
         onSkip={handlePassphraseSkip}
+      />
+
+      {/* FIDO2 PIN / touch presence (OpenSSH sk-*) */}
+      <FidoPromptModal
+        request={fidoPromptQueue?.[0] || null}
+        onSubmit={handleFidoPromptSubmit}
+        onCancel={handleFidoPromptCancel}
       />
 
       {/* Empty vault vs cloud data confirmation dialog (#679).

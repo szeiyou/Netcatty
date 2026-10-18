@@ -50,6 +50,9 @@ const passphraseListeners = new Set();
 const passphraseTimeoutListeners = new Set();
 const passphraseCancelledListeners = new Set();
 const passphraseAuthFailedListeners = new Set();
+const fidoPromptListeners = new Set();
+const fidoPromptTimeoutListeners = new Set();
+const fidoPromptCancelledListeners = new Set();
 const updateDownloadProgressListeners = new Set();
 const updateDownloadedListeners = new Set();
 const updateAvailableListeners = new Set();
@@ -61,6 +64,10 @@ const terminalPopupConfigState = {
   // Keep the last delivered payload so StrictMode remount (unsubscribe →
   // resubscribe) can replay config after the one-shot pending slot was drained.
   lastPayload: null,
+  listeners: new Set(),
+};
+const editorOpenTabState = {
+  pending: [],
   listeners: new Set(),
 };
 
@@ -411,6 +418,19 @@ ipcRenderer.on("netcatty:window:terminalPopupConfig", (_event, payload) => {
     }
   });
 });
+ipcRenderer.on("netcatty:window:editorOpenTab", (_event, payload) => {
+  if (editorOpenTabState.listeners.size === 0) {
+    editorOpenTabState.pending.push(payload);
+    return;
+  }
+  editorOpenTabState.listeners.forEach((cb) => {
+    try {
+      cb(payload);
+    } catch (err) {
+      console.error("Editor window open-tab callback failed", err);
+    }
+  });
+});
 ipcRenderer.on("netcatty:zmodem:progress", (_event, payload) => {
   if (closedTerminalDataSessions.has(payload.sessionId)) return;
   const set = zmodemListeners.get(payload.sessionId);
@@ -694,6 +714,37 @@ ipcRenderer.on("netcatty:passphrase-auth-failed", (_event, payload) => {
   });
 });
 
+// FIDO2 PIN / touch presence prompts
+ipcRenderer.on("netcatty:fido-prompt-request", (_event, payload) => {
+  fidoPromptListeners.forEach((cb) => {
+    try {
+      cb(payload);
+    } catch (err) {
+      console.error("FIDO prompt request callback failed", err);
+    }
+  });
+});
+
+ipcRenderer.on("netcatty:fido-prompt-timeout", (_event, payload) => {
+  fidoPromptTimeoutListeners.forEach((cb) => {
+    try {
+      cb(payload);
+    } catch (err) {
+      console.error("FIDO prompt timeout callback failed", err);
+    }
+  });
+});
+
+ipcRenderer.on("netcatty:fido-prompt-cancelled", (_event, payload) => {
+  fidoPromptCancelledListeners.forEach((cb) => {
+    try {
+      cb(payload);
+    } catch (err) {
+      console.error("FIDO prompt cancelled callback failed", err);
+    }
+  });
+});
+
 // Auto-update events
 ipcRenderer.on("netcatty:update:update-available", (_event, payload) => {
   updateAvailableListeners.forEach((cb) => {
@@ -872,6 +923,9 @@ const api = createPreloadApi({
   passphraseTimeoutListeners,
   passphraseCancelledListeners,
   passphraseAuthFailedListeners,
+  fidoPromptListeners,
+  fidoPromptTimeoutListeners,
+  fidoPromptCancelledListeners,
   updateDownloadProgressListeners,
   updateDownloadedListeners,
   updateAvailableListeners,
@@ -879,6 +933,7 @@ const api = createPreloadApi({
   updateErrorListeners,
   updateNeedsSaveListeners,
   terminalPopupConfigState,
+  editorOpenTabState,
   portForwardStatusListeners,
   portForwardRuntimeListeners,
   fileWatchSyncedListeners,

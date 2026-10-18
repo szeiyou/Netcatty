@@ -1622,6 +1622,46 @@ test("orphan compressed upload resume and cancel keep using the compression job"
   assert.equal(store.getSnapshot().tasks[0]?.status, "cancelled");
 });
 
+test("compressed upload completing during cancel IPC keeps its completed paint", async (t) => {
+  const calls: string[] = [];
+  const previousWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
+  t.after(() => {
+    if (previousWindow) Object.defineProperty(globalThis, "window", previousWindow);
+    else Reflect.deleteProperty(globalThis, "window");
+  });
+
+  let storeRef: ReturnType<typeof createSftpTransferCenterStore> | undefined;
+  Object.defineProperty(globalThis, "window", {
+    configurable: true,
+    value: {
+      netcatty: {
+        // Inactive-compression responses report success even after the upload
+        // already finished; the completion repaint must survive the cancel.
+        cancelCompressedUpload: async (id: string) => {
+          calls.push(`cancel:${id}`);
+          storeRef?.ingestBackgroundEvent({ type: "completed", transferId: id });
+          return { success: true };
+        },
+      },
+    },
+  });
+
+  const store = createSftpTransferCenterStore();
+  storeRef = store;
+  store.publishOwner("closed-panel", [{
+    ...makeTask("compressed-race", "transferring"),
+    fileName: "done (compressed)",
+    isDirectory: true,
+    phase: "compressing",
+    controlKind: "compressed-upload",
+  } as TransferTask]);
+
+  await store.cancel("compressed-race");
+
+  assert.deepEqual(calls, ["cancel:compressed-race"]);
+  assert.equal(store.getSnapshot().tasks[0]?.status, "completed");
+});
+
 test("orphan cancel marks process-global cancel so surviving walks stop", async (t) => {
   const {
     isTransferCancelledFlag,
@@ -1650,6 +1690,10 @@ test("orphan cancel marks process-global cancel so surviving walks stop", async 
   }]);
   await store.cancel("walk-1");
   assert.equal(isTransferCancelledFlag("walk-1"), true);
+  const resuming = store.resume("walk-1");
+  unregisterTransferWalk("walk-1");
+  await resuming;
+  assert.equal(isTransferCancelledFlag("walk-1"), false);
   assert.equal(store.getSnapshot().tasks.find((row) => row.id === "walk-1")?.status, "cancelled");
 });
 
@@ -2704,6 +2748,39 @@ test("an interrupted task without its old controller can still be cancelled", as
   await store.cancel("interrupted");
 
   assert.equal(store.getSnapshot().tasks[0]?.status, "cancelled");
+});
+
+test("orphan cancel keeps failed work visible and leaves completed children alone", async (t) => {
+  const previousWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
+  t.after(() => {
+    if (previousWindow) Object.defineProperty(globalThis, "window", previousWindow);
+    else Reflect.deleteProperty(globalThis, "window");
+  });
+  const cancelledIds: string[] = [];
+  Object.defineProperty(globalThis, "window", {
+    configurable: true,
+    value: { netcatty: {
+      cancelTransfer: async (id: string) => {
+        cancelledIds.push(id);
+        return { success: id !== "unfinished" };
+      },
+    } },
+  });
+  const store = createSftpTransferCenterStore();
+  store.publishOwner("closed-panel", [
+    { ...makeTask("directory", "paused"), isDirectory: true },
+    { ...makeTask("finished", "completed"), parentTaskId: "directory" },
+    { ...makeTask("unfinished", "queued"), parentTaskId: "directory" },
+  ]);
+  const finishedBeforeCancel = store.getTask("finished");
+
+  await store.cancel("directory");
+
+  assert.deepEqual(cancelledIds, ["directory", "unfinished"]);
+  assert.equal(store.getTask("finished")?.status, finishedBeforeCancel?.status);
+  assert.equal(store.getTask("unfinished")?.status, "attention");
+  assert.equal(store.getTask("directory")?.status, "attention");
+  assert.match(store.getTask("directory")?.error ?? "", /Could not cancel/);
 });
 
 test("concurrent resume clicks adopt a task only once", async () => {
@@ -3867,3 +3944,174 @@ for (const outcome of ["rejected", "stream-gone"] as const) {
     assert.equal(resumeCalls, 1, "obsolete resume must not issue another resume after the held run ends");
   });
 }
+
+test("partial cancel failure resets recovered folder children so the re-walk can re-admit them", async (t) => {
+  const { netcattyBridge } = await import("../../infrastructure/services/netcattyBridge");
+  const { resetTransferCancelLatchesForTests, isTransferOrRootCancelled } =
+    await import("./sftp/transferCancelLatch");
+  const { resetTransferWalkRegistryForTests } = await import("./sftp/transferWalkRegistry");
+  const originalGet = netcattyBridge.get;
+  resetTransferCancelLatchesForTests();
+  resetTransferWalkRegistryForTests();
+  t.after(() => {
+    netcattyBridge.get = originalGet;
+    resetTransferCancelLatchesForTests();
+    resetTransferWalkRegistryForTests();
+  });
+  // Only child2 fails to cancel; the folder must stay recoverable via Resume.
+  let failChild2 = true;
+  netcattyBridge.get = () => ({
+    cancelTransfer: async (id: string) => ({ success: id !== "dir-child-2" || !failChild2 }),
+    cleanupTransferArtifacts: async () => ({}),
+  } as unknown as ReturnType<typeof netcattyBridge.get>);
+  const store = createSftpTransferCenterStore();
+  const child = (id: string): TransferTask => ({
+    ...makeTask(id),
+    parentTaskId: "dir-root",
+    isDirectory: false,
+    transferredBytes: 4,
+    directoryEntryIndex: 0,
+    directoryEntryIdentity: "a".repeat(64),
+  });
+  store.publishOwner("gone-panel", [
+    { ...makeTask("dir-root"), isDirectory: true, transferredBytes: 10, totalBytes: 20, directoryEntryIndex: 0 },
+    child("dir-child-1"),
+    child("dir-child-2"),
+  ]);
+  await store.cancel("dir-root");
+
+  const rows = store.getSnapshot().tasks;
+  const parent = rows.find((row) => row.id === "dir-root");
+  const child1 = rows.find((row) => row.id === "dir-child-1");
+  const child2 = rows.find((row) => row.id === "dir-child-2");
+  assert.equal(parent?.status, "attention");
+  assert.equal(parent?.error, "Could not cancel transfer. Please try again.");
+  // A failed backend cancellation keeps the folder recoverable: successfully
+  // cancelled siblings must not settle as terminal "cancelled", or admitTaskRun
+  // would reject the recovery re-walk and leave the destination incomplete.
+  assert.equal(child1?.status, "interrupted");
+  assert.equal(child1?.error, undefined);
+  assert.equal(child2?.status, "attention");
+  assert.equal(isTransferOrRootCancelled("dir-root"), false, "recovery latch must be cleared");
+
+  // The directory re-walk (Resume) can re-admit the reset sibling.
+  const incoming = { ...child("dir-child-1"), directoryEntryIndex: 0, directoryEntryIdentity: "a".repeat(64) };
+  assert.equal(store.admitTaskRun(incoming), "ready");
+  assert.equal(store.getTask("dir-child-1")?.status, "transferring");
+
+  // Without any cancellation failure the tree still settles fully cancelled.
+  failChild2 = false;
+  await store.cancel("dir-root");
+  const afterFullCancel = store.getSnapshot().tasks;
+  for (const id of ["dir-root", "dir-child-1", "dir-child-2"]) {
+    assert.equal(afterFullCancel.find((row) => row.id === id)?.status, "cancelled");
+  }
+});
+
+test("lifecycle hierarchy snapshot stays stable on bytes and changes on actual state transitions", () => {
+  const store = createSftpTransferCenterStore();
+  store.publishOwner("panel", [makeTask("hierarchy-live")]);
+  const hierarchy = store.getLifecycleSnapshot();
+  store.patchTask("hierarchy-live", { transferredBytes: 5, speed: 3 });
+  assert.equal(store.getLifecycleSnapshot(), hierarchy);
+  assert.equal(store.getTask("hierarchy-live")?.transferredBytes, 5);
+  store.getSnapshot(); // Other progress consumers must not invalidate the hierarchy.
+  assert.equal(store.getLifecycleSnapshot(), hierarchy);
+  store.patchTask("hierarchy-live", { status: "failed", error: "fixture failure" });
+  assert.notEqual(store.getLifecycleSnapshot(), hierarchy);
+  assert.equal(store.getLifecycleSnapshot().tasks[0].status, "failed");
+});
+
+test("progress that admits or changes a task lifecycle also refreshes the hierarchy", () => {
+  const store = createSftpTransferCenterStore();
+  const initial = store.getLifecycleSnapshot();
+  store.ingestBackgroundEvent({ type: "progress", transferId: "late-start", transferred: 1 });
+  const admitted = store.getLifecycleSnapshot();
+  assert.notEqual(admitted, initial);
+  assert.equal(admitted.tasks[0].id, "late-start");
+  store.publishOwner("panel", [makeTask("queued-progress", "queued")]);
+  const queued = store.getLifecycleSnapshot();
+  store.ingestBackgroundEvent({ type: "progress", transferId: "queued-progress", transferred: 3 });
+  assert.notEqual(store.getLifecycleSnapshot(), queued);
+  assert.equal(store.getLifecycleSnapshot().tasks.find((task) => task.id === "queued-progress")?.status, "transferring");
+  const live = store.getLifecycleSnapshot();
+  store.ingestBackgroundEvent({ type: "progress", transferId: "queued-progress", transferred: 4 });
+  assert.equal(store.getLifecycleSnapshot(), live);
+});
+
+test("admission updates hierarchy state without forcing full owner lifecycle work", () => {
+  const store = createSftpTransferCenterStore();
+  const task = makeTask("admitted-hierarchy", "queued");
+  store.publishOwner("panel", [task]);
+  const queued = store.getLifecycleSnapshot();
+  let lifecycleNotifications = 0;
+  store.subscribe(() => { lifecycleNotifications += 1; });
+  assert.equal(store.admitTaskRun(task), "ready");
+  assert.notEqual(store.getLifecycleSnapshot(), queued);
+  assert.equal(store.getLifecycleSnapshot().tasks[0].status, "transferring");
+  assert.equal(lifecycleNotifications, 0, "dispatch admission keeps its existing lightweight fanout");
+});
+
+
+test("same-byte and ignored terminal events publish repaired background hierarchy immediately", () => {
+  for (const { status, type } of [
+    { status: "transferring", type: "progress" },
+    { status: "completed", type: "progress" },
+    { status: "completed", type: "completed" },
+    { status: "failed", type: "failed" },
+  ] as const) {
+    const store = createSftpTransferCenterStore();
+    store.publishOwner("panel", [{ ...makeTask("folder"), isDirectory: true }]);
+    store.publishOwner("background-agent", [{ ...makeTask("orphan", status), background: true }]);
+    const beforeRepair = store.getLifecycleSnapshot();
+    let lifecycleNotifications = 0;
+    store.subscribe(() => { lifecycleNotifications += 1; });
+    store.ingestBackgroundEvent({ type, transferId: "orphan", parentTaskId: "folder", transferred: 2 });
+    const repaired = store.getLifecycleSnapshot();
+    assert.notEqual(repaired, beforeRepair, status);
+    assert.equal(repaired.tasks.find((task) => task.id === "orphan")?.parentTaskId, "folder", status);
+    assert.equal(repaired.tasks.find((task) => task.id === "orphan")?.background, false, status);
+    assert.equal(lifecycleNotifications, 0, "hierarchy repair keeps lightweight owner fanout");
+    store.ingestBackgroundEvent({ type: "progress", transferId: "orphan", parentTaskId: "folder", transferred: 3 });
+    assert.equal(store.getLifecycleSnapshot(), repaired, "subsequent byte ticks preserve the repaired hierarchy without rebuilding it");
+    assert.equal(store.getTask("orphan")?.parentTaskId, "folder");
+  }
+});
+
+test("repaired terminal hierarchy survives restart without another lifecycle event", (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout", "Date"], now: Date.now() });
+  for (const status of ["completed", "failed", "cancelled"] as const) {
+    let persisted = "";
+    let writes = 0;
+    const store = createSftpTransferCenterStore({ read: () => null, write: (value) => { persisted = value; writes += 1; } });
+    store.publishOwner("panel", [{ ...makeTask("folder"), isDirectory: true }]);
+    store.publishOwner("background-agent", [{ ...makeTask("orphan", status), background: true }]);
+    t.mock.timers.tick(300);
+    assert.equal(JSON.parse(persisted).tasks.find((task: TransferTask) => task.id === "orphan")?.parentTaskId, undefined);
+    let lifecycleNotifications = 0;
+    store.subscribe(() => { lifecycleNotifications += 1; });
+    const beforeRepairWrites = writes;
+    store.ingestBackgroundEvent({ type: "progress", transferId: "orphan", parentTaskId: "folder", transferred: 2 });
+    t.mock.timers.tick(300);
+    assert.equal(writes, beforeRepairWrites + 1, "structural repair is saved even when the terminal event is ignored");
+    const savedChild = JSON.parse(persisted).tasks.find((task: TransferTask) => task.id === "orphan");
+    assert.equal(savedChild?.parentTaskId, "folder", status);
+    assert.equal(savedChild?.background, false, status);
+    assert.equal(savedChild?.ownerId, "panel", status);
+    const restored = createSftpTransferCenterStore({ read: () => persisted, write: () => {} });
+    const child = restored.getTask("orphan");
+    if (status === "completed") {
+      assert.equal(child, undefined, "existing restore compaction retains completed children in their folder checkpoint");
+      assert.equal(restored.getTask("folder")?.directoryResumeCheckpoint?.completedEntries, 1);
+    } else {
+      assert.equal(child?.parentTaskId, "folder", status);
+      assert.equal(child?.background, false, status);
+      assert.equal(child?.ownerId, "panel", status);
+    }
+    assert.equal(lifecycleNotifications, 0, "repair retains lightweight owner notifications");
+    const settledWrites = writes;
+    store.ingestBackgroundEvent({ type: "progress", transferId: "orphan", parentTaskId: "folder", transferred: 3 });
+    t.mock.timers.tick(300);
+    assert.equal(writes, settledWrites, "unchanged late progress does not schedule recurring writes");
+  }
+});

@@ -357,6 +357,7 @@ export function useAppStartupEffects(ctx: StartupEffectsContext) {
       // exactly the same outcome.
       let hasDirty = false;
       try {
+        // Pending handoffs retain source contents; accepted handoffs clear them.
         hasDirty = editorTabStore.getTabs().some((tab) => tab.content !== tab.baselineContent);
         if (hasDirty) toast.warning(t('sftp.editor.quitBlockedByDirty'), 'SFTP');
         if (!hasDirty) {
@@ -541,7 +542,7 @@ export function useAppStartupEffects(ctx: StartupEffectsContext) {
         }
         return;
       }
-      console.log('[App] Keyboard-interactive request received:', request);
+      console.log('[App] Keyboard-interactive request received:', { sessionId: request.sessionId, scope: request.scope, promptCount: request.prompts?.length });
       // Add to queue instead of replacing - supports multiple concurrent sessions
       setKeyboardInteractiveQueue(prev => [...prev, {
         requestId: request.requestId,

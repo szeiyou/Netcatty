@@ -7,6 +7,55 @@ import { PREFLIGHT_STAT_CONCURRENCY, PREFLIGHT_STAT_MAX_FILES, useSftpTransfers 
 import { sftpTransferCenterStore } from "../sftpTransferCenterStore";
 import type { SftpPane } from "./types";
 
+for (const direction of ["download", "upload"] as const) {
+test(`failed ${direction} connection replaces Waiting with the actual error (#3698)`, async () => {
+  let streamStarts = 0;
+  const restore = installGlobals({
+    statSftp: async () => ({ type: "file", size: 3626, lastModified: 1758000001000 }),
+    statLocal: async () => null,
+    startStreamTransfer: async () => { streamStarts += 1; return {}; },
+  });
+  let ops: ReturnType<typeof useSftpTransfers> | undefined;
+  let renderer: ReactTestRenderer | undefined;
+  const ownerId = `failed-${direction}-connection-3698`;
+  function Probe() {
+    ops = useSftpTransfers({
+      ownerId,
+      getActivePane: (side) => makePane(direction === "download" ? side : side === "left" ? "right" : "left"),
+      getPaneByConnectionId: () => null,
+      getTabByConnectionId: () => null,
+      updateTab: () => undefined,
+      refresh: async () => undefined,
+      clearCacheForConnection: () => undefined,
+      handleSessionError: () => undefined,
+      sftpSessionsRef: { current: new Map([["remote-conn", "sftp-remote"]]) },
+      connectionCacheKeyMapRef: { current: new Map() },
+      listLocalFiles: async () => [],
+      listRemoteFiles: async () => [],
+      acquireTransferSession: async () => { throw new Error("SFTP channel open timed out after 10000ms"); },
+    });
+    return null;
+  }
+  try {
+    await act(async () => { renderer = create(React.createElement(Probe)); });
+    await act(async () => {
+      const results = await ops!.startTransfer(
+        [{ name: "aops_dns_view_demo.sh", isDirectory: false }], "left", "right",
+      );
+      assert.equal(results[0]?.status, "failed");
+    });
+    const task = sftpTransferCenterStore.getOwnerTasks(ownerId)[0];
+    assert.equal(task?.status, "failed");
+    assert.equal(task?.error, "SFTP channel open timed out after 10000ms");
+    assert.ok(task?.endTime);
+    assert.equal(streamStarts, 0);
+  } finally {
+    await act(async () => { renderer?.unmount(); });
+    restore();
+  }
+});
+}
+
 type StartOptions = {
   transferId: string;
   sourcePath: string;
@@ -559,5 +608,107 @@ test("files past the preflight bound stay un-statted after conflict resolution",
   } finally {
     renderer?.unmount();
     restore();
+  }
+});
+
+test("owned cancelled directory settles recoverable children without dropping completed bytes", async () => {
+  const { writeFile, readFile, mkdtemp, rm } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { transferRuntime } = await import("./transferRuntime");
+  const root = await mkdtemp(join(tmpdir(), "netcatty-owner-cancel-"));
+  const completedPath = join(root, "completed.txt");
+  await writeFile(completedPath, "completed bytes must remain");
+  const ownerId = "cancel-owner-large";
+  const rootId = "cancel-root-large";
+  const base = {
+    id: rootId, fileName: "folder", sourcePath: "/opt/folder", targetPath: root,
+    sourceConnectionId: "remote-conn", targetConnectionId: "local-conn",
+    sourceHostId: "host-1", direction: "download" as const, status: "transferring" as const,
+    totalBytes: 2201, transferredBytes: 1, speed: 0, startTime: 1, isDirectory: true,
+  };
+  const children = Array.from({ length: 2200 }, (_, index) => ({
+    ...base, id: `cancel-child-${index}`, parentTaskId: rootId, isDirectory: false,
+    sourcePath: `/opt/folder/${index}`, targetPath: join(root, String(index)),
+    totalBytes: 10, transferredBytes: 4, status: "queued" as const,
+  }));
+  sftpTransferCenterStore.publishOwner(ownerId, [base, ...children, {
+    ...base, id: "cancel-completed", parentTaskId: rootId, isDirectory: false,
+    sourcePath: "/opt/folder/completed.txt", targetPath: completedPath, status: "completed",
+  }]);
+  let active = 0;
+  let peak = 0;
+  let clearing = 0;
+  let clearPeak = 0;
+  let clearCount = 0;
+  const cleaned: string[] = [];
+  const restore = installGlobals({
+    cancelTransfer: async (id: string) => {
+      assert.notEqual(id, "cancel-completed");
+      active += 1;
+      peak = Math.max(peak, active);
+      await new Promise((resolve) => setImmediate(resolve));
+      active -= 1;
+      return { success: id !== "cancel-child-0" };
+    },
+    clearPendingTransferCancel: async () => {
+      clearing += 1;
+      clearPeak = Math.max(clearPeak, clearing);
+      await new Promise((resolve) => setImmediate(resolve));
+      clearing -= 1;
+      clearCount += 1;
+    },
+    cleanupTransferArtifacts: async ({ transferId }: { transferId: string }) => { cleaned.push(transferId); },
+  });
+  let ops: ReturnType<typeof useSftpTransfers> | undefined;
+  let renderer: ReactTestRenderer | undefined;
+  function Probe() {
+    ops = useSftpTransfers({
+      ownerId,
+      getActivePane: (side) => makePane(side),
+      getPaneByConnectionId: () => null, getTabByConnectionId: () => null,
+      updateTab: () => undefined, refresh: async () => undefined,
+      clearCacheForConnection: () => undefined, handleSessionError: () => undefined,
+      sftpSessionsRef: { current: new Map([["remote-conn", "sftp-remote"]]) },
+      connectionCacheKeyMapRef: { current: new Map() },
+      listLocalFiles: async () => [], listRemoteFiles: async () => [],
+    });
+    return null;
+  }
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => { release = resolve; });
+  try {
+    await act(async () => { renderer = create(React.createElement(Probe)); });
+    const walking = transferRuntime.runWalk(rootId, async () => {
+      await held;
+      // Old scheduler callbacks settle as cancelled before the outcome is applied.
+      sftpTransferCenterStore.publishOwner(ownerId, sftpTransferCenterStore.getOwnerTasks(ownerId).map((task) =>
+        task.status === "completed" ? task : {
+          ...task, status: "cancelled",
+          checkpointBytes: task.id === "cancel-child-1" ? 6 : task.checkpointBytes,
+        }));
+    });
+    await act(async () => {
+      const cancellation = ops!.cancelTransfer(rootId);
+      await new Promise((resolve) => setImmediate(resolve));
+      assert.equal(transferRuntime.isWalkInFlight(rootId), true);
+      release();
+      await Promise.all([walking, cancellation]);
+    });
+    assert.ok(peak <= 32, `bounded cancellation IPC, got ${peak}`);
+    assert.equal(clearCount, 2201);
+    assert.ok(clearPeak > 1 && clearPeak <= 32, `bounded concurrent cleanup, got ${clearPeak}`);
+    assert.equal(sftpTransferCenterStore.getTask(rootId)?.status, "attention");
+    assert.equal(sftpTransferCenterStore.getTask("cancel-child-0")?.status, "attention");
+    const remaining = sftpTransferCenterStore.getTask("cancel-child-1");
+    assert.equal(remaining?.status, "interrupted", "evicted cancelled children remain recoverable");
+    assert.equal(remaining?.checkpointBytes, 6, "retain the terminal checkpoint, not the pre-cancel snapshot");
+    assert.deepEqual(cleaned, [], "no stage cleanup during partial cancellation recovery");
+    assert.equal(await readFile(completedPath, "utf8"), "completed bytes must remain");
+  } finally {
+    release();
+    await act(async () => { renderer?.unmount(); });
+    restore();
+    await rm(root, { recursive: true, force: true });
   }
 });

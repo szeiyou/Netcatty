@@ -1,3 +1,5 @@
+import { readMonitorPanels, writeMonitorPanels } from './monitorPanelsStorage';
+import type { MonitorPanel } from '../../domain/monitorPanels';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   hostsEqualForIdentityReuse,
@@ -80,7 +82,12 @@ import {
   registerNotesActions,
 } from "./notesStore";
 import { commitVaultNotesWrite } from "./vaultNotesPersistence";
+import { rebasePendingVaultNotes } from "../../domain/vaultNotesReconciliation";
 import { publishShellHistorySnapshot } from "./shellHistoryStore";
+import {
+  clearHistory as clearAutocompleteHistory,
+  markCommandHistoryCleared,
+} from "./commandHistoryStore";
 import { setVaultInitialized } from "./vaultInitStore";
 import { notify } from "../notification";
 import {
@@ -119,6 +126,7 @@ import {
 import { commitVaultGroupMutationPersistence } from "./vaultGroupMutationPersistence";
 
 type ExportableVaultData = {
+  monitorPanels?: MonitorPanel[];
   hosts: Host[];
   keys: SSHKey[];
   identities?: Identity[];
@@ -306,6 +314,12 @@ export const useVaultState = () => {
   const snippetsRef = useRef<Snippet[]>([]);
   const groupConfigsRef = useRef<GroupConfig[]>([]);
   const notesRef = useRef<VaultNote[]>([]);
+  const notesStorageRef = useRef<VaultNote[]>([]);
+  // An optimistic React echo is not a persistence acknowledgement. Keep this
+  // owner until that exact generation has successfully reached storage.
+  const notesPendingRef = useRef<VaultNote[] | null>(null);
+  // Failed clear/import keeps full-snapshot ownership across later local edits.
+  const notesPendingReplaceRef = useRef(false);
   const noteGroupsRef = useRef<string[]>([]);
   const notesPersistFailureNotifiedAtRef = useRef(0);
   customGroupsRef.current = customGroups;
@@ -834,17 +848,37 @@ export const useVaultState = () => {
     localStorageAdapter.write(STORAGE_KEY_SNIPPET_PACKAGES, data);
   }, []);
 
-  const updateNotes = useCallback((data: Partial<VaultNote>[]) => {
+  const updateNotes = useCallback((data: Partial<VaultNote>[], options?: { replace?: boolean }) => {
+    const stored = normalizeVaultNotes(localStorageAdapter.read<VaultNote[]>(STORAGE_KEY_NOTES) ?? []);
+    const requested = normalizeVaultNotes(data);
+    // Explicit clear/restore keeps its existing full-snapshot semantics.
+    const replace = options?.replace === true || notesPendingReplaceRef.current;
+    const pending = replace ? requested : rebasePendingVaultNotes({
+      base: notesStorageRef.current,
+      ours: requested,
+      theirs: stored,
+    });
+    notesStorageRef.current = stored;
+    notesPendingRef.current = pending;
+    notesPendingReplaceRef.current = replace;
+    notesRef.current = pending;
     const { notes: cleaned, persisted } = commitVaultNotesWrite({
-      data,
+      data: pending,
       write: (key, value) => localStorageAdapter.write(key, value),
     });
     // Keep the in-session catalog updated so an autosave quota failure does not
     // snap the editor back to stale props and discard the user's draft. Disk
     // may still be behind — surface that explicitly.
-    notesRef.current = cleaned;
-    setNotes(cleaned);
-    publishNotesSnapshot({ notes: cleaned, noteGroups: noteGroupsRef.current });
+    if (notesPendingRef.current === pending) {
+      notesRef.current = cleaned;
+      if (persisted) {
+        notesStorageRef.current = cleaned;
+        notesPendingRef.current = null;
+        notesPendingReplaceRef.current = false;
+      }
+      setNotes(cleaned);
+      publishNotesSnapshot({ notes: cleaned, noteGroups: noteGroupsRef.current });
+    }
     if (!persisted) {
       const now = Date.now();
       // Debounced autosave can hit quota repeatedly; avoid toast spam.
@@ -1157,13 +1191,14 @@ export const useVaultState = () => {
   }, []);
 
   const clearVaultData = useCallback(() => {
+    void withVaultImportLock('vault', async () => writeMonitorPanels([]));
     updateHosts([]);
     updateKeys([]);
     updateIdentities([]);
     updateProxyProfiles([]);
     updateSnippets([], { replace: true });
     updateSnippetPackages([]);
-    updateNotes([]);
+    updateNotes([], { replace: true });
     updateNoteGroups([]);
     updateCustomGroups([]);
     updateKnownHosts([]);
@@ -1222,6 +1257,23 @@ export const useVaultState = () => {
     localStorageAdapter.write(STORAGE_KEY_SHELL_HISTORY, []);
     publishShellHistorySnapshot([]);
   }, []);
+
+  /**
+   * Clear every locally recorded command history: the global shell history, the
+   * terminal autocomplete history, and the in-memory compose-bar recall.
+   *
+   * The autocomplete store persists the clear synchronously and fans it out to
+   * other renderers through its own `storage` listener. The compose-bar store
+   * subscribes to that same clear event, so detached terminal popups drop their
+   * recall too without a separate broadcast.
+   */
+  const clearAllCommandHistory = useCallback(() => {
+    clearShellHistory();
+    clearAutocompleteHistory();
+    // Tombstone so a later first-time histfile import cannot restore the
+    // commands the user just deleted.
+    markCommandHistoryCleared();
+  }, [clearShellHistory]);
 
   const removeShellHistoryEntry = useCallback((entryId: string) => {
     setShellHistory((prev) => {
@@ -1534,8 +1586,10 @@ export const useVaultState = () => {
 
         if (savedGroups) setCustomGroups(savedGroups);
         if (savedSnippetPackages) setSnippetPackages(savedSnippetPackages);
-        if (savedNotes) {
+        if (savedNotes && notesPendingRef.current === null) {
           const cleanedNotes = normalizeVaultNotes(savedNotes);
+          notesStorageRef.current = cleanedNotes;
+          notesRef.current = cleanedNotes;
           setNotes(cleanedNotes);
           localStorageAdapter.write(STORAGE_KEY_NOTES, cleanedNotes);
         }
@@ -1780,8 +1834,21 @@ export const useVaultState = () => {
       }
 
       if (key === STORAGE_KEY_NOTES) {
-        const next = safeParse<VaultNote[]>(event.newValue) ?? [];
-        setNotes(normalizeVaultNotes(next));
+        // Like snippets, ignore queued events for a snapshot no longer on disk.
+        if (event.newValue !== localStorageAdapter.readString(STORAGE_KEY_NOTES)) return;
+        // Only a successful current write can release an outstanding replacement.
+        if (notesPendingReplaceRef.current) return;
+        const next = normalizeVaultNotes(safeParse<VaultNote[]>(event.newValue) ?? []);
+        const pending = notesPendingRef.current;
+        const visible = pending === null ? next : rebasePendingVaultNotes({
+          base: notesStorageRef.current,
+          ours: pending,
+          theirs: next,
+        });
+        notesStorageRef.current = next;
+        if (pending !== null) notesPendingRef.current = visible;
+        notesRef.current = visible;
+        setNotes(visible);
         return;
       }
 
@@ -1909,6 +1976,7 @@ export const useVaultState = () => {
 
   const exportData = useCallback(
     (): ExportableVaultData => ({
+      monitorPanels: readMonitorPanels(),
       hosts,
       keys,
       identities,
@@ -1927,6 +1995,7 @@ export const useVaultState = () => {
   const importData = useCallback(
     (payload: Partial<ExportableVaultData>): Promise<void> => {
       const encryptedWrites: Promise<void>[] = [];
+      if (payload.monitorPanels !== undefined) encryptedWrites.push(withVaultImportLock('vault', async () => writeMonitorPanels(payload.monitorPanels)));
       if (payload.hosts) {
         // Cloud payloads no longer carry `lastConnectedAt` (#2629), but any
         // remote reconciliation replaces the whole local host array. Re-attach
@@ -1952,7 +2021,7 @@ export const useVaultState = () => {
       }
       if (payload.customGroups) updateCustomGroups(payload.customGroups);
       if (payload.snippetPackages) updateSnippetPackages(payload.snippetPackages);
-      if (payload.notes) updateNotes(payload.notes);
+      if (payload.notes) updateNotes(payload.notes, { replace: true });
       if (payload.noteGroups) updateNoteGroups(payload.noteGroups);
       if (payload.knownHosts) updateKnownHosts(payload.knownHosts);
       if (Array.isArray(payload.groupConfigs)) encryptedWrites.push(updateGroupConfigs(payload.groupConfigs));
@@ -2159,6 +2228,7 @@ export const useVaultState = () => {
     updateGroupConfigs,
     addShellHistoryEntry,
     clearShellHistory,
+    clearAllCommandHistory,
     removeShellHistoryEntry,
     addConnectionLog,
     updateConnectionLog,
