@@ -48,6 +48,7 @@ import {
 } from "./ui/aside-panel";
 import { HostDetailsAdvancedSections } from "./HostDetailsAdvancedSections";
 import { detachEffectiveHostIdentity, HostDetailsConnectionSections } from "./HostDetailsConnectionSections";
+import type { HostTotpFlushResult } from "./HostTotpFields";
 import {
   LINUX_DISTRO_OPTION_IDS,
   parseOptionalPortInput,
@@ -171,6 +172,8 @@ const HostDetailsPanelContent: React.FC<HostDetailsPanelPropsWithResize> = ({
   };
   const { checkSshAgent } = useApplicationBackend();
   const baselineSnippetsRef = useRef(snippets);
+  const totpFlushRef = useRef<(() => Promise<HostTotpFlushResult>) | null>(null);
+  const savingHostRef = useRef(false);
   const baselineHydratedRef = useRef(snippets.length > 0);
   const openingQueueIdsRef = useRef<string[]>([]);
   const [form, setForm] = useState<Host>(
@@ -465,7 +468,7 @@ const HostDetailsPanelContent: React.FC<HostDetailsPanelPropsWithResize> = ({
   const updateProxyConfig = useCallback(
     (field: keyof ProxyConfig, value: ProxyConfig[keyof ProxyConfig]) => {
       setForm((prev) => {
-        const { proxyProfileId: _proxyProfileId, ...rest } = prev;
+        const { proxyProfileId: _proxyProfileId, directProxy: _directProxy, ...rest } = prev;
         return {
           ...rest,
           proxyConfig: updateProxyConfigField(prev.proxyConfig, field, value),
@@ -477,16 +480,23 @@ const HostDetailsPanelContent: React.FC<HostDetailsPanelPropsWithResize> = ({
 
   const clearProxyConfig = useCallback(() => {
     setForm((prev) => {
-      const { proxyConfig: _proxyConfig, proxyProfileId: _proxyProfileId, ...rest } = prev;
+      const { proxyConfig: _proxyConfig, proxyProfileId: _proxyProfileId, directProxy: _directProxy, ...rest } = prev;
       return rest as Host;
     });
   }, []);
 
   const selectProxyProfile = useCallback((profileId: string | undefined) => {
     setForm((prev) => {
-      const { proxyConfig: _proxyConfig, proxyProfileId: _proxyProfileId, ...rest } = prev;
+      const { proxyConfig: _proxyConfig, proxyProfileId: _proxyProfileId, directProxy: _directProxy, ...rest } = prev;
       if (!profileId) return rest as Host;
       return { ...rest, proxyProfileId: profileId } as Host;
+    });
+  }, []);
+
+  const selectDirectProxy = useCallback(() => {
+    setForm((prev) => {
+      const { proxyConfig: _proxyConfig, proxyProfileId: _proxyProfileId, ...rest } = prev;
+      return { ...rest, directProxy: true } as Host;
     });
   }, []);
 
@@ -539,7 +549,12 @@ const HostDetailsPanelContent: React.FC<HostDetailsPanelPropsWithResize> = ({
     ? pluginConnectionValid && Boolean(sanitizePluginConnection(form.pluginConnection, form.protocol))
     : hasHostname;
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
+    if (savingHostRef.current) return;
+    savingHostRef.current = true;
+    try {
+    const flushed = await totpFlushRef.current?.();
+    if (flushed && !flushed.ok) return;
     const hostname = form.hostname.trim()
       || (pluginProtocolActive ? form.label.trim() || form.pluginConnection?.providerId || "plugin" : "");
     if (!hostname || !canSaveHost) return;
@@ -620,6 +635,10 @@ const HostDetailsPanelContent: React.FC<HostDetailsPanelPropsWithResize> = ({
       authPolicyVersion: 1,
       managedSourceId: finalManagedSourceId,
     };
+    if (flushed?.ok) {
+      if (flushed.totp) cleaned.totp = flushed.totp;
+      else delete cleaned.totp;
+    }
     if (pluginProtocolActive) {
       const pluginConnection = sanitizePluginConnection(cleaned.pluginConnection, cleaned.protocol);
       if (!pluginConnection) return;
@@ -747,6 +766,9 @@ const HostDetailsPanelContent: React.FC<HostDetailsPanelPropsWithResize> = ({
       }
     }
     onSave(stripBuiltInConnectionFieldsForPluginHost(cleaned));
+    } finally {
+      savingHostRef.current = false;
+    }
   };
 
   const handleCreateGroup = () => {
@@ -896,6 +918,7 @@ const HostDetailsPanelContent: React.FC<HostDetailsPanelPropsWithResize> = ({
   );
   const connectionSections = (
     <HostDetailsConnectionSections compact={isCreating}
+          totpFlushRef={totpFlushRef}
           t={t}
           form={form}
           setForm={setForm}
@@ -1022,8 +1045,10 @@ const HostDetailsPanelContent: React.FC<HostDetailsPanelPropsWithResize> = ({
         proxyProfiles={proxyProfiles}
         identities={identities}
         selectedProxyProfileId={form.proxyProfileId}
+        directProxy={form.directProxy}
         onUpdateProxy={updateProxyConfig}
         onSelectProxyProfile={selectProxyProfile}
+        onSelectDirectProxy={selectDirectProxy}
         onClearProxy={clearProxyConfig}
         onBack={() => setActiveSubPanel("none")}
         onCancel={onCancel}

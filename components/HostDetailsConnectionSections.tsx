@@ -2,6 +2,7 @@ import React from "react";
 import { ChevronDown, Eye, EyeOff, FileKey, FolderLock, FolderOpen, Key, KeyRound, MapPin, Plus, Shapes, Shield, Trash2, User, X } from "lucide-react";
 import type { Host } from "../types";
 import { applyHostAuthMethodSelection } from "../domain/sshAuth";
+import { HostTotpFields } from "./HostTotpFields";
 import { HostIconPicker } from "./HostIconPicker";
 import { Button } from "./ui/button";
 import { Combobox } from "./ui/combobox";
@@ -103,6 +104,7 @@ export const HostDetailsConnectionSections: React.FC<HostDetailsConnectionSectio
   distroOptions,
   effectiveFormDistro,
   getDistroOptionLabel,
+  totpFlushRef,
 }) => {
   const selectAuthMethod = (authMethod: "auto" | "password" | "key" | "certificate") => {
     setForm((previous: Host) => applyEffectiveHostAuthMethodSelection(
@@ -660,6 +662,13 @@ export const HostDetailsConnectionSections: React.FC<HostDetailsConnectionSectio
                   </div>
                 </div>
               )}
+            <HostTotpFields
+              t={t}
+              form={form}
+              setForm={setForm}
+              effectiveProtocol={effectiveProtocol}
+              flushRef={totpFlushRef}
+            />
     </>
   );
 
