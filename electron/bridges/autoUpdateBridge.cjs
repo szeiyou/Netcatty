@@ -105,6 +105,14 @@ function getAutoUpdater() {
   if (_autoUpdater) return _autoUpdater;
   try {
     const { autoUpdater } = require("electron-updater");
+    if (process.platform === 'win32' && process.arch === 'x64') {
+      const source = require('../config/updateSource.json');
+      autoUpdater.setFeedURL({
+        provider: 'generic',
+        url: `${source.baseUrl}${source.windowsX64Path}`,
+        channel: 'latest',
+      });
+    }
     autoUpdater.autoDownload = readAutoUpdatePreference();
     autoUpdater.autoInstallOnAppQuit = false;
     // Silence the default electron-log transport (we log ourselves).
@@ -415,6 +423,18 @@ function broadcastToAllWindows(channel, payload) {
 }
 
 function registerHandlers(ipcMain) {
+  // Fetch only the configured feed in the main process; the server does not
+  // need to expose browser CORS headers for the renderer's manual check.
+  ipcMain.handle('netcatty:update:release-info', async () => {
+    if (process.platform !== 'win32' || process.arch !== 'x64') return null;
+    const source = require('../config/updateSource.json');
+    const response = await fetch(`${source.baseUrl}${source.windowsX64Path}latest.json`, {
+      headers: { Accept: 'application/json' },
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!response.ok) throw new Error(`Update service returned ${response.status}`);
+    return response.json();
+  });
   // ---- Check for updates ------------------------------------------------
   ipcMain.handle("netcatty:update:check", async () => {
     // Cancel any pending auto-check to prevent concurrent checkForUpdates()

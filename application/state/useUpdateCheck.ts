@@ -518,9 +518,7 @@ export function useUpdateCheck(options?: { autoUpdateEnabled?: boolean; enabled?
   }, [updateState.latestRelease?.version]);
 
   const openReleasePage = useCallback(async () => {
-    const url = updateState.latestRelease
-      ? getReleaseUrl(updateState.latestRelease.version)
-      : getReleaseUrl();
+    const url = updateState.latestRelease?.htmlUrl || await getReleaseUrl(updateState.latestRelease?.version);
 
     try {
       const bridge = netcattyBridge.get();

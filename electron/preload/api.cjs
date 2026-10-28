@@ -1893,6 +1893,7 @@ function createPreloadApi(ctx) {
 
   // Auto-update
   checkForUpdate: () => ipcRenderer.invoke("netcatty:update:check"),
+  getHostedUpdateRelease: () => ipcRenderer.invoke('netcatty:update:release-info'),
   downloadUpdate: () => ipcRenderer.invoke("netcatty:update:download"),
   installUpdate: () => ipcRenderer.invoke("netcatty:update:install"),
   getUpdateStatus: () => ipcRenderer.invoke("netcatty:update:getStatus"),

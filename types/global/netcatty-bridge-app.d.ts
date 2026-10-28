@@ -2,6 +2,7 @@
 declare global {
   interface NetcattyBridge {
     // Auto-update
+    getHostedUpdateRelease?(): Promise<unknown | null>;
     checkForUpdate?(): Promise<{
       available: boolean;
       supported?: boolean;

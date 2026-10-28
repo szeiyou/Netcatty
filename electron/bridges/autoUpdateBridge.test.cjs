@@ -41,6 +41,8 @@ async function withMocks({ autoUpdater, autoUpdaterExports, windowManager, globa
       return this.calls[this.calls.length - 1] === true;
     },
   };
+  // Real electron-updater always exposes this provider configuration method.
+  fakeAutoUpdater.setFeedURL ??= () => {};
   const fakeGlobalShortcut = globalShortcutBridge || {
     cleanupCount: 0,
     cleanup() {
@@ -214,6 +216,37 @@ function makeWindowManagerWithMainWindows(count, options = {}) {
     },
   };
 }
+
+test('Windows x64 configures the hosted provider and reads release metadata in the main process', async () => {
+  const platformDescriptor = Object.getOwnPropertyDescriptor(process, 'platform');
+  const archDescriptor = Object.getOwnPropertyDescriptor(process, 'arch');
+  const originalFetch = globalThis.fetch;
+  Object.defineProperty(process, 'platform', { value: 'win32', configurable: true });
+  Object.defineProperty(process, 'arch', { value: 'x64', configurable: true });
+  const metadata = { version: '1.1.90-bg.2', files: [] };
+  globalThis.fetch = async (url) => {
+    assert.equal(url, 'http://47.116.163.88:8022/netcatty/windows/x64/latest.json');
+    return new Response(JSON.stringify(metadata));
+  };
+  let provider;
+  try {
+    await withMocks({ autoUpdater: {
+      on() {},
+      setFeedURL(value) { provider = value; },
+    } }, async ({ bridge }) => {
+      const handlers = new Map();
+      bridge.registerHandlers({ handle(channel, handler) { handlers.set(channel, handler); }, on() {} });
+      assert.deepEqual(provider, {
+        provider: 'generic', url: 'http://47.116.163.88:8022/netcatty/windows/x64/', channel: 'latest',
+      });
+      assert.deepEqual(await handlers.get('netcatty:update:release-info')(), metadata);
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+    Object.defineProperty(process, 'platform', platformDescriptor);
+    Object.defineProperty(process, 'arch', archDescriptor);
+  }
+});
 
 async function withLinuxPackageEnvironment({ packageType, appImage }, fn) {
   const packageDir = fs.mkdtempSync(path.join(tempDirBridge.getTempDir(), "auto-update-test-"));

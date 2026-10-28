@@ -967,6 +967,7 @@ function createBridgeRegistrar(context) {
         name: app.getName(),
         version: app.getVersion(),
         platform: process.platform,
+        arch: process.arch,
       };
     });
   

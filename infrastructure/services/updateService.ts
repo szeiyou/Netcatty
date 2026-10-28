@@ -2,11 +2,12 @@
  * Update Service
  *
  * Combines two update mechanisms:
- * 1. GitHub API-based version comparison (used by useUpdateCheck for notification banner)
+ * 1. Self-hosted release metadata on Windows x64, GitHub API on other platforms
  * 2. electron-updater bridge (used by SettingsSystemTab for download/install)
  */
 
 import { netcattyBridge } from "./netcattyBridge";
+import updateSource from '../../electron/config/updateSource.json';
 
 // ================================
 // Part 1: GitHub API Version Check
@@ -14,6 +15,15 @@ import { netcattyBridge } from "./netcattyBridge";
 
 const GITHUB_API_URL = 'https://api.github.com/repos/binaricat/Netcatty/releases/latest';
 const RELEASES_PAGE_URL = 'https://github.com/binaricat/Netcatty/releases';
+const WINDOWS_FEED_URL = `${updateSource.baseUrl}${updateSource.windowsX64Path}`;
+
+interface HostedRelease {
+  version: string;
+  releaseNotes?: string;
+  releaseDate?: string;
+  files?: { url: string; size?: number }[];
+  source?: { tag?: string; url?: string; publishedAt?: string };
+}
 
 export interface ReleaseInfo {
   version: string;       // e.g. "1.0.0" (without 'v' prefix)
@@ -70,19 +80,37 @@ export function compareVersions(a: string, b: string): number {
 }
 
 /**
- * Check for updates via GitHub API (compares version strings).
+ * Check the self-hosted Windows x64 feed or the upstream API on other platforms.
  * Used by useUpdateCheck for the notification banner.
  */
 export async function checkForUpdates(currentVersion: string): Promise<UpdateCheckResult> {
   try {
+    const hostedData = await netcattyBridge.get()?.getHostedUpdateRelease?.();
+    if (hostedData != null) {
+      const hosted = hostedData as HostedRelease;
+      if (typeof hosted.version !== 'string' || !hosted.version.trim()) {
+        throw new Error('Update service returned an invalid version');
+      }
+      const version = hosted.version.replace(/^v/i, '');
+      const latestRelease: ReleaseInfo = {
+        version,
+        tagName: hosted.source?.tag || `v${version}`,
+        name: hosted.source?.tag || `v${version}`,
+        body: hosted.releaseNotes || '',
+        htmlUrl: hosted.source?.url || `${updateSource.releasesPageUrl}/tag/v${version}`,
+        publishedAt: hosted.source?.publishedAt || hosted.releaseDate || '',
+        assets: (hosted.files || []).map((file) => ({
+          name: decodeURIComponent(new URL(file.url, WINDOWS_FEED_URL).pathname.split('/').pop() || ''),
+          browserDownloadUrl: new URL(file.url, WINDOWS_FEED_URL).href,
+          size: file.size || 0,
+        })),
+      };
+      return { hasUpdate: compareVersions(version, currentVersion) > 0, currentVersion, latestRelease };
+    }
     const response = await fetch(GITHUB_API_URL, {
       headers: { Accept: 'application/vnd.github.v3+json' },
     });
-
-    if (!response.ok) {
-      throw new Error(`GitHub API returned ${response.status}`);
-    }
-
+    if (!response.ok) throw new Error(`GitHub API returned ${response.status}`);
     const data = await response.json();
     const latestVersion = (data.tag_name as string).replace(/^v/i, '');
 
@@ -116,11 +144,14 @@ export async function checkForUpdates(currentVersion: string): Promise<UpdateChe
 /**
  * Get release page URL for a specific version
  */
-export function getReleaseUrl(version?: string): string {
+export async function getReleaseUrl(version?: string): Promise<string> {
+  const info = await netcattyBridge.get()?.getAppInfo?.();
+  const releasesPageUrl = info?.platform === 'win32' && info.arch === 'x64'
+    ? updateSource.releasesPageUrl : RELEASES_PAGE_URL;
   if (version) {
-    return `${RELEASES_PAGE_URL}/tag/v${version.replace(/^v/i, '')}`;
+    return `${releasesPageUrl}/tag/v${version.replace(/^v/i, '')}`;
   }
-  return RELEASES_PAGE_URL;
+  return releasesPageUrl;
 }
 
 /**
@@ -214,7 +245,7 @@ export function onError(
   return netcattyBridge.get()?.onUpdateError?.(cb);
 }
 
-/** Returns the GitHub Releases page URL, optionally for a specific version tag. */
+/** Returns the upstream Releases page, optionally for a specific version. */
 export function getReleasesUrl(version?: string): string {
   if (version) {
     return `${RELEASES_PAGE_URL}/tag/v${version}`;
