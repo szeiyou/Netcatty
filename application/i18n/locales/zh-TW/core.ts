@@ -587,8 +587,15 @@ Vaults 分頁維持扁平，不使用這塊背景。
   'settings.appearance.background.surfaceOpacity.desc': '面板與終端疊在圖片上的不透明程度。數值越低圖片越明顯，但文字對比度會下降。',
   'settings.appearance.background.blur': '模糊',
   'settings.appearance.background.error.unsupported': '不支援的檔案格式，請使用 PNG、JPEG、WebP、GIF、BMP、AVIF、MP4 或 WebM。',
-  'settings.appearance.background.error.generic': '匯入背景圖失敗。',
+  'settings.appearance.background.error.generic': '匯入背景圖失敗。',
+
+
+
+
+
   'settings.appearance.background.animatedWarning': '動態圖片每一格都要由 CPU 解碼，可能導致終端機卡頓。動態背景建議轉成 MP4 或 WebM 影片，由顯示卡解碼。',
+  'settings.appearance.windowBackgroundBlur': '毛玻璃背景',
+  'settings.appearance.windowBackgroundBlur.desc': '模糊視窗後方的桌面。100% 不透明時效果不可見，但會保留你的開關設定。',
   'settings.appearance.appIcon': '應用程式圖示',
   'settings.appearance.appIcon.desc': '選擇 Dock/工作列圖示風格，切換應用程式時更容易找到 Netcatty。Windows 通知區域圖示會使用同一套風格。執行時生效，安裝檔內的圖示不會改變。',
   'settings.appearance.appIcon.original': '原始',

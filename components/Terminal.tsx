@@ -159,6 +159,8 @@ import {
 } from "./terminal/runtime/createTerminalSessionStarters";
 import {
   createXTermRuntime,
+  getTerminalPerCharacterInput,
+  restoreTerminalPerCharacterInput,
   resetKittyKeyboardModeStateForSession,
   type XTermRuntime,
 } from "./terminal/runtime/createXTermRuntime";
@@ -1684,6 +1686,8 @@ const TerminalComponent: React.FC<TerminalProps> = ({
           passwordPromptActiveRef.current,
           knownCwdRef.current ?? null,
           terminalTitleRef.current ?? null,
+          xtermRuntimeRef.current?.getPerCharacterInput()
+            ?? getTerminalPerCharacterInput(terminalSettingsRef),
         );
       }));
     }
@@ -1704,6 +1708,10 @@ const TerminalComponent: React.FC<TerminalProps> = ({
           if (!flushed || termRef.current !== term) {
             throw new Error("Terminal output did not settle before applying the snapshot");
           }
+        }
+        if (typeof payload.perCharacterInput === "boolean") {
+          restoreTerminalPerCharacterInput(terminalSettingsRef, payload.perCharacterInput);
+          xtermRuntimeRef.current?.restorePerCharacterInput(payload.perCharacterInput);
         }
         if (typeof payload.kittyKeyboardProtocolEnabled === "boolean") {
           xtermRuntimeRef.current?.setKittyKeyboardProtocolEnabled(
@@ -1874,6 +1882,8 @@ const TerminalComponent: React.FC<TerminalProps> = ({
           snap,
           {
             ...finalContext,
+            perCharacterInput: xtermRuntimeRef.current?.getPerCharacterInput()
+              ?? getTerminalPerCharacterInput(terminalSettingsRef),
             kittyKeyboardModeState: xtermRuntimeRef.current?.getKittyKeyboardModeState(),
             kittyKeyboardProtocolEnabled:
               xtermRuntimeRef.current?.getKittyKeyboardProtocolEnabled(),
@@ -4068,7 +4078,7 @@ const TerminalComponent: React.FC<TerminalProps> = ({
         return;
       }
       finishReconnectPreparation();
-      xtermRuntimeRef.current?.resetKittyConnectionInputState();
+      xtermRuntimeRef.current?.resetConnectionInputState(host);
       resetKittyKeyboardModeStateForSession(terminalSettingsRef);
       if (effectiveTerminalProtocol.startsWith("plugin:")) {
         sessionStarters.startPluginConnection(term);

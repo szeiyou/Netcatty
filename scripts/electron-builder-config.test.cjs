@@ -128,6 +128,13 @@ test("asarUnpack no longer references removed legacy agent packages", () => {
 test("asarUnpack keeps MCP server runtime deps unpacked", () => {
   // @modelcontextprotocol/sdk is now a direct dep and the MCP server hard-requires it.
   assert.ok(config.asarUnpack.includes("node_modules/@modelcontextprotocol/sdk/**/*"));
+  // externalMcpRedaction.cjs requires re2js. The launcher runs from
+  // app.asar.unpacked with ELECTRON_RUN_AS_NODE, which cannot see modules
+  // that exist only inside app.asar (issue #3910).
+  assert.ok(
+    config.asarUnpack.includes("node_modules/re2js/**/*"),
+    "external MCP bridge must unpack re2js so the stdio launcher can resolve it",
+  );
 });
 
 test("asarUnpack keeps Cursor SDK runtime deps unpacked", () => {
@@ -336,6 +343,26 @@ test("windows packaging includes a zip archive target", () => {
     config.win.target.includes("zip"),
     "windows package builds must publish a zip archive for no-install environments",
   );
+});
+
+test("windows installer kills leftover Netcatty.exe before file replacement", () => {
+  const fs = require("node:fs");
+  const path = require("node:path");
+  const installerScript = fs.readFileSync(
+    path.join(__dirname, "..", config.nsis.include),
+    "utf8",
+  );
+
+  assert.match(installerScript, /!macro customInit\b/);
+  assert.match(installerScript, /#3946/);
+  assert.match(installerScript, /ELECTRON_RUN_AS_NODE/);
+  assert.match(
+    installerScript,
+    /nsExec::ExecToLog "taskkill \/F \/IM Netcatty\.exe"/,
+  );
+  assert.match(installerScript, /Pop \$0/);
+  // /T would kill this installer while it is still a child of the UI Netcatty.exe.
+  assert.doesNotMatch(installerScript, /taskkill [^\r\n]*\/T/);
 });
 
 test("windows installer registers and removes Explorer folder context menu entries", () => {

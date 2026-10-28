@@ -550,8 +550,15 @@ export const ruCoreMessages: Messages = {
   'settings.appearance.background.surfaceOpacity.desc': 'Насколько непрозрачны панели и терминалы поверх изображения. Меньшие значения лучше показывают изображение, но снижают контраст текста.',
   'settings.appearance.background.blur': 'Размытие',
   'settings.appearance.background.error.unsupported': 'Неподдерживаемый формат. Используйте PNG, JPEG, WebP, GIF, BMP, AVIF, MP4 или WebM.',
-  'settings.appearance.background.error.generic': 'Не удалось импортировать фоновое изображение.',
+  'settings.appearance.background.error.generic': 'Не удалось импортировать фоновое изображение.',
+
+
+
+
+
   'settings.appearance.background.animatedWarning': 'Анимированные изображения декодируются процессором в каждом кадре и могут замедлять терминал. Для анимированного фона преобразуйте его в видео MP4 или WebM — его декодирует видеокарта.',
+  'settings.appearance.windowBackgroundBlur': 'Матовое стекло',
+  'settings.appearance.windowBackgroundBlur.desc': 'Размывает рабочий стол за окном. При непрозрачности 100 % эффект не виден, но ваш выбор сохраняется.',
   'settings.appearance.appIcon': 'Значок приложения',
   'settings.appearance.appIcon.desc': 'Выберите стиль значка для Dock/панели задач, чтобы Netcatty было проще найти при переключении приложений. В Windows значок области уведомлений использует тот же стиль. Применяется во время работы; значок установленного пакета не меняется.',
   'settings.appearance.appIcon.original': 'Оригинал',

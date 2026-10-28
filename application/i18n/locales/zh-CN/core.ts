@@ -585,8 +585,15 @@ Vaults 标签保持扁平，不使用这块背景。
   'settings.appearance.background.surfaceOpacity.desc': '面板和终端叠在图片上的不透明程度。数值越低图片越明显，但文字对比度会下降。',
   'settings.appearance.background.blur': '模糊',
   'settings.appearance.background.error.unsupported': '不支持的文件格式，请使用 PNG、JPEG、WebP、GIF、BMP、AVIF、MP4 或 WebM。',
-  'settings.appearance.background.error.generic': '导入背景图失败。',
+  'settings.appearance.background.error.generic': '导入背景图失败。',
+
+
+
+
+
   'settings.appearance.background.animatedWarning': '动态图片每一帧都要由 CPU 解码，可能导致终端卡顿。动态背景建议转成 MP4 或 WebM 视频，由显卡解码。',
+  'settings.appearance.windowBackgroundBlur': '毛玻璃背景',
+  'settings.appearance.windowBackgroundBlur.desc': '模糊窗口后方的桌面。100% 不透明时效果不可见，但会保留你的开关设置。',
   'settings.appearance.appIcon': '应用图标',
   'settings.appearance.appIcon.desc': '选择 Dock/任务栏图标风格，切换应用时更容易找到 Netcatty。Windows 通知区域图标会使用同一套风格。运行时生效，安装包内的图标不会改变。',
   'settings.appearance.appIcon.original': '原始',
