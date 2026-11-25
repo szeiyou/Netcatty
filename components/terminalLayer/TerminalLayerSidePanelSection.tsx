@@ -9,7 +9,7 @@ import React, { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, 
 import { createPortal } from 'react-dom';
 import * as SelectPrimitive from '@radix-ui/react-select';
 
-import { useActiveTabId } from '../../application/state/activeTabStore';
+import { activeTabStore, useActiveTabId } from '../../application/state/activeTabStore';
 import {
   getSidePanelLiveSnapshot,
   subscribeSidePanelLiveSnapshot,
@@ -18,7 +18,6 @@ import {
   reorderTerminalSidePanelTab,
   fitTerminalSidePanelTabs,
   TERMINAL_SIDE_PANEL_TAB_DEFAULT_ORDER,
-  TERMINAL_SIDE_PANEL_TAB_IDS,
   type TerminalSidePanelTabId,
   useTerminalSidePanelTabOrder,
 } from '../../application/state/terminalSidePanelTabs';
@@ -48,6 +47,7 @@ import {
   MAX_SIDE_PANEL_PANES,
   canSplitSidePanelPaneAtSize,
   collectSidePanelPanes,
+  isPluginSidePanelTool,
   getFocusedSidePanelPane,
   getSidePanelNodeMinimumPixels,
   getSidePanelSplitResizeBounds,
@@ -60,8 +60,11 @@ import {
   type SidePanelSplitNode,
 } from '../../domain/sidePanelLayout';
 import { terminalLayerSidePanelStableCtxEqual } from './terminalLayerViewMemo';
-import { SidePanelMountedContent } from './terminalLayerSidePanelSlots';
-import { getPaneMagnificationShortcutLabel } from '../../domain/paneMagnification';
+import { PersistentSidePanelPortal, SidePanelMountedContent } from './terminalLayerSidePanelSlots';
+import { usePluginTerminalSidebar } from '../../application/state/usePluginTerminalSidebar';
+import { PluginTerminalSidebarPageHost } from '../plugins/PluginTerminalSidebar';
+import { PluginContributionIcon } from '../plugins/PluginContributionIcon';
+import { getPaneMagnificationShortcutLabel, resolveMagnifiedChromeBorderWidth } from '../../domain/paneMagnification';
 import { appNestedSurfaceColor, appSurfaceColor } from '../../domain/appBackground';
 
 const MemoizedSidePanelMountedContent = memo(
@@ -359,7 +362,7 @@ function SidePanelSplitView({
   );
 }
 
-function SidePanelLayoutTree({
+export function SidePanelLayoutTree({
   node,
   layout,
   paneCount,
@@ -569,6 +572,9 @@ function hasMountedSidePanelContent(ctx: SidePanelContext): boolean {
     && Array.from((sidePanelOpenTabs as Map<string, SidePanelTab>).values()).includes('history');
   const anyNotesOpen = sidePanelOpenTabs instanceof Map
     && Array.from((sidePanelOpenTabs as Map<string, SidePanelTab>).values()).includes('notes');
+  const anyPluginOpen = ctx.sidePanelLayouts instanceof Map
+    && [...(ctx.sidePanelLayouts as Map<string, SidePanelLayout>).values()]
+      .some((layout) => collectSidePanelPanes(layout.root).some((pane) => isPluginSidePanelTool(pane.tool)));
 
   return !(
     browserMountedTabIds.length === 0
@@ -580,10 +586,18 @@ function hasMountedSidePanelContent(ctx: SidePanelContext): boolean {
     && themeMountedTabIds.length === 0
     && !anyHistoryOpen
     && !anyNotesOpen
+    && !anyPluginOpen
   );
 }
 
+const EMPTY_SIDE_PANEL_LAYOUTS: ReadonlyMap<string, SidePanelLayout> = new Map();
+
 function TerminalLayerSidePanelSectionInner({ ctx }: { ctx: SidePanelContext }) {
+  const pluginSidebar = usePluginTerminalSidebar({ layouts: ctx.sidePanelLayouts ?? EMPTY_SIDE_PANEL_LAYOUTS,
+    getSession: ctx.getActiveTerminalSessionId ?? (() => null),
+    isTerminalTab: (tabId) => (ctx.sessions ?? []).some((session: { id: string }) => session.id === tabId) || !!ctx.workspaceById?.has(tabId),
+    select: (tool) => ctx.handleSwitchSidePanelTab?.(tool),
+    withdraw: (tabId, paneId, tool) => ctx.handleWithdrawPluginSidebarPane?.(tabId, paneId, tool) });
   if (!hasMountedSidePanelContent(ctx)) {
     // Keep AI scope maintenance alive even with zero mounted tool panels so
     // merge/dissolve handoff still runs when the user closed AI before the
@@ -605,7 +619,7 @@ function TerminalLayerSidePanelSectionInner({ ctx }: { ctx: SidePanelContext }) 
       </AISidePanelStateRoot>
     );
   }
-  return <TerminalLayerSidePanelInner ctx={ctx} />;
+  return <TerminalLayerSidePanelInner ctx={ctx} pluginSidebar={pluginSidebar} />;
 }
 
 /** Skip chrome rebuilds when only live/workspace-focus ticks change. */
@@ -615,11 +629,13 @@ export const TerminalLayerSidePanelSection = memo(
 );
 TerminalLayerSidePanelSection.displayName = 'TerminalLayerSidePanelSection';
 
-function TerminalLayerSidePanelInner({ ctx }: { ctx: SidePanelContext }) {
+function TerminalLayerSidePanelInner({ ctx, pluginSidebar }: { ctx: SidePanelContext; pluginSidebar: ReturnType<typeof usePluginTerminalSidebar> }) {
   const activeTabId = useActiveTabId();
   const sidePanelOpenTabs = ctx.sidePanelOpenTabs as Map<string, SidePanelTab>;
   const sidePanelLayouts = ctx.sidePanelLayouts as Map<string, SidePanelLayout>;
   const isSidePanelOpenForCurrentTab = activeTabId ? sidePanelOpenTabs.has(activeTabId) : false;
+  const isSidePanelOpenRef = useRef(isSidePanelOpenForCurrentTab);
+  isSidePanelOpenRef.current = isSidePanelOpenForCurrentTab;
   const activeSidePanelTab = activeTabId ? sidePanelOpenTabs.get(activeTabId) ?? null : null;
   const activeSidePanelLayout = activeTabId ? sidePanelLayouts.get(activeTabId) ?? null : null;
 
@@ -631,6 +647,7 @@ function TerminalLayerSidePanelInner({ ctx }: { ctx: SidePanelContext }) {
     handleOpenAI,
     handleOpenHistory,
     handleOpenNotes,
+    handleSwitchSidePanelTab,
     handleOpenBrowser,
     handleOpenScripts,
     handleOpenSystem,
@@ -706,12 +723,21 @@ function TerminalLayerSidePanelInner({ ctx }: { ctx: SidePanelContext }) {
     let observedFocusSidebar: Element | null = null;
     let observedComposeBar: Element | null = null;
     let observedWorkspaceColumn: Element | null = null;
+    let deferredWhileSuppressed = false;
+    const scheduleAvailableWidthUpdate = () => {
+      if (!isSidePanelOpenRef.current) return;
+      if (terminalLayoutSuppressStore.getActive()) {
+        deferredWhileSuppressed = true;
+        return;
+      }
+      updateAvailableWidth();
+    };
     const resizeObserver = typeof ResizeObserver === 'undefined'
       ? null
-      : new ResizeObserver(() => updateAvailableWidth());
+      : new ResizeObserver(() => scheduleAvailableWidthUpdate());
     const mutationObserver = typeof MutationObserver === 'undefined'
       ? null
-      : new MutationObserver(() => updateAvailableWidth());
+      : new MutationObserver(() => scheduleAvailableWidthUpdate());
     const updateAvailableWidth = () => {
       const focusSidebar = terminalLayer.querySelector('[data-section="terminal-workspace-sidebar"]');
       if (resizeObserver && focusSidebar !== observedFocusSidebar) {
@@ -769,8 +795,15 @@ function TerminalLayerSidePanelInner({ ctx }: { ctx: SidePanelContext }) {
       '[data-section="terminal-workspace-row"]',
     );
     if (workspaceRow) mutationObserver?.observe(workspaceRow, { childList: true });
-    updateAvailableWidth();
+    const unsubscribeSuppress = terminalLayoutSuppressStore.subscribe(() => {
+      if (deferredWhileSuppressed && !terminalLayoutSuppressStore.getActive()) {
+        deferredWhileSuppressed = false;
+        if (!isSidePanelOpenRef.current) return;
+        updateAvailableWidth();
+      }
+    });
     return () => {
+      unsubscribeSuppress();
       resizeObserver?.disconnect();
       mutationObserver?.disconnect();
       observedFocusSidebar = null;
@@ -781,15 +814,20 @@ function TerminalLayerSidePanelInner({ ctx }: { ctx: SidePanelContext }) {
     };
   }, []);
   // The compose bar mounts inside the terminal pane, below the observed
-  // workspace column. Remeasure when it opens/closes or the active tab changes;
-  // the ResizeObserver above then follows subsequent compose-bar height drags.
+  // workspace column. Remeasure when it opens/closes, when the side panel opens,
+  // or when the active tab changes while open; the ResizeObserver above then
+  // follows subsequent compose-bar height drags.
   useLayoutEffect(() => {
+    if (!isSidePanelOpenForCurrentTab) return undefined;
     updateAvailableSurfaceRef.current();
     // The compose bar is rendered by a sibling subtree. Its mount can land
     // after this layout effect, so measure again once that commit has painted.
-    const frame = requestAnimationFrame(() => updateAvailableSurfaceRef.current());
+    const frame = requestAnimationFrame(() => {
+      if (!isSidePanelOpenRef.current) return;
+      updateAvailableSurfaceRef.current();
+    });
     return () => cancelAnimationFrame(frame);
-  }, [activeTabId, ctx.isComposeBarOpen]);
+  }, [activeTabId, ctx.isComposeBarOpen, isSidePanelOpenForCurrentTab]);
   const handlePaneHostChange = useCallback((tool: SidePanelTab, host: HTMLElement | null) => {
     setPaneHosts((current) => {
       if (host && current.get(tool) === host) return current;
@@ -808,7 +846,11 @@ function TerminalLayerSidePanelInner({ ctx }: { ctx: SidePanelContext }) {
     move: moveSidePanelTab,
     resetLayout: resetSidePanelTabLayout,
     partition: partitionSidePanelTabs,
-  } = useTerminalSidePanelTabOrder();
+  } = useTerminalSidePanelTabOrder(pluginSidebar.pages.map((page) => page.tool));
+  const availableSidePanelTabs = useMemo(() => [
+    ...TERMINAL_SIDE_PANEL_TAB_DEFAULT_ORDER, ...pluginSidebar.pages.map((page) => page.tool),
+  ], [pluginSidebar.pages]);
+  const availableSidePanelTabSet = useMemo(() => new Set<SidePanelTab>(availableSidePanelTabs), [availableSidePanelTabs]);
   const resolvedSidePanelTerminalTheme = useMemo(() => (
     followAppTerminalTheme
       ? terminalTheme
@@ -1006,7 +1048,7 @@ function TerminalLayerSidePanelInner({ ctx }: { ctx: SidePanelContext }) {
     const draggedTab = draggedSidePanelTabRef.current ?? transferredTab;
     draggedSidePanelTabRef.current = null;
     setDragOverSidePanelTab(null);
-    if (!TERMINAL_SIDE_PANEL_TAB_IDS.has(draggedTab)) return;
+    if (!availableSidePanelTabSet.has(draggedTab)) return;
 
     const nextOrder = reorderTerminalSidePanelTab(
       sidePanelTabOrder,
@@ -1017,7 +1059,7 @@ function TerminalLayerSidePanelInner({ ctx }: { ctx: SidePanelContext }) {
     if (nextOrder !== sidePanelTabOrder) {
       setSidePanelTabOrder(nextOrder);
     }
-  }, [dragOverSidePanelTab, setSidePanelTabOrder, sidePanelTabOrder]);
+  }, [availableSidePanelTabSet, dragOverSidePanelTab, setSidePanelTabOrder, sidePanelTabOrder]);
 
   const handleSidePanelTabDragOver = useCallback((event: React.DragEvent, targetTab: TerminalSidePanelTabId) => {
     if (!Array.from(event.dataTransfer.types).includes(SIDE_PANEL_TAB_DRAG_MIME)) return;
@@ -1047,6 +1089,9 @@ function TerminalLayerSidePanelInner({ ctx }: { ctx: SidePanelContext }) {
     { id: 'system' as const, label: t('terminal.layer.system'), icon: <Activity size={15} />, onClick: handleOpenSystem },
     { id: 'notes' as const, label: t('terminal.layer.notes'), icon: <NotebookText size={15} />, onClick: handleOpenNotes },
     { id: 'ai' as const, label: t('terminal.layer.aiChat'), icon: <MessageSquare size={15} />, onClick: handleOpenAI },
+    ...pluginSidebar.pages.map((page) => ({ id: page.tool, label: `${page.title} · ${page.pluginName}`,
+      icon: <PluginContributionIcon pluginId={page.pluginId} icon={page.icon} size={15} />,
+      onClick: () => handleSwitchSidePanelTab?.(page.tool) })),
   ], [
     handleOpenAI,
     handleOpenHistory,
@@ -1057,6 +1102,8 @@ function TerminalLayerSidePanelInner({ ctx }: { ctx: SidePanelContext }) {
     handleOpenTheme,
     handleToggleSftpFromBar,
     t,
+    handleSwitchSidePanelTab,
+    pluginSidebar.pages,
   ]);
   const sidePanelTabItemById = useMemo(
     () => new Map(sidePanelTabItems.map((item) => [item.id, item])),
@@ -1145,7 +1192,12 @@ function TerminalLayerSidePanelInner({ ctx }: { ctx: SidePanelContext }) {
   }, [focusedPaneHost, handleSplitSidePanelPane]);
 
   const { shown: configuredShownSidePanelTabs, collapsed: configuredCollapsedSidePanelTabs } = useMemo(() => {
-    const parts = partitionSidePanelTabs(TERMINAL_SIDE_PANEL_TAB_DEFAULT_ORDER);
+    const partition = partitionSidePanelTabs(availableSidePanelTabs);
+    const parts = {
+      shown: partition.shown as SidePanelTab[],
+      collapsed: partition.collapsed as SidePanelTab[],
+      hidden: partition.hidden as SidePanelTab[],
+    };
     // If an external path opens a hidden tab, still show its chip while active.
     if (
       activeSidePanelTab &&
@@ -1159,7 +1211,7 @@ function TerminalLayerSidePanelInner({ ctx }: { ctx: SidePanelContext }) {
       };
     }
     return parts;
-  }, [activeSidePanelTab, partitionSidePanelTabs]);
+  }, [activeSidePanelTab, availableSidePanelTabs, partitionSidePanelTabs]);
   // Bottom dock spans the full layer width (below the workspace focus
   // sidebar row), so measure tab overflow against the terminal layer itself.
   const sidePanelTabFitWidth = isBottomDock ? terminalLayerWidth : shellWidth;
@@ -1180,7 +1232,7 @@ function TerminalLayerSidePanelInner({ ctx }: { ctx: SidePanelContext }) {
 
   const sidePanelCustomizeItems = useMemo(
     () =>
-      sidePanelTabOrder.map((tabId) => {
+      sidePanelTabOrder.filter((tabId) => availableSidePanelTabSet.has(tabId)).map((tabId) => {
         const item = sidePanelTabItemById.get(tabId);
         return {
           id: tabId,
@@ -1188,7 +1240,7 @@ function TerminalLayerSidePanelInner({ ctx }: { ctx: SidePanelContext }) {
           icon: item?.icon,
         };
       }),
-    [sidePanelTabItemById, sidePanelTabOrder],
+    [availableSidePanelTabSet, sidePanelTabItemById, sidePanelTabOrder],
   );
 
   return (
@@ -1270,7 +1322,7 @@ function TerminalLayerSidePanelInner({ ctx }: { ctx: SidePanelContext }) {
               const next = setSidePanelTabPlacement(
                 id,
                 placement,
-                TERMINAL_SIDE_PANEL_TAB_DEFAULT_ORDER,
+                availableSidePanelTabs,
               );
               // Only close when hide actually stuck (not reverted by requireReachable).
               if (activeSidePanelTab === id && (next.placement[id] ?? 'show') === 'hide') {
@@ -1278,7 +1330,7 @@ function TerminalLayerSidePanelInner({ ctx }: { ctx: SidePanelContext }) {
               }
             }}
             onMove={(id, direction) =>
-              moveSidePanelTab(id, direction, TERMINAL_SIDE_PANEL_TAB_DEFAULT_ORDER)
+              moveSidePanelTab(id, direction, availableSidePanelTabs)
             }
             onReset={resetSidePanelTabLayout}
             t={t}
@@ -1453,7 +1505,7 @@ function TerminalLayerSidePanelInner({ ctx }: { ctx: SidePanelContext }) {
                   <Btn
                     variant="ghost"
                     size="icon"
-                    className="h-7 w-7 rounded-md p-0 hover:bg-transparent"
+                    className="h-7 w-7 shrink-0 rounded-md p-0 hover:bg-transparent"
                     style={{ color: sidePanelTheme.mutedFg }}
                     onClick={handleCloseSidePanel}
                   >
@@ -1492,6 +1544,19 @@ function TerminalLayerSidePanelInner({ ctx }: { ctx: SidePanelContext }) {
             paneHosts={panePortalHosts}
             parkingHost={parkingHost}
           />
+          {activeTabId && pluginSidebar.sessionId && activeSidePanelPanes.map((pane) => {
+            const page = pluginSidebar.pages.find((item) => item.tool === pane.tool);
+            const target = panePortalHosts.get(pane.tool) ?? parkingHost;
+            if (!page || !target) return null;
+            const sessionId = pluginSidebar.sessionId!;
+            return <PersistentSidePanelPortal key={`${activeTabId}:${pane.id}:${sessionId}`} portalKey={`plugin-${pane.id}`} target={target}>
+              <PluginTerminalSidebarPageHost page={page} tabId={activeTabId} sessionId={sessionId}
+                showHeader={activePaneCount === 1}
+                getSession={ctx.getActiveTerminalSessionId}
+                unavailable={() => ctx.handleWithdrawPluginSidebarPane?.(activeTabId, pane.id, page.tool)}
+                focused={() => { if (activeTabStore.getActiveTabId() === activeTabId) ctx.handleFocusSidePanelPane?.(pane.id); }} />
+            </PersistentSidePanelPortal>;
+          })}
         </div>
       </div>
     </div>
@@ -1506,6 +1571,9 @@ function TerminalLayerSidePanelInner({ ctx }: { ctx: SidePanelContext }) {
           className="absolute inset-3 flex flex-col overflow-hidden rounded-md border bg-background shadow-2xl animate-in fade-in zoom-in-95 duration-150"
           style={{
             borderColor: sidePanelTheme.accent,
+            borderWidth: resolveMagnifiedChromeBorderWidth(
+              typeof window === 'undefined' ? 1 : (window.devicePixelRatio || 1),
+            ),
             backgroundColor: sidePanelTheme.termBg,
             color: sidePanelTheme.termFg,
           }}
@@ -1538,7 +1606,7 @@ function TerminalLayerSidePanelInner({ ctx }: { ctx: SidePanelContext }) {
             data-section="pane-magnification-hint"
           >
             {t('terminal.paneMagnification.hint')}: {sidePanelToolLabels.get(magnifiedSidePane.tool) ?? magnifiedSidePane.tool}
-            {paneMagnificationShortcutLabel ? ` · ${paneMagnificationShortcutLabel} / Esc` : ' · Esc'}
+            {paneMagnificationShortcutLabel ? ` · ${paneMagnificationShortcutLabel}` : ''}
           </div>
         )}
       </div>,

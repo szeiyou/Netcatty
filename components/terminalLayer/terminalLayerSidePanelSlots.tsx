@@ -243,7 +243,7 @@ function SidePanelSftpSlotInner({
 export const SidePanelSftpSlot = memo(SidePanelSftpSlotInner);
 SidePanelSftpSlot.displayName = 'SidePanelSftpSlot';
 
-function SidePanelBrowserSlot({ tabId, ctx, isVisible }: {
+function SidePanelBrowserSlotInner({ tabId, ctx, isVisible }: {
   tabId: string;
   ctx: SidePanelStableContext;
   isVisible: boolean;
@@ -293,6 +293,9 @@ function SidePanelBrowserSlot({ tabId, ctx, isVisible }: {
     </div>
   );
 }
+
+export const SidePanelBrowserSlot = memo(SidePanelBrowserSlotInner);
+SidePanelBrowserSlot.displayName = 'SidePanelBrowserSlot';
 
 function SidePanelSystemSlotInner({
   tabId,
@@ -595,6 +598,7 @@ function SidePanelAiSlotInner({
     AISidePanelStateRoot,
     mountedAiTabIds,
     aiContextsByTabId,
+    appTerminalInfos,
     resolveAIExecutorContext,
     pendingTerminalSelectionForAI,
     handlePendingTerminalSelectionConsumed,
@@ -604,6 +608,8 @@ function SidePanelAiSlotInner({
     onOpenVaultHostFromChat,
     onOpenVaultSectionFromChat,
     onOpenVaultSnippetFromChat,
+    onSetWorkspaceAnchorChat,
+    handleFocusAIScopeTarget,
     validAIScopeTargetIds,
   } = ctx;
   const workspaces = ctx.workspaces as Workspace[];
@@ -654,7 +660,9 @@ function SidePanelAiSlotInner({
         mountedTabIds={mountedAiTabIds}
         activeTabId={activeTabId}
         activeSidePanelTab={isVisible ? 'ai' : null}
+        liveScopeTargetIds={validAIScopeTargetIds}
         contextsByTabId={aiContextsByTabId}
+        appTerminalSessions={appTerminalInfos}
         resolveExecutorContext={resolveAIExecutorContext}
         pendingTerminalSelection={pendingTerminalSelectionForAI}
         onPendingTerminalSelectionConsumed={handlePendingTerminalSelectionConsumed}
@@ -665,6 +673,9 @@ function SidePanelAiSlotInner({
         onOpenVaultHostFromChat={onOpenVaultHostFromChat}
         onOpenVaultSectionFromChat={onOpenVaultSectionFromChat}
         onOpenVaultSnippetFromChat={onOpenVaultSnippetFromChat}
+        onSetWorkspaceAnchorChat={onSetWorkspaceAnchorChat as ((workspaceId: string, chatId: string | null) => void) | undefined}
+        onFocusAIScopeTarget={handleFocusAIScopeTarget as ((target: { type: 'terminal' | 'workspace'; targetId: string }) => boolean) | undefined}
+        workspaces={workspaces}
       />
     </AISidePanelStateRoot>
   );
@@ -693,7 +704,7 @@ export function movePersistentPortalNode(
   }
 }
 
-function PersistentSidePanelPortal({
+export function PersistentSidePanelPortal({
   portalKey,
   target,
   children,

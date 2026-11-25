@@ -4,7 +4,9 @@ import { useI18n } from "../../../../application/i18n/I18nProvider";
 import type { AIToolIntegrationMode } from "../../../../infrastructure/ai/types";
 import { cn } from "../../../../lib/utils";
 import { useToolAccessGuidanceState } from "../../../../application/state/useToolAccessGuidanceState";
+import { ToolSettingsDialog } from "./ToolSettingsDialog";
 import { EXTERNAL_MCP_DISCOVERY_ENV_VAR } from "./ExternalMcpCard";
+import { Tooltip, TooltipContent, TooltipTrigger } from "../../../ui/tooltip";
 
 /** Build a ready-to-paste prompt so an external AI client can register Netcatty MCP itself. */
 export function buildMcpOnboardingPrompt(
@@ -45,16 +47,20 @@ type CopyRowProps = {
 
 const CopyRow: React.FC<CopyRowProps> = ({ value, label, copyLabel, copiedLabel, testId }) => {
   const [copied, setCopied] = useState(false);
+  const [copyError, setCopyError] = useState(false);
+  const { t } = useI18n();
   const canCopy = Boolean(value);
 
   const handleCopy = async () => {
     if (!value) return;
+    setCopyError(false);
+    setCopied(false);
     try {
       await navigator.clipboard.writeText(value);
       setCopied(true);
       window.setTimeout(() => setCopied(false), 1200);
     } catch {
-      // Clipboard may be unavailable; the text stays selectable in the block.
+      setCopyError(true);
     }
   };
 
@@ -71,17 +77,24 @@ const CopyRow: React.FC<CopyRowProps> = ({ value, label, copyLabel, copiedLabel,
         >
           {value}
         </pre>
-        <button
-          type="button"
-          disabled={!canCopy}
-          className="absolute right-1.5 top-1.5 flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-40"
-          onClick={() => void handleCopy()}
-          aria-label={copied ? copiedLabel : copyLabel}
-          title={copied ? copiedLabel : copyLabel}
-        >
-          {copied ? <Check size={14} className="text-emerald-500" /> : <Copy size={14} />}
-        </button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span className="absolute right-1.5 top-1.5 inline-flex">
+              <button
+                type="button"
+                disabled={!canCopy}
+                className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-40"
+                onClick={() => void handleCopy()}
+                aria-label={copied ? copiedLabel : copyLabel}
+              >
+                {copied ? <Check size={14} className="text-emerald-500" /> : <Copy size={14} />}
+              </button>
+            </span>
+          </TooltipTrigger>
+          <TooltipContent>{copied ? copiedLabel : copyLabel}</TooltipContent>
+        </Tooltip>
       </div>
+      {copyError ? <p role="alert" className="text-xs text-destructive">{t("ai.externalMcp.copyFailed")}</p> : null}
     </div>
   );
 };
@@ -93,7 +106,7 @@ export const ToolAccessGuidance: React.FC<{ mode: AIToolIntegrationMode }> = ({ 
 
   if (mode === "skills") {
     return (
-      <div className="rounded-md border border-border/60 bg-background/50 p-3 space-y-2">
+      <ToolSettingsDialog title={t("ai.toolAccess.skills.file")} triggerLabel={t("ai.toolSettings.viewSkills")}>
         <p className="text-xs text-muted-foreground leading-5">
           {t("ai.toolAccess.skills.description")}
         </p>
@@ -110,12 +123,12 @@ export const ToolAccessGuidance: React.FC<{ mode: AIToolIntegrationMode }> = ({ 
         {commandPrefix ? (
           <p className="text-xs text-muted-foreground/80 font-mono break-all">{commandPrefix}</p>
         ) : null}
-      </div>
+      </ToolSettingsDialog>
     );
   }
 
   return (
-    <div className="rounded-md border border-border/60 bg-background/50 p-3 space-y-2">
+    <ToolSettingsDialog title={t("ai.toolAccess.mcpPrompt.title")} triggerLabel={t("ai.toolSettings.viewPrompt")}>
       <p className="text-xs text-muted-foreground leading-5">
         {t("ai.toolAccess.mcpPrompt.description")}
       </p>
@@ -129,6 +142,6 @@ export const ToolAccessGuidance: React.FC<{ mode: AIToolIntegrationMode }> = ({ 
       {!mcpLauncherPath ? (
         <p className="text-xs text-amber-500">{t("ai.toolAccess.mcpPrompt.enableHint")}</p>
       ) : null}
-    </div>
+    </ToolSettingsDialog>
   );
 };

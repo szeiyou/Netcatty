@@ -176,6 +176,7 @@ export type SyncEventCallback = (event: SyncEvent) => void;
 
 export interface ProviderSyncAnchor {
   signature: string | null;
+  webdavEtag?: string;
   version: number;
   updatedAt: number;
   deviceId?: string;
@@ -203,7 +204,6 @@ export class CloudSyncManager {
   private adapters: Map<CloudProvider, CloudAdapter> = new Map();
   private eventListeners: Set<SyncEventCallback> = new Set();
   private stateChangeListeners: Set<() => void> = new Set(); // For useSyncExternalStore
-  private autoSyncTimer: ReturnType<typeof setInterval> | null = null;
   private masterPassword: string | null = null; // In memory only!
   private syncSecurityGeneration = 0;
   private hasStorageListener = false;
@@ -624,12 +624,13 @@ export class CloudSyncManager {
   private async inspectProviderRemoteState(
     provider: CloudProvider,
     adapter: CloudAdapter,
+    allowNotModified = false,
   ): Promise<{
     remoteChanged: boolean;
     remoteFile: SyncedFile | null;
     error?: string;
   }> {
-    return inspectProviderRemoteStateImpl.call(this, provider, adapter);
+    return inspectProviderRemoteStateImpl.call(this, provider, adapter, allowNotModified);
   }
 
   /**
@@ -1070,13 +1071,6 @@ export const getCloudSyncManager = (): CloudSyncManager => {
     syncManagerInstance = new CloudSyncManager();
   }
   return syncManagerInstance;
-};
-
-export const resetCloudSyncManager = (): void => {
-  if (syncManagerInstance) {
-    syncManagerInstance.destroy();
-    syncManagerInstance = null;
-  }
 };
 
 export default CloudSyncManager;

@@ -1,11 +1,20 @@
 /**
  * SettingsFileAssociationsTab - Manage SFTP file opener associations and behavior
  */
-import { FileType, Pencil, Trash2 } from "lucide-react";
+import { FileType, Pencil, RotateCcw, Trash2 } from "lucide-react";
 import React, { useCallback, useMemo, useState } from "react";
 import { useI18n } from "../../../application/i18n/I18nProvider";
 import { useSftpFileAssociations } from "../../../application/state/useSftpFileAssociations";
 import { useSettingsState } from "../../../application/state/useSettingsState";
+import { useStoredString } from "../../../application/state/useStoredString";
+import {
+  STORAGE_KEY_SFTP_DEFAULT_DOWNLOAD_DIR,
+  STORAGE_KEY_SFTP_USE_PACKED_DOWNLOAD,
+} from "../../../infrastructure/config/storageKeys";
+import {
+  buildSftpDownloadDialogDirectoryOptions,
+  normalizeSftpDefaultDownloadDirectory,
+} from "../../../domain/sftpDownloadLocation";
 import type { FileOpenerType, SystemAppInfo } from "../../../lib/sftpFileUtils";
 import { netcattyBridge } from "../../../infrastructure/services/netcattyBridge";
 import { Button } from "../../ui/button";
@@ -14,6 +23,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "../../ui/tooltip";
 import {
   SectionHeader,
   SettingCard,
+  SettingsAnchor,
   SettingsTabContent,
   SettingRow,
   Toggle,
@@ -35,6 +45,10 @@ const getOpenerLabel = (
 
 export default function SettingsFileAssociationsTab() {
   const { t } = useI18n();
+  const [packedDownload, setPackedDownload] = useStoredString<string>(STORAGE_KEY_SFTP_USE_PACKED_DOWNLOAD, "true");
+  const [storedDownloadDir, setStoredDownloadDir] = useStoredString<string>(STORAGE_KEY_SFTP_DEFAULT_DOWNLOAD_DIR, "");
+  const defaultDownloadDir = normalizeSftpDefaultDownloadDirectory(storedDownloadDir);
+  const [isSelectingDownloadDir, setIsSelectingDownloadDir] = useState(false);
   const { getAllAssociations, removeAssociation, setOpenerForExtension, getDefaultOpener, setDefaultOpener, removeDefaultOpener } = useSftpFileAssociations();
   const {
     sftpDoubleClickBehavior, setSftpDoubleClickBehavior,
@@ -98,6 +112,24 @@ export default function SettingsFileAssociationsTab() {
     }
     void handleSelectDefaultSystemApp();
   }, [handleSelectDefaultSystemApp, removeDefaultOpener, setDefaultOpener]);
+
+  const handleSelectDownloadDir = useCallback(async () => {
+    const bridge = netcattyBridge.get();
+    if (!bridge?.selectDirectory) return;
+    setIsSelectingDownloadDir(true);
+    try {
+      const selected = await bridge.selectDirectory(
+        t('settings.sftp.downloadLocation.select'),
+        undefined,
+        buildSftpDownloadDialogDirectoryOptions(defaultDownloadDir),
+      );
+      if (selected) setStoredDownloadDir(selected);
+    } catch (e) {
+      console.error('Failed to select download directory:', e);
+    } finally {
+      setIsSelectingDownloadDir(false);
+    }
+  }, [defaultDownloadDir, setStoredDownloadDir, t]);
 
   const handleEdit = useCallback(async (extension: string) => {
     setEditingExtension(extension);
@@ -180,10 +212,77 @@ export default function SettingsFileAssociationsTab() {
       <SectionHeader title={t('settings.sftp.compressedUpload')} />
       <SettingCard>
         <SettingRow
+          anchorId="sftp-compressed-upload"
           label={t('settings.sftp.compressedUpload.enable')}
           description={t('settings.sftp.compressedUpload.enableDesc')}
         >
           <Toggle checked={sftpUseCompressedUpload} onChange={setSftpUseCompressedUpload} />
+        </SettingRow>
+      </SettingCard>
+
+      <SectionHeader title={t('settings.sftp.downloadLocation')} />
+      <SettingCard className="py-3">
+        <SettingsAnchor anchorId="sftp-default-download-directory" className="space-y-2">
+          <div>
+            <div className="text-sm font-medium">{t('settings.sftp.downloadLocation.directory')}</div>
+            <div className="text-xs text-muted-foreground mt-0.5">
+              {t('settings.sftp.downloadLocation.directoryDesc')}
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="flex-1 min-w-0">
+              {defaultDownloadDir ? (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <div className="bg-background border border-input rounded-md px-3 py-2 text-sm font-mono truncate">
+                      {defaultDownloadDir}
+                    </div>
+                  </TooltipTrigger>
+                  <TooltipContent>{defaultDownloadDir}</TooltipContent>
+                </Tooltip>
+              ) : (
+                <div className="bg-background border border-input rounded-md px-3 py-2 text-sm text-muted-foreground truncate">
+                  {t('settings.sftp.downloadLocation.systemDefault')}
+                </div>
+              )}
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => void handleSelectDownloadDir()}
+              disabled={isSelectingDownloadDir}
+              className="shrink-0"
+            >
+              {t('settings.sftp.downloadLocation.browse')}
+            </Button>
+            {defaultDownloadDir && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => setStoredDownloadDir("")}
+                    aria-label={t('settings.sftp.downloadLocation.reset')}
+                    className="shrink-0"
+                  >
+                    <RotateCcw size={16} />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>{t('settings.sftp.downloadLocation.reset')}</TooltipContent>
+              </Tooltip>
+            )}
+          </div>
+        </SettingsAnchor>
+      </SettingCard>
+
+      <SectionHeader title={t('settings.sftp.packedDownload')} />
+      <SettingCard>
+        <SettingRow
+          anchorId="sftp-packed-download"
+          label={t('settings.sftp.packedDownload.enable')}
+          description={t('settings.sftp.packedDownload.enableDesc')}
+        >
+          <Toggle checked={packedDownload !== 'false'} onChange={(enabled) => setPackedDownload(String(enabled))} />
         </SettingRow>
       </SettingCard>
 
@@ -231,12 +330,14 @@ export default function SettingsFileAssociationsTab() {
           </div>
         </SettingRow>
         <SettingRow
+          anchorId="sftp-skip-unchanged"
           label={t('settings.sftp.skipUnchanged.enable')}
           description={t('settings.sftp.skipUnchanged.enableDesc')}
         >
           <Toggle checked={sftpSkipUnchanged} onChange={setSftpSkipUnchanged} />
         </SettingRow>
         <SettingRow
+          anchorId="sftp-transport-idle-ttl"
           label={t('settings.ssh.transportIdleTtl')}
           description={t('settings.ssh.transportIdleTtl.desc')}
         >

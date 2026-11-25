@@ -312,6 +312,21 @@ test("recognizes PowerShell on Linux/macOS prompts (`PS /home/alice>`)", () => {
   );
 });
 
+test("recognizes the macOS zsh default prompt without changing PowerShell/cmd detection", () => {
+  assert.equal(
+    resolveEffectiveShellKind(undefined, "hexiao@JosephdeMacBook-Pro-2 ~ % "),
+    "posix",
+  );
+  assert.equal(
+    resolveEffectiveShellKind(undefined, "hexiao@MacBook-Pro ~/git %", { loginShellHint: "powershell" }),
+    "posix",
+  );
+  assert.equal(
+    resolveEffectiveShellKind("posix", "hexiao@MacBook-Pro ~ % echo half-typed"),
+    "posix",
+  );
+});
+
 test("ignores ANSI-coloured PowerShell prompts when detecting the shell", () => {
   assert.equal(
     resolveEffectiveShellKind(undefined, "[32mPS C:\\Users\\alice>[0m"),
@@ -903,6 +918,13 @@ test("execViaRawPty does not prepend a line-clear before device commands", async
   abort.abort();
   const result = await resultPromise;
   assert.equal(result.ok, false);
+});
+
+test("powershell wrapper submits with CR only", () => {
+  const wrapped = buildWrappedCommand("Get-Location", "powershell", "__NCMCP_TEST__");
+  assert.ok(wrapped.endsWith("\r"));
+  assert.ok(!wrapped.endsWith("\r\n"));
+  assert.ok(buildWrappedCommand("echo test", "cmd", "__NCMCP_TEST__").endsWith("\r\n"));
 });
 
 test("cmd wrapper uses interactive cmd variable expansion", () => {
@@ -1533,3 +1555,37 @@ test("skipPendingInputClear does not send line-kill keys", async () => {
   job.cancel();
 });
 
+
+test("execViaRawPty reports when it stopped collecting output at its cap", async () => {
+  const port = new EventEmitter();
+  port.write = () => {};
+  const resultPromise = execViaRawPty(port, "show log", { timeoutMs: 2_000, idleMs: 30 });
+  const chunk = "x".repeat(300 * 1024);
+  port.emit("data", chunk);
+  port.emit("data", chunk); // reaches the 512 KB cap
+  port.emit("data", "dropped-after-cap");
+  const capped = await resultPromise;
+  assert.equal(capped.outputTruncated, true);
+  assert.ok(!capped.stdout.includes("dropped-after-cap"));
+
+  const small = new EventEmitter();
+  small.write = () => {};
+  const pending = execViaRawPty(small, "show version", { timeoutMs: 2_000, idleMs: 30 });
+  small.emit("data", "short output");
+  const result = await pending;
+  assert.equal("outputTruncated" in result, false, "uncapped results are unchanged");
+});
+
+test("execViaChannel marks the result truncated when output exceeds its byte limit", async () => {
+  const stream = new EventEmitter();
+  stream.stderr = new EventEmitter();
+  stream.close = () => {};
+  const fakeClient = { exec(_command, callback) { callback(null, stream); } };
+  const pending = execViaChannel(fakeClient, "cat huge", { timeoutMs: 2_000, maxOutputBytes: 64 });
+  await new Promise((resolve) => setImmediate(resolve));
+  stream.emit("data", Buffer.from("a".repeat(200)));
+  const result = await pending;
+  assert.equal(result.ok, false);
+  assert.match(result.error, /exceeded the 64 byte limit/);
+  assert.equal(result.outputTruncated, true);
+});

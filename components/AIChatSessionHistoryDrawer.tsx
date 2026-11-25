@@ -1,9 +1,10 @@
-import React, { useEffect, useId, useRef, useState } from 'react';
-import { Search, Trash2, X } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { Download, MoreHorizontal, Pencil, Search, Trash2, Upload, X } from 'lucide-react';
 import type { AISession } from '../infrastructure/ai/types';
 import { useI18n } from '../application/i18n/I18nProvider';
 import { cn } from '../lib/utils';
-import { MAX_SEARCH_QUERY_LENGTH, truncateQueryForMatch } from '../lib/searchMatcher';
+import { MAX_SEARCH_QUERY_LENGTH, truncateQueryForMatch } from '../domain/searchMatcher';
+import { Dropdown, DropdownContent, DropdownTrigger } from './ui/dropdown';
 import { Input } from './ui/input';
 import { ScrollArea } from './ui/scroll-area';
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip';
@@ -19,6 +20,18 @@ interface SessionHistoryDrawerProps {
   activeSessionId: string | null;
   onSelect: (sessionId: string) => void;
   onDelete: (e: React.MouseEvent, sessionId: string) => void;
+  /** Rename a chat inline (issue #4015 R5). Empty titles are ignored. */
+  onRename?: (sessionId: string, title: string) => void;
+  /** Manual durability escape hatch: export the whole store to a JSON file. */
+  onExportSessions?: () => void;
+  /** Import sessions from a JSON export; merges by id, newer wins. */
+  onImportSessions?: () => void;
+  /**
+   * Global AI session manager slot (issue #4098 phases 4-5). When provided,
+   * the drawer offers a scoped ⇄ global toggle and renders this node in
+   * global mode. The parent owns the node so all actions stay panel-scoped.
+   */
+  globalManager?: React.ReactNode;
   onClose: () => void;
 }
 
@@ -30,12 +43,20 @@ export const SessionHistoryDrawer: React.FC<SessionHistoryDrawerProps> = ({
   activeSessionId,
   onSelect,
   onDelete,
+  onRename,
+  onExportSessions,
+  onImportSessions,
+  globalManager,
   onClose,
 }) => {
   const { t } = useI18n();
+  const [view, setView] = useState<'scoped' | 'global'>('scoped');
+  const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
   const [renderCount, setRenderCount] = useState(SESSION_RENDER_BATCH);
   const [searchQuery, setSearchQuery] = useState('');
-  const searchHintId = useId();
+  const [renamingSessionId, setRenamingSessionId] = useState<string | null>(null);
+  const [renameDraft, setRenameDraft] = useState('');
+  const renameInputRef = useRef<HTMLInputElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const { filteredSessions, isSearching } = useSessionHistorySearch(
     sessions,
@@ -52,17 +73,120 @@ export const SessionHistoryDrawer: React.FC<SessionHistoryDrawerProps> = ({
   const displayedSessions = filteredSessions.slice(0, renderCount);
   const hiddenSessionCount = Math.max(0, filteredSessions.length - renderCount);
 
+  useEffect(() => {
+    if (renamingSessionId) renameInputRef.current?.focus();
+  }, [renamingSessionId]);
+
+  const beginRename = (sessionId: string, currentTitle: string) => {
+    setRenamingSessionId(sessionId);
+    setRenameDraft(currentTitle);
+  };
+
+  const commitRename = () => {
+    if (renamingSessionId && renameDraft.trim()) {
+      onRename?.(renamingSessionId, renameDraft.trim());
+    }
+    setRenamingSessionId(null);
+    setRenameDraft('');
+  };
+
   return (
     <div className="flex-1 flex flex-col min-h-0">
       <div className="px-4 py-2.5 flex items-center justify-between shrink-0 border-b border-border/30">
-        <span className="text-[13px] font-medium text-foreground/80">{t('ai.chat.allSessions')}</span>
-        <button
-          onClick={onClose}
-          className="text-[12px] text-muted-foreground/60 hover:text-muted-foreground transition-colors cursor-pointer"
-        >
-          <X size={14} />
-        </button>
+        <div className="flex items-center gap-2 min-w-0">
+          {globalManager ? (
+            <div className="flex items-center rounded-md border border-border/40 p-0.5 shrink-0" role="tablist">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={view === 'scoped'}
+                onClick={() => setView('scoped')}
+                className={cn(
+                  'px-1.5 py-0.5 rounded text-[11px] transition-colors cursor-pointer',
+                  view === 'scoped'
+                    ? 'bg-muted text-foreground'
+                    : 'text-muted-foreground/60 hover:text-muted-foreground',
+                )}
+              >
+                {t('ai.chat.managerScopeTab')}
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={view === 'global'}
+                onClick={() => setView('global')}
+                className={cn(
+                  'px-1.5 py-0.5 rounded text-[11px] transition-colors cursor-pointer',
+                  view === 'global'
+                    ? 'bg-muted text-foreground'
+                    : 'text-muted-foreground/60 hover:text-muted-foreground',
+                )}
+              >
+                {t('ai.chat.managerAllChatsTab')}
+              </button>
+            </div>
+          ) : (
+            <span className="text-[13px] font-medium text-foreground/80 truncate">
+              {t('ai.chat.allSessions')}
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          {(onImportSessions || onExportSessions) && (
+            <Dropdown open={headerMenuOpen} onOpenChange={setHeaderMenuOpen}>
+              <DropdownTrigger asChild>
+                <button
+                  type="button"
+                  className="text-[12px] text-muted-foreground/60 hover:text-muted-foreground transition-colors cursor-pointer"
+                  aria-label={t('ai.chat.managerMoreActions')}
+                >
+                  <MoreHorizontal size={14} />
+                </button>
+              </DropdownTrigger>
+              <DropdownContent align="end" className="min-w-[152px] p-1" keyboardNavigation>
+                {onImportSessions && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setHeaderMenuOpen(false);
+                      onImportSessions();
+                    }}
+                    className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[12px] text-foreground/85 hover:bg-muted cursor-pointer"
+                  >
+                    <Upload size={12} className="shrink-0 text-muted-foreground" />
+                    <span>{t('ai.chat.importSessions')}</span>
+                  </button>
+                )}
+                {onExportSessions && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setHeaderMenuOpen(false);
+                      onExportSessions();
+                    }}
+                    className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[12px] text-foreground/85 hover:bg-muted cursor-pointer"
+                  >
+                    <Download size={12} className="shrink-0 text-muted-foreground" />
+                    <span>{t('ai.chat.exportSessions')}</span>
+                  </button>
+                )}
+              </DropdownContent>
+            </Dropdown>
+          )}
+          <button
+            onClick={onClose}
+            className="text-[12px] text-muted-foreground/60 hover:text-muted-foreground transition-colors cursor-pointer"
+          >
+            <X size={14} />
+          </button>
+        </div>
       </div>
+      {view === 'global' && globalManager ? (
+        globalManager
+      ) : (
+      <>
       <div className="px-3 py-2 shrink-0 border-b border-border/30">
         <div className="relative">
           <Search
@@ -76,7 +200,6 @@ export const SessionHistoryDrawer: React.FC<SessionHistoryDrawerProps> = ({
             maxLength={MAX_SEARCH_QUERY_LENGTH}
             placeholder={t('ai.chat.searchSessions')}
             aria-label={t('ai.chat.searchSessions')}
-            aria-describedby={searchHintId}
             onChange={(event) => setSearchQuery(truncateQueryForMatch(event.target.value))}
             className="h-8 pl-8 pr-7 text-[12px]"
           />
@@ -94,9 +217,6 @@ export const SessionHistoryDrawer: React.FC<SessionHistoryDrawerProps> = ({
             </button>
           )}
         </div>
-        <p id={searchHintId} className="mt-1.5 text-[11px] text-muted-foreground/60">
-          {t('ai.chat.searchSessionsHint')}
-        </p>
       </div>
       <ScrollArea className="flex-1" aria-busy={isSearching}>
         {isSearching && (
@@ -146,12 +266,52 @@ export const SessionHistoryDrawer: React.FC<SessionHistoryDrawerProps> = ({
                   )}
                 >
                   <span className={SESSION_HISTORY_ROW_CLASSNAMES.title}>
-                    {session.title || t('ai.chat.untitled')}
+                    {renamingSessionId === session.id ? (
+                      <Input
+                        ref={renameInputRef}
+                        type="text"
+                        value={renameDraft}
+                        aria-label={t('ai.chat.renameChat')}
+                        onClick={(e) => e.stopPropagation()}
+                        onKeyDown={(e) => {
+                          e.stopPropagation();
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            commitRename();
+                          } else if (e.key === 'Escape') {
+                            e.preventDefault();
+                            setRenamingSessionId(null);
+                            setRenameDraft('');
+                          }
+                        }}
+                        onChange={(e) => setRenameDraft(e.target.value)}
+                        onBlur={commitRename}
+                        className="h-6 text-[12px]"
+                      />
+                    ) : (
+                      session.title || t('ai.chat.untitled')
+                    )}
                   </span>
                   <div className={SESSION_HISTORY_ROW_CLASSNAMES.meta}>
                     <span className={SESSION_HISTORY_ROW_CLASSNAMES.time}>
                       {timeStr}
                     </span>
+                    {onRename && renamingSessionId !== session.id && (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              beginRename(session.id, session.title || '');
+                            }}
+                            className={SESSION_HISTORY_ROW_CLASSNAMES.deleteButton}
+                          >
+                            <Pencil size={12} />
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent>{t('ai.chat.renameChat')}</TooltipContent>
+                      </Tooltip>
+                    )}
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <button
@@ -171,6 +331,8 @@ export const SessionHistoryDrawer: React.FC<SessionHistoryDrawerProps> = ({
           )}
         </div>
       </ScrollArea>
+      </>
+      )}
     </div>
   );
 };

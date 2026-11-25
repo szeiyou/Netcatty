@@ -25,8 +25,16 @@ interface UseSftpViewPaneCallbacksParams {
   ) => void;
   t: (key: string, vars?: Record<string, string | number>) => string;
   listSftp?: (sftpId: string, path: string, encoding?: SftpFilenameEncoding) => Promise<RemoteFile[]>;
-  showSaveDialog?: (defaultPath: string, filters?: Array<{ name: string; extensions: string[] }>) => Promise<string | null>;
-  selectDirectory?: (title?: string, defaultPath?: string) => Promise<string | null>;
+  showSaveDialog?: (
+    defaultPath: string,
+    filters?: Array<{ name: string; extensions: string[] }>,
+    directoryOptions?: NetcattyDialogDirectoryOptions,
+  ) => Promise<string | null>;
+  selectDirectory?: (
+    title?: string,
+    defaultPath?: string,
+    directoryOptions?: NetcattyDialogDirectoryOptions,
+  ) => Promise<string | null>;
   getSftpIdForConnection?: (connectionId: string) => string | undefined;
   statSftp?: (sftpId: string, path: string, encoding?: SftpFilenameEncoding) => Promise<SftpStatResult>;
   listLocalFiles: (path: string) => Promise<RemoteFile[]>;
@@ -132,6 +140,8 @@ export const useSftpViewPaneCallbacks = ({
       onDisconnect: paneActions.onDisconnectLeft,
       onPrepareSelection: paneActions.onPrepareSelectionLeft,
       onNavigateTo: paneActions.onNavigateToLeft,
+      onNavigateBack: paneActions.onNavigateBackLeft,
+      onNavigateForward: paneActions.onNavigateForwardLeft,
       onNavigateUp: paneActions.onNavigateUpLeft,
       onRefresh: paneActions.onRefreshLeft,
       onRefreshTab: paneActions.onRefreshTabLeft,
@@ -151,6 +161,7 @@ export const useSftpViewPaneCallbacks = ({
       onRenameFileAtPath: paneActions.onRenameFileAtPathLeft,
       onMoveEntriesToPath: paneActions.onMoveEntriesToPathLeft,
       onCopyToOtherPane: paneActions.onCopyToOtherPaneLeft,
+      onDuplicateEntries: paneActions.onDuplicateEntriesLeft,
       onReceiveFromOtherPane: paneActions.onReceiveFromOtherPaneLeft,
       onEditPermissions: fileOps.onEditPermissionsLeft,
       onEditFile: fileOps.onEditFileLeft,
@@ -160,6 +171,7 @@ export const useSftpViewPaneCallbacks = ({
       onDownloadFile: fileOps.onDownloadFileLeft,
       onDownloadFiles: fileOps.onDownloadFilesLeft,
       onExtractArchive: fileOps.onExtractArchiveLeft,
+      onCreateArchive: fileOps.onCreateArchiveLeft,
       onUploadExternalFiles: fileOps.onUploadExternalFilesLeft,
       onUploadExternalFileList: fileOps.onUploadExternalFileListLeft,
       onUploadExternalFolder: fileOps.onUploadExternalFolderLeft,
@@ -175,6 +187,8 @@ export const useSftpViewPaneCallbacks = ({
       onDisconnect: paneActions.onDisconnectRight,
       onPrepareSelection: paneActions.onPrepareSelectionRight,
       onNavigateTo: paneActions.onNavigateToRight,
+      onNavigateBack: paneActions.onNavigateBackRight,
+      onNavigateForward: paneActions.onNavigateForwardRight,
       onNavigateUp: paneActions.onNavigateUpRight,
       onRefresh: paneActions.onRefreshRight,
       onRefreshTab: paneActions.onRefreshTabRight,
@@ -194,6 +208,7 @@ export const useSftpViewPaneCallbacks = ({
       onRenameFileAtPath: paneActions.onRenameFileAtPathRight,
       onMoveEntriesToPath: paneActions.onMoveEntriesToPathRight,
       onCopyToOtherPane: paneActions.onCopyToOtherPaneRight,
+      onDuplicateEntries: paneActions.onDuplicateEntriesRight,
       onReceiveFromOtherPane: paneActions.onReceiveFromOtherPaneRight,
       onEditPermissions: fileOps.onEditPermissionsRight,
       onEditFile: fileOps.onEditFileRight,
@@ -203,6 +218,7 @@ export const useSftpViewPaneCallbacks = ({
       onDownloadFile: fileOps.onDownloadFileRight,
       onDownloadFiles: fileOps.onDownloadFilesRight,
       onExtractArchive: fileOps.onExtractArchiveRight,
+      onCreateArchive: fileOps.onCreateArchiveRight,
       onUploadExternalFiles: fileOps.onUploadExternalFilesRight,
       onUploadExternalFileList: fileOps.onUploadExternalFileListRight,
       onUploadExternalFolder: fileOps.onUploadExternalFolderRight,

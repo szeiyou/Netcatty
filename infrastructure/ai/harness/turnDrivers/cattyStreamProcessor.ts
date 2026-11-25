@@ -1,9 +1,9 @@
 import { streamText, isStepCount, type ModelMessage } from 'ai';
 import type { LanguageModelV4 } from '@ai-sdk/provider';
-import { classifyError } from '../../errorClassifier';
-import { isRequestTooLargeError } from '../../errorClassifier';
+import { classifyError, isInvalidAnthropicThinkingSignatureError, isRequestTooLargeError } from '../../errorClassifier';
 import { isSdkStreamStateError } from '../../shared/streamStateErrors';
 import {
+  createCattyAnthropicSignatureRetryError,
   createCattyRequestTooLargeRetryError,
   hadToolProgressBeforeRequestTooLarge,
 } from '../../cattyRequestTooLargeRetry';
@@ -23,6 +23,8 @@ import {
   normalizeProviderContinuationOptions,
   withProviderContinuationSource,
   type ProviderContinuation,
+  type ProviderContinuationOptions,
+  type ProviderContinuationReasoningPart,
 } from '../../providerContinuation';
 import {
   formatToolErrorContent,
@@ -109,6 +111,43 @@ function hasReasoningEncryptedContent(options: Record<string, Record<string, unk
   );
 }
 
+function areJsonValuesEqual(a: unknown, b: unknown): boolean {
+  if (Object.is(a, b)) return true;
+  if (typeof a !== typeof b || a === null || b === null || typeof a !== 'object') return false;
+  if (Array.isArray(a) || Array.isArray(b)) {
+    if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i += 1) {
+      if (!areJsonValuesEqual(a[i], b[i])) return false;
+    }
+    return true;
+  }
+  const aObj = a as Record<string, unknown>;
+  const bObj = b as Record<string, unknown>;
+  const aKeys = Object.keys(aObj);
+  const bKeys = Object.keys(bObj);
+  if (aKeys.length !== bKeys.length) return false;
+  for (const key of aKeys) {
+    if (!Object.prototype.hasOwnProperty.call(bObj, key)) return false;
+    if (!areJsonValuesEqual(aObj[key], bObj[key])) return false;
+  }
+  return true;
+}
+
+function isBatchableRawReasoningContinuation(continuation: ProviderContinuation): boolean {
+  if (continuation.textProviderOptions || continuation.toolCallProviderOptionsById) {
+    return false;
+  }
+  const fields = continuation.openAIChatAssistantFields;
+  if (fields) {
+    const keys = Object.keys(fields);
+    if (keys.some(key => key !== 'reasoning_content')) return false;
+    if (fields.reasoning_content !== undefined && typeof fields.reasoning_content !== 'string') {
+      return false;
+    }
+  }
+  return Boolean(continuation.reasoningParts?.length || fields?.reasoning_content);
+}
+
 export async function processCattyStream(input: ProcessCattyStreamInput): Promise<ProcessCattyStreamResult> {
   const {
     streamSessionId,
@@ -132,12 +171,17 @@ export async function processCattyStream(input: ProcessCattyStreamInput): Promis
   } = input;
 
   let runtimeContext = initialRuntimeContext;
+  if (!Array.isArray(sdkMessages) || sdkMessages.length === 0) {
+    throw new Error('Invalid prompt: Catty refused an empty messages array (#4102).');
+  }
   const { tools, toolsContext } = toolsBundle;
   const endpoint = input.providerConfig
     ? resolveProviderEndpoint(input.providerConfig, resolveProviderStyle(input.providerConfig), undefined)
     : undefined;
   const promptCache = createCattyPromptCache(systemPrompt, model.provider, endpoint);
 
+  let reachedIterationLimit = false;
+  const stopAtIterationLimit = isStepCount(maxIterations);
   const result = streamText({
     model,
     messages: promptCache.prepareMessages(sdkMessages),
@@ -145,11 +189,16 @@ export async function processCattyStream(input: ProcessCattyStreamInput): Promis
     tools,
     toolsContext,
     runtimeContext,
-    toolApproval: buildCattyToolApproval({
+    toolApproval: runtimeContext.delegated ? undefined : buildCattyToolApproval({
       permissionMode: runtimeContext.permissionMode,
       chatSessionId: runtimeContext.chatSessionId,
     }),
-    stopWhen: isStepCount(maxIterations),
+    // The SDK evaluates stopWhen only when tool work would allow another
+    // step. A natural final reply (even on the last allowed step) bypasses it.
+    stopWhen: async (options) => {
+      reachedIterationLimit = await stopAtIterationLimit(options);
+      return reachedIterationLimit;
+    },
     abortSignal: signal,
     include: { rawChunks: true },
     timeout: buildCattyStreamTimeouts({
@@ -245,7 +294,11 @@ export async function processCattyStream(input: ProcessCattyStreamInput): Promis
   const reader = result.stream.getReader();
 
   let pendingText = '';
+  let pendingReasoningParts: ProviderContinuationReasoningPart[] = [];
+  let pendingOpenAIReasoningContent = '';
+  let pendingThinkingText = '';
   let rafId: number | null = null;
+  let rafIsTimeout = false;
 
   const clearCompactionStatusFromAssistant = (messageId: string) => {
     ui.updateMessageById(streamSessionId, messageId, msg =>
@@ -292,42 +345,111 @@ export async function processCattyStream(input: ProcessCattyStreamInput): Promis
     return typeof reasoningContent === 'string' ? reasoningContent : '';
   };
 
-  const flushText = () => {
-    if (pendingText) {
-      const text = pendingText;
-      pendingText = '';
-      if (lastAddedRole === 'tool') {
-        clearCompactionStatusFromAssistant(activeMsgId);
-        const newId = generateId();
-        ui.addMessageToSession(streamSessionId, {
-          id: newId,
-          role: 'assistant',
-          content: text,
-          timestamp: Date.now(),
-        });
-        activeMsgId = newId;
-        lastAddedRole = 'assistant';
-      } else {
-        ui.updateMessageById(streamSessionId, activeMsgId, msg => ({
-          ...msg,
-          content: msg.content + text,
-          ...(msg.statusText ? { statusText: undefined } : {}),
-        }));
-      }
+  const hasPendingReasoning = () =>
+    pendingReasoningParts.length > 0
+    || pendingOpenAIReasoningContent.length > 0
+    || pendingThinkingText.length > 0;
+
+  const bufferReasoningPart = (
+    rText: string,
+    providerOptions: ProviderContinuationOptions | undefined,
+  ) => {
+    if (!rText && !providerOptions) return;
+    const last = pendingReasoningParts.at(-1);
+    if (
+      last
+      && last.text.length > 0
+      && rText.length > 0
+      && areJsonValuesEqual(last.providerOptions, providerOptions)
+    ) {
+      last.text += rText;
+      return;
     }
+    pendingReasoningParts.push({
+      text: rText,
+      ...(providerOptions ? { providerOptions } : {}),
+    });
+  };
+
+  const flushPendingReasoning = () => {
+    if (!hasPendingReasoning()) return;
+    const reasoningParts = pendingReasoningParts;
+    const openAIReasoningContent = pendingOpenAIReasoningContent;
+    const thinkingText = pendingThinkingText;
+    pendingReasoningParts = [];
+    pendingOpenAIReasoningContent = '';
+    pendingThinkingText = '';
+
+    const continuation: ProviderContinuation | undefined =
+      reasoningParts.length > 0 || openAIReasoningContent.length > 0
+        ? {
+            ...(reasoningParts.length > 0 ? { reasoningParts } : {}),
+            ...(openAIReasoningContent.length > 0
+              ? { openAIChatAssistantFields: { reasoning_content: openAIReasoningContent } }
+              : {}),
+          }
+        : undefined;
+    const messageId = ensureAssistantMessage();
+    updateAssistantContinuation(messageId, continuation, thinkingText);
+  };
+
+  const flushPendingText = () => {
+    if (!pendingText) return;
+    const text = pendingText;
+    pendingText = '';
+    if (lastAddedRole === 'tool') {
+      clearCompactionStatusFromAssistant(activeMsgId);
+      const newId = generateId();
+      ui.addMessageToSession(streamSessionId, {
+        id: newId,
+        role: 'assistant',
+        content: text,
+        timestamp: Date.now(),
+      });
+      activeMsgId = newId;
+      lastAddedRole = 'assistant';
+    } else {
+      ui.updateMessageById(streamSessionId, activeMsgId, msg => ({
+        ...msg,
+        content: msg.content + text,
+        ...(msg.statusText ? { statusText: undefined } : {}),
+      }));
+    }
+  };
+
+  const flushPending = () => {
     rafId = null;
+    rafIsTimeout = false;
+    flushPendingReasoning();
+    flushPendingText();
+  };
+
+  const scheduleFlush = () => {
+    if (rafId !== null) return;
+    if (typeof requestAnimationFrame === 'function') {
+      rafId = requestAnimationFrame(flushPending);
+      rafIsTimeout = false;
+    } else {
+      rafId = setTimeout(flushPending, 0) as unknown as number;
+      rafIsTimeout = true;
+    }
   };
 
   const cancelPendingFlush = () => {
     if (rafId !== null) {
-      cancelAnimationFrame(rafId);
+      if (rafIsTimeout) {
+        clearTimeout(rafId);
+      } else if (typeof cancelAnimationFrame === 'function') {
+        cancelAnimationFrame(rafId);
+      }
       rafId = null;
+      rafIsTimeout = false;
     }
   };
 
   const appendToolResultToUi = (toolCallId: string, content: string, isError: boolean) => {
     cancelPendingFlush();
-    flushText();
+    flushPending();
     hadToolProgress = true;
     ui.updateMessageById(streamSessionId, activeMsgId, msg =>
       msg.role === 'assistant' && msg.executionStatus === 'running'
@@ -368,6 +490,9 @@ export async function processCattyStream(input: ProcessCattyStreamInput): Promis
         if (isRequestTooLargeError(readErr)) {
           throw createCattyRequestTooLargeRetryError(readErr, hadToolProgress);
         }
+        if (isInvalidAnthropicThinkingSignatureError(readErr)) {
+          throw createCattyAnthropicSignatureRetryError(readErr, hadToolProgress);
+        }
         throw readErr;
       }
       const { done, value } = readResult;
@@ -385,6 +510,10 @@ export async function processCattyStream(input: ProcessCattyStreamInput): Promis
       switch (chunk.type) {
         case 'text':
         case 'text-delta': {
+          if (hasPendingReasoning()) {
+            cancelPendingFlush();
+            flushPendingReasoning();
+          }
           const typedChunk = chunk as TextDeltaChunk;
           const text = typedChunk.text ?? typedChunk.textDelta;
           const providerOptions = normalizeProviderContinuationOptions(typedChunk.providerMetadata);
@@ -394,31 +523,26 @@ export async function processCattyStream(input: ProcessCattyStreamInput): Promis
           }
           if (text) {
             pendingText += text;
-            if (rafId === null) {
-              rafId = requestAnimationFrame(flushText);
-            }
+            scheduleFlush();
           }
           break;
         }
         case 'reasoning':
         case 'reasoning-start':
         case 'reasoning-delta': {
-          cancelPendingFlush();
-          flushText();
+          if (pendingText) {
+            cancelPendingFlush();
+            flushPendingText();
+          }
           const typedChunk = chunk as ReasoningChunk;
           const rText = typedChunk.text ?? typedChunk.textDelta ?? typedChunk.delta ?? '';
           const providerOptions = normalizeProviderContinuationOptions(typedChunk.providerMetadata);
-          const continuation = rText || providerOptions
-            ? {
-                reasoningParts: [{
-                  text: rText,
-                  ...(providerOptions ? { providerOptions } : {}),
-                }],
-              } satisfies ProviderContinuation
-            : undefined;
-          if (continuation || rText) {
-            const messageId = ensureAssistantMessage();
-            updateAssistantContinuation(messageId, continuation, rText);
+          if (rText || providerOptions) {
+            bufferReasoningPart(rText, providerOptions);
+            if (rText) {
+              pendingThinkingText += rText;
+            }
+            scheduleFlush();
           }
           break;
         }
@@ -426,25 +550,46 @@ export async function processCattyStream(input: ProcessCattyStreamInput): Promis
           const typedChunk = chunk as RawChunk;
           const continuation = extractProviderContinuationFromRawChunk(typedChunk.rawValue);
           if (continuation) {
-            cancelPendingFlush();
-            flushText();
-            const messageId = ensureAssistantMessage();
-            updateAssistantContinuation(messageId, continuation, getOpenAIReasoningText(continuation));
+            if (pendingText) {
+              cancelPendingFlush();
+              flushPendingText();
+            }
+            if (isBatchableRawReasoningContinuation(continuation)) {
+              for (const part of continuation.reasoningParts ?? []) {
+                bufferReasoningPart(part.text, part.providerOptions);
+              }
+              const rawReasoningText = getOpenAIReasoningText(continuation);
+              if (rawReasoningText) {
+                pendingOpenAIReasoningContent += rawReasoningText;
+                pendingThinkingText += rawReasoningText;
+              }
+              scheduleFlush();
+            } else {
+              cancelPendingFlush();
+              flushPending();
+              const messageId = ensureAssistantMessage();
+              updateAssistantContinuation(messageId, continuation, getOpenAIReasoningText(continuation));
+            }
           }
           break;
         }
         case 'reasoning-end': {
           // With Responses `store: false`, the SDK delivers the reasoning
           // item's encrypted content on the reasoning-end chunk (via
-          // output_item.done). It must be merged into the persisted reasoning
-          // parts or the stateless replay silently drops the reasoning item.
+          // output_item.done). Flush buffered reasoning strictly before
+          // merging it into the persisted reasoning parts so the stateless
+          // replay never drops the reasoning item.
           // Skip metadata without ciphertext (e.g. store:true item ids) so a
           // null payload cannot overwrite a previously captured one.
+          if (hasPendingReasoning()) {
+            cancelPendingFlush();
+            flushPendingReasoning();
+          }
           const typedChunk = chunk as { providerMetadata?: unknown };
           const providerOptions = normalizeProviderContinuationOptions(typedChunk.providerMetadata);
           if (providerOptions && hasReasoningEncryptedContent(providerOptions)) {
             cancelPendingFlush();
-            flushText();
+            flushPending();
             const messageId = ensureAssistantMessage();
             updateAssistantContinuation(messageId, {
               reasoningParts: [{ text: '', providerOptions }],
@@ -452,12 +597,16 @@ export async function processCattyStream(input: ProcessCattyStreamInput): Promis
           }
           break;
         }
+        case 'finish':
+        case 'finish-step': {
+          cancelPendingFlush();
+          flushPending();
+          break;
+        }
         case 'text-start':
         case 'text-end':
         case 'start':
-        case 'finish':
         case 'start-step':
-        case 'finish-step':
         case 'tool-approval-request':
           break;
         case 'tool-approval-response': {
@@ -472,7 +621,7 @@ export async function processCattyStream(input: ProcessCattyStreamInput): Promis
         }
         case 'tool-call': {
           cancelPendingFlush();
-          flushText();
+          flushPending();
           const typedChunk = chunk as ToolCallChunk;
           hadToolProgress = true;
           const messageId = ensureAssistantMessage();
@@ -523,19 +672,30 @@ export async function processCattyStream(input: ProcessCattyStreamInput): Promis
         case 'error': {
           const typedChunk = chunk as ErrorChunk;
           if (isSdkStreamStateError(typedChunk.error)) {
-            console.warn('[Catty] suppressed SDK stream state error:', typedChunk.error);
+            if (runtimeContext.delegated) console.warn('[Plugin Agent] SDK stream state unavailable');
+            else console.warn('[Catty] suppressed SDK stream state error:', typedChunk.error);
             break;
           }
           if (isRequestTooLargeError(typedChunk.error)) {
             cancelPendingFlush();
-            flushText();
+            flushPending();
             throw createCattyRequestTooLargeRetryError(
               typedChunk.error,
               hadToolProgress,
             );
           }
+          if (isInvalidAnthropicThinkingSignatureError(typedChunk.error)) {
+            // Propagate to turn-driver strip-and-retry (#4074 P1); do not consume
+            // as a terminal error message the way other stream errors are.
+            cancelPendingFlush();
+            flushPending();
+            throw createCattyAnthropicSignatureRetryError(
+              typedChunk.error,
+              hadToolProgress,
+            );
+          }
           cancelPendingFlush();
-          flushText();
+          flushPending();
           ui.updateMessageById(streamSessionId, activeMsgId, msg => ({
             ...msg,
             statusText: '',
@@ -556,13 +716,23 @@ export async function processCattyStream(input: ProcessCattyStreamInput): Promis
     }
   } finally {
     cancelPendingFlush();
-    flushText();
+    flushPending();
     reader.releaseLock();
   }
 
   const usage = await result.usage;
   const finalStep = await result.finalStep;
   const performance = finalStep?.performance;
+  if (reachedIterationLimit && !signal.aborted) {
+    clearCompactionStatusFromAssistant(activeMsgId);
+    ui.addMessageToSession(streamSessionId, {
+      id: generateId(),
+      role: 'assistant',
+      content: '',
+      timestamp: Date.now(),
+      iterationLimit: maxIterations,
+    });
+  }
   // onEnd can run before this consumer flushes its final text and creates the
   // post-tool assistant message. Attach turn totals only after that flush.
   if (usage) {

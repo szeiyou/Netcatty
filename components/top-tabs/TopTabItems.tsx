@@ -5,21 +5,32 @@ import {
   useAnySessionActivity,
   useSessionActivity,
 } from '../../application/state/sessionActivityStore';
-import { usePresentedSession } from '../../application/state/sessionPresentationStore';
+import {
+  applySessionPresentation,
+  usePresentedSession,
+  useSessionPresentationVersion,
+} from '../../application/state/sessionPresentationStore';
 import {
   useEditorTabDirty,
   type EditorTabChrome,
 } from '../../application/state/editorTabStore';
 import type { LogView } from '../../application/state/logViewState';
 import { useWindowControls } from '../../application/state/useWindowControls';
+import { useShortcutModifierHeldValue } from '../../application/state/useShortcutModifierHeld';
 import { terminalReconnectRegistry } from '../../application/state/terminalReconnectRegistry';
 import { useI18n } from '../../application/i18n/I18nProvider';
 import { getEffectiveHostDistro } from '../../domain/host';
+import { isPluginHostProtocol } from '../../domain/pluginConnection';
 import { resolveHostIconAppearance, resolveHostIconColorAppearance } from '../../domain/hostIcon';
 import { resolveSessionCodingCliProvider } from '../../domain/codingCliProviderMatch';
 import type { CodingCliProvider } from '../../domain/codingCliProviders';
 import { resolveCodingCliActivityPhase, type CodingCliActivityPhase } from '../../domain/codingCliTitleParse';
-import { resolveSessionTabTitle, resolveWorkspaceTabLabel } from '../../domain/sessionTabTitle';
+import {
+  buildMergedWorkspaceTitleFromSessions,
+  DEFAULT_WORKSPACE_TITLE,
+  resolveSessionTabTitle,
+  resolveWorkspaceTabLabel,
+} from '../../domain/sessionTabTitle';
 import type { DynamicTabTitleMode, TerminalTabDoubleClickBehavior } from '../../domain/models';
 import { CodingCliProviderIcon } from '../icons/CodingCliProviderIcon';
 import { cn } from '../../lib/utils';
@@ -241,17 +252,42 @@ export const formatSessionTopTabTooltip = (
 export const formatSessionTopTabLabel = (
   session: Pick<
     TerminalSession,
-    'customName' | 'hostLabel' | 'dynamicTitle' | 'codingCliProviderId' | 'protocol' | 'hostname' | 'moshEnabled' | 'etEnabled'
+    'customName' | 'hostLabel' | 'promptHostname' | 'dynamicTitle' | 'codingCliProviderId' | 'protocol' | 'hostname' | 'moshEnabled' | 'etEnabled'
   >,
   dynamicTabTitleMode?: DynamicTabTitleMode,
 ): string => {
   return resolveSessionTabTitle(session, dynamicTabTitleMode);
 };
 
+type WorkspaceTopTabLabelWorkspace = Pick<
+  Workspace,
+  'title' | 'focusedSessionId' | 'autoTitle'
+> & {
+  generatedTitle?: boolean;
+};
+
+export const resolveWorkspaceTopTabLabel = (
+  workspace: WorkspaceTopTabLabelWorkspace,
+  sessions: readonly TerminalSession[],
+): string => {
+  const presentedSessions = sessions.map(applySessionPresentation);
+  const resolvedWorkspace = workspace.generatedTitle
+    ? {
+        ...workspace,
+        title: buildMergedWorkspaceTitleFromSessions(presentedSessions) ?? DEFAULT_WORKSPACE_TITLE,
+        autoTitle: false,
+      }
+    : workspace;
+  return resolveWorkspaceTabLabel(resolvedWorkspace, presentedSessions);
+};
+
 export const createTopTabCopyDoubleClickHandler = (
   onCopy: (id: string) => void,
   id: string,
-): React.MouseEventHandler<HTMLDivElement> => () => onCopy(id);
+  behavior: TerminalTabDoubleClickBehavior,
+): React.MouseEventHandler<HTMLDivElement> => () => {
+  if (behavior !== 'disabled') onCopy(id);
+};
 
 export const createTopTabSessionDoubleClickHandler = ({
   behavior,
@@ -357,6 +393,19 @@ export const TabShortcutNumberBadge: React.FC<{ number: number }> = memo(({ numb
   </span>
 ));
 TabShortcutNumberBadge.displayName = 'TabShortcutNumberBadge';
+
+/**
+ * A tab's icon, swapped for its [1...9] shortcut number while the switch
+ * modifier is held. Only this slot subscribes to the modifier store.
+ */
+export const TabIconSlot: React.FC<{ shortcutNumber?: number; children: React.ReactNode }> = ({
+  shortcutNumber,
+  children,
+}) => {
+  const held = useShortcutModifierHeldValue();
+  if (shortcutNumber != null && held) return <TabShortcutNumberBadge number={shortcutNumber} />;
+  return <>{children}</>;
+};
 
 const TOP_TAB_COMFORT_EDGE_RATIO = 0.22;
 const TOP_TAB_COMFORT_EDGE_MIN = 72;
@@ -469,7 +518,7 @@ export const RootTopTab: React.FC<RootTopTabProps> = memo(({ tabId, label, icon,
         if (!isActive) clearInactiveTopTabHover(e.currentTarget);
       }}
     >
-      {shortcutNumber != null ? <TabShortcutNumberBadge number={shortcutNumber} /> : icon}
+      <TabIconSlot shortcutNumber={shortcutNumber}>{icon}</TabIconSlot>
       <span className={cn('top-tab-root-label', compact && 'top-tab-root-label-compact')}>
         {label}
       </span>
@@ -564,9 +613,7 @@ export const PluginViewTopTab: React.FC<PluginViewTopTabProps> = memo(({
           {showDropIndicatorBefore && isDraggingForReorder && <div className="absolute -left-0.5 bottom-1 top-1 w-0.5 rounded-full bg-primary" />}
           {showDropIndicatorAfter && isDraggingForReorder && <div className="absolute -right-0.5 bottom-1 top-1 w-0.5 rounded-full bg-primary" />}
           <div className="flex min-w-0 flex-1 items-center gap-2">
-            {shortcutNumber != null
-              ? <TabShortcutNumberBadge number={shortcutNumber} />
-              : <PluginContributionIcon pluginId={tab.pluginId} icon={tab.icon} className="shrink-0" />}
+            <TabIconSlot shortcutNumber={shortcutNumber}><PluginContributionIcon pluginId={tab.pluginId} icon={tab.icon} className="shrink-0" /></TabIconSlot>
             <span className="truncate leading-5">{tab.title}</span>
           </div>
           <button onMouseDown={handleTabCloseButtonMouseDown} onClick={close} className="flex h-5 w-5 shrink-0 items-center justify-center rounded hover:bg-muted" aria-label={t('tabs.closePluginViewAria', { title: tab.title })}><X size={12} /></button>
@@ -712,15 +759,13 @@ export const EditorTopTab: React.FC<EditorTopTabProps> = memo(({
             />
           )}
           <div className="flex items-center gap-2 min-w-0 flex-1">
-            {shortcutNumber != null ? (
-              <TabShortcutNumberBadge number={shortcutNumber} />
-            ) : (
+            <TabIconSlot shortcutNumber={shortcutNumber}>
               <FileIcon
                 size={14}
                 className="shrink-0"
                 style={{ color: isActive ? 'var(--top-tabs-accent, hsl(var(--accent)))' : 'var(--top-tabs-muted, hsl(var(--muted-foreground)))' }}
               />
-            )}
+            </TabIconSlot>
             <span className="flex items-center gap-0.5 truncate leading-5">
               {dirty && <span className="mr-0.5 text-primary">●</span>}
               {editorTab.fileName}
@@ -782,6 +827,7 @@ interface SessionTopTabProps {
   onCopySession: (sessionId: string) => void;
   onDuplicateSession?: (sessionId: string) => void;
   onCopySessionToNewWindow: (sessionId: string) => void;
+  onMoveSessionToNewWindow?: (sessionId: string) => void;
   onEditHost?: (host: Host) => void;
   renderBulkCloseItems: RenderBulkCloseItems;
   dynamicTabTitleMode?: DynamicTabTitleMode;
@@ -809,6 +855,7 @@ export const SessionTopTab: React.FC<SessionTopTabProps> = memo(({
   onCopySession,
   onDuplicateSession,
   onCopySessionToNewWindow,
+  onMoveSessionToNewWindow,
   onEditHost,
   renderBulkCloseItems,
   dynamicTabTitleMode,
@@ -900,9 +947,7 @@ export const SessionTopTab: React.FC<SessionTopTabProps> = memo(({
         />
       )}
       <div className="flex items-center gap-2 min-w-0 flex-1">
-        {shortcutNumber != null ? (
-          <TabShortcutNumberBadge number={shortcutNumber} />
-        ) : (
+        <TabIconSlot shortcutNumber={shortcutNumber}>
           <SessionTabIcon
             host={host}
             session={session}
@@ -911,7 +956,7 @@ export const SessionTopTab: React.FC<SessionTopTabProps> = memo(({
             shellIcon={session.localShellIcon}
             dynamicTabTitleMode={dynamicTabTitleMode}
           />
-        )}
+        </TabIconSlot>
         <span className="truncate leading-5">{tabTitle}</span>
         <div className="flex-shrink-0">{sessionStatusDot(session.status, hasActivity)}</div>
       </div>
@@ -954,6 +999,11 @@ export const SessionTopTab: React.FC<SessionTopTabProps> = memo(({
         onCopySession={onCopySession}
         onDuplicateSession={onDuplicateSession}
         onCopySessionToNewWindow={onCopySessionToNewWindow}
+        onMoveSessionToNewWindow={
+          (isPluginHostProtocol(session.protocol) || session.protocol?.startsWith('plugin:'))
+            ? undefined
+            : onMoveSessionToNewWindow
+        }
         onReconnectSession={terminalReconnectRegistry.request}
         sessionStatus={session.status}
         reconnectActive={reconnectActive}
@@ -970,6 +1020,7 @@ SessionTopTab.displayName = 'SessionTopTab';
 
 interface WorkspaceTopTabProps {
   workspace: Workspace;
+  tabDoubleClickBehavior: TerminalTabDoubleClickBehavior;
   paneCount: number;
   workspaceSessionIds: readonly string[];
   isBeingDragged: boolean;
@@ -1019,6 +1070,7 @@ WorkspaceDetachSessionMenuItem.displayName = 'WorkspaceDetachSessionMenuItem';
 
 export const WorkspaceTopTab: React.FC<WorkspaceTopTabProps> = memo(({
   workspace,
+  tabDoubleClickBehavior,
   paneCount,
   workspaceSessionIds,
   workspaceSessions,
@@ -1045,15 +1097,16 @@ export const WorkspaceTopTab: React.FC<WorkspaceTopTabProps> = memo(({
 }) => {
   const isActive = useIsTabActive(workspace.id);
   const hasActivity = useAnySessionActivity(workspaceSessionIds);
+  useSessionPresentationVersion();
   const handleClick = useCallback(() => {
     activeTabStore.setActiveTabId(workspace.id);
   }, [workspace.id]);
   const handleDoubleClick = useMemo(
-    () => createTopTabCopyDoubleClickHandler(onCopyWorkspace, workspace.id),
-    [onCopyWorkspace, workspace.id],
+    () => createTopTabCopyDoubleClickHandler(onCopyWorkspace, workspace.id, tabDoubleClickBehavior),
+    [onCopyWorkspace, workspace.id, tabDoubleClickBehavior],
   );
   const detachSessions = workspaceSessions ?? [];
-  const tabLabel = resolveWorkspaceTabLabel(workspace, detachSessions);
+  const tabLabel = resolveWorkspaceTopTabLabel(workspace, detachSessions);
 
   return (
     <ContextMenu>
@@ -1117,15 +1170,13 @@ export const WorkspaceTopTab: React.FC<WorkspaceTopTabProps> = memo(({
             />
           )}
           <div className="flex items-center gap-2 truncate">
-            {shortcutNumber != null ? (
-              <TabShortcutNumberBadge number={shortcutNumber} />
-            ) : (
+            <TabIconSlot shortcutNumber={shortcutNumber}>
               <LayoutGrid
                 size={14}
                 className="shrink-0"
                 style={{ color: isActive ? 'var(--top-tabs-accent, hsl(var(--accent)))' : 'var(--top-tabs-muted, hsl(var(--muted-foreground)))' }}
               />
-            )}
+            </TabIconSlot>
             <span className="truncate leading-5" title={tabLabel}>{tabLabel}</span>
           </div>
           <div className="flex items-center gap-1.5 shrink-0">
@@ -1274,15 +1325,13 @@ export const LogViewTopTab: React.FC<LogViewTopTabProps> = memo(({
         />
       )}
       <div className="flex items-center gap-2 min-w-0 flex-1">
-        {shortcutNumber != null ? (
-          <TabShortcutNumberBadge number={shortcutNumber} />
-        ) : (
+        <TabIconSlot shortcutNumber={shortcutNumber}>
           <FileText
             size={14}
             className="shrink-0"
             style={{ color: isActive ? 'var(--top-tabs-accent, hsl(var(--accent)))' : 'var(--top-tabs-muted, hsl(var(--muted-foreground)))' }}
           />
-        )}
+        </TabIconSlot>
         <span className="truncate leading-5">
           {t('tabs.logPrefix')} {isLocal ? t('tabs.logLocal') : logView.log.hostname}
         </span>

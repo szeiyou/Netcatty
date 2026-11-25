@@ -1,6 +1,11 @@
 "use strict";
 
+const { createDefinitionValidator } = require("./contractValidator.cjs");
+const validateLease = createDefinitionValidator("SecretLeaseRef");
+const validateAuthorization = createDefinitionValidator("PluginNetworkAuthorization");
+
 const { PluginRpcError, RPC_ERRORS } = require("./rpcRouter.cjs");
+const { invalidArgument } = require("./validationUtils.cjs");
 const { PLUGIN_RPC_MAX_RAW_BYTES } = require("./constants.cjs");
 const { canonicalizeNetworkOrigin } = require("./permissionResources.cjs");
 
@@ -18,10 +23,6 @@ const FORBIDDEN_REQUEST_HEADERS = new Set([
 ]);
 const SENSITIVE_REDIRECT_HEADERS = new Set(["authorization", "cookie", "proxy-authorization"]);
 const ENTITY_REDIRECT_HEADERS = new Set(["content-encoding", "content-language", "content-type"]);
-
-function invalidArgument(message) {
-  return new PluginRpcError(RPC_ERRORS.invalidArgument, message);
-}
 
 async function cancelResponseBody(response, reason) {
   try { await response.body?.cancel?.(reason); }
@@ -180,15 +181,7 @@ class PluginNetworkBroker {
     // network.request lease injection would become dead code.
     if (params?.credentialLease !== undefined) {
       const lease = params.credentialLease;
-      if (
-        !lease
-        || typeof lease !== "object"
-        || Array.isArray(lease)
-        || lease.kind !== "secret-lease"
-        || typeof lease.id !== "string"
-        || typeof lease.operationId !== "string"
-        || !Number.isFinite(lease.expiresAt)
-      ) {
+      if (!validateLease(lease)) {
         throw invalidArgument("Plugin network credential lease is invalid");
       }
       validated.credentialLease = Object.freeze({
@@ -200,7 +193,7 @@ class PluginNetworkBroker {
     }
     if (params?.authorization !== undefined) {
       const authorization = params.authorization;
-      if (!authorization || typeof authorization !== "object" || Array.isArray(authorization)) {
+      if (!validateAuthorization(authorization)) {
         throw invalidArgument("Plugin network authorization is invalid");
       }
       const scheme = authorization.scheme === "Basic" ? "Basic" : "Bearer";

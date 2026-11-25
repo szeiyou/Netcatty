@@ -10,9 +10,11 @@ const net = require("node:net");
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
+const { PluginAgentMcpDelegations } = require("../plugins/agent/mcpDelegation.cjs");
+const pluginAgentDelegations = new PluginAgentMcpDelegations();
 const { existsSync } = require("node:fs");
 
-const { toUnpackedAsarPath, getFreshIdlePrompt, formatSyntheticEcho } = require("./ai/shellUtils.cjs");
+const { toUnpackedAsarPath, getFreshIdlePrompt, getVisibleIdlePrompt, formatSyntheticEcho } = require("./ai/shellUtils.cjs");
 const { appendVaultAgentGuidance } = require("../shared/vaultAgentGuidance.cjs");
 const {
   checkBlocklistForShell,
@@ -168,7 +170,7 @@ const activePtyExecs = new Map(); // marker → { ptyStream, cleanup }
 const cancelledChatSessions = new Set();
 const activeExecChatSessions = new Map(); // chatSessionId -> { sessionId, command, startedAt }
 const backgroundJobs = new Map(); // jobId -> job metadata
-const workerBackgroundJobs = new Map(); // jobId -> { chatSessionId, sessionId }
+const workerBackgroundJobs = new Map(); // jobId -> { chatSessionId, sessionId, completedAt }
 const pendingWorkerJobStarts = new Map(); // sessionId -> Set<{ chatSessionId, cancelled }>
 const activeSessionExecutions = new Map(); // sessionId -> { kind, startedAt, token }
 const activeSessionSftpOps = new Map(); // opId -> { chatSessionId, sessionId, cancel }
@@ -288,6 +290,8 @@ function requestApprovalFromRenderer(toolName, args, chatSessionId, approvalCont
       idleCancelled: false,
       chatSessionId: chatSessionId || null,
       externalSocket: approvalContext.externalSocket || null,
+      // Fan-out approvals are never widened to the whole external session.
+      requireFresh: approvalContext.requireFreshApproval === true,
     });
     broadcastApprovalEvent('netcatty:ai:mcp:approval-request', {
       approvalId,
@@ -295,7 +299,8 @@ function requestApprovalFromRenderer(toolName, args, chatSessionId, approvalCont
       args,
       chatSessionId: chatSessionId || undefined,
       target: approvalContext.target || undefined,
-      allowSession: chatSessionId === EXTERNAL_MCP_CHAT_SESSION_ID
+      allowSession: approvalContext.requireFreshApproval !== true
+        && chatSessionId === EXTERNAL_MCP_CHAT_SESSION_ID
         && externalMcpSockets.has(approvalContext.externalSocket),
     });
     syncExternalApprovalAttention();
@@ -317,10 +322,13 @@ function resolveApprovalFromRenderer(approvalId, approved, scope = 'once') {
       && externalMcpActivityHook?.isEnabled?.());
   const accepted = approved === true && socketValid;
   const clearedIds = [approvalId];
-  if (accepted && scope === 'session' && externalSocket) {
+  // A fan-out approval must stay a one-off decision even if a client asks for
+  // session scope, and it must never be swept up by another approval's session grant.
+  if (accepted && scope === 'session' && externalSocket && entry.requireFresh !== true) {
     sessionApprovedExternalSockets.add(externalSocket);
     for (const [id, pending] of pendingApprovals) {
       if (pending.externalSocket !== externalSocket) continue;
+      if (pending.requireFresh === true) continue;
       pendingApprovals.delete(id);
       pending.resolve(true);
       clearedIds.push(id);
@@ -534,6 +542,17 @@ function removeCliDiscoveryFile() {
   }
 }
 
+function parseCliDiscoveryIsCurrent(raw) {
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed?.port === tcpPort
+      && parsed?.token === authToken
+      && parsed?.pid === process.pid;
+  } catch {
+    return false;
+  }
+}
+
 function isCliDiscoveryFileCurrent() {
   const cliDiscoveryFilePath = getActiveCliDiscoveryFilePath();
   if (!cliDiscoveryFilePath) return true;
@@ -543,14 +562,7 @@ function isCliDiscoveryFileCurrent() {
   } catch {
     return false;
   }
-  try {
-    const parsed = JSON.parse(raw);
-    return parsed?.port === tcpPort
-      && parsed?.token === authToken
-      && parsed?.pid === process.pid;
-  } catch {
-    return false;
-  }
+  return parseCliDiscoveryIsCurrent(raw);
 }
 
 // Self-heal: the discovery file is a runtime pointer that can be deleted
@@ -565,14 +577,60 @@ function ensureCliDiscoveryFile() {
   writeCliDiscoveryFile();
 }
 
+let discoverySelfHealInFlight = false;
+
+async function ensureCliDiscoveryFileAsync() {
+  if (discoverySelfHealInFlight) return;
+  const cliDiscoveryFilePath = getActiveCliDiscoveryFilePath();
+  const expectedTimer = discoverySelfHealTimer;
+  const expectedPort = tcpPort;
+  const expectedToken = authToken;
+  if (!expectedPort || !expectedToken || !expectedTimer || !cliDiscoveryFilePath) return;
+  discoverySelfHealInFlight = true;
+  try {
+    let current = false;
+    try {
+      const raw = await fs.promises.readFile(cliDiscoveryFilePath, "utf8");
+      if (
+        !tcpPort
+        || !authToken
+        || !discoverySelfHealTimer
+        || discoverySelfHealTimer !== expectedTimer
+        || tcpPort !== expectedPort
+        || authToken !== expectedToken
+      ) {
+        return;
+      }
+      current = parseCliDiscoveryIsCurrent(raw);
+    } catch {
+      current = false;
+    }
+    // Re-check host liveness after async disk I/O so an in-flight tick can
+    // never rewrite a discovery file already removed by shutdownHost().
+    if (
+      !tcpPort
+      || !authToken
+      || !discoverySelfHealTimer
+      || discoverySelfHealTimer !== expectedTimer
+      || tcpPort !== expectedPort
+      || authToken !== expectedToken
+    ) {
+      return;
+    }
+    if (current) return;
+    debugLog("self-healing CLI discovery file");
+    writeCliDiscoveryFile();
+  } finally {
+    discoverySelfHealInFlight = false;
+  }
+}
+
 function startDiscoverySelfHeal() {
   stopDiscoverySelfHeal();
   discoverySelfHealTimer = setInterval(() => {
-    try {
-      ensureCliDiscoveryFile();
-    } catch {
+    void ensureCliDiscoveryFileAsync().catch(() => {
       // Self-heal is best-effort.
-    }
+    });
   }, DISCOVERY_SELF_HEAL_INTERVAL_MS);
   if (typeof discoverySelfHealTimer.unref === "function") discoverySelfHealTimer.unref();
 }
@@ -802,6 +860,7 @@ function updateLiveSessionMetadata(sessionList) {
   const next = new Map();
   for (const entry of incoming) {
     if (!entry || typeof entry !== "object" || !entry.sessionId) continue;
+    if (entry.connected === true) sessionService?.forgetReconnect(entry.sessionId);
     next.set(entry.sessionId, {
       hostname: entry.hostname || "",
       label: entry.label || "",
@@ -1269,6 +1328,8 @@ function ensureOpenedSessionMetadata(chatSessionId, sessionId, result) {
  */
 function forgetClosedTerminalSession(sessionId) {
   if (!sessionId) return;
+  sessionService?.forgetReconnect(sessionId);
+  sessionService?.forgetRecovery(sessionId);
   terminalSessionCloseRevision += 1;
   closedTerminalSessionRevisions.delete(sessionId);
   closedTerminalSessionRevisions.set(sessionId, terminalSessionCloseRevision);
@@ -1423,7 +1484,7 @@ function handleConnection(socket) {
       consumedUntil = newlineIdx + 1;
       searchFrom = consumedUntil;
       if (!line.trim()) continue;
-      debugLog("Incoming line", line);
+      debugLog("Incoming message", { bytes: Buffer.byteLength(line) });
       handleMessage(socket, line);
     }
     if (consumedUntil > 0) buffer = buffer.slice(consumedUntil);
@@ -1455,7 +1516,8 @@ async function handleMessage(socket, line) {
     const isExternalToken = Boolean(
       presentedToken && externalAuthToken && presentedToken === externalAuthToken,
     );
-    if (method === "auth/verify" && (isCattyToken || isExternalToken)) {
+    const isDelegatedToken = method === "auth/verify" && pluginAgentDelegations.authenticate(presentedToken, socket);
+    if (method === "auth/verify" && (isCattyToken || isExternalToken || isDelegatedToken)) {
       if (isExternalToken && !externalMcpActivityHook?.isEnabled?.()) {
         const response = JSON.stringify({
           jsonrpc: "2.0",
@@ -1496,6 +1558,13 @@ async function handleMessage(socket, line) {
 
   try {
     const callParams = { ...(params || {}) };
+    const delegatedChat = pluginAgentDelegations.boundChat(socket);
+    if (delegatedChat) {
+      if (callParams.chatSessionId && callParams.chatSessionId !== delegatedChat) throw Error("Agent connection cannot change its session");
+      callParams.chatSessionId = delegatedChat;
+    } else if (pluginAgentDelegations.isReserved(callParams.chatSessionId)) {
+      throw Error("Delegated Agent credentials required");
+    }
     // External-token sockets always operate under the reserved app-wide scope so
     // callers cannot omit chatSessionId and widen access via scopedSessionIds.
     if (externalMcpSockets.has(socket)) {
@@ -1531,7 +1600,7 @@ async function handleMessage(socket, line) {
         managedPrivacyScopes.set(socket, callParams.chatSessionId);
       }
       result = await createManagedPrivacyBoundary(
-        (rpcMethod, rpcParams, context) => dispatch(rpcMethod, rpcParams, context),
+        (rpcMethod, rpcParams, context) => dispatch(rpcMethod, rpcParams, { ...context, externalSocket: socket }),
         aiPrivacyService,
       )(method, callParams);
     }
@@ -1553,6 +1622,7 @@ const {
   evaluateRpcPermission,
   evaluatePermissionWithGrants,
   USER_DENIED_MESSAGE,
+  CHAT_SESSION_CANCELLED_MESSAGE,
 } = require("../capabilities/policy.cjs");
 const { CAPABILITY_SURFACES } = require("../capabilities/constants.cjs");
 const { getCapabilityByRpcMethod } = require("../capabilities/registry.cjs");
@@ -1604,7 +1674,74 @@ function reportOpenedSessionActivity(event = {}) {
   return sessionIdleManager.touch(null, sessionId);
 }
 
+// In the default terminal worker path the SSH runtime (and its prompt
+// tracking state) lives in the worker, so the main-process `sessions` map is
+// empty for it. Ask the owning worker for read-only prompt readiness. A miss
+// or a worker failure yields null: an unknown state must never report ready.
+// The probe is bounded well below the 20s recovery budget so a live-but-
+// unresponsive worker cannot hang inspectRecovery past the recovery loop's
+// deadline/cancel machinery.
+const WORKER_SHELL_READINESS_TIMEOUT_MS = 2000;
+
+async function queryWorkerShellReadiness(sessionId, status) {
+  if (status !== "connected" || !terminalWorkerManager?.request) return null;
+  // terminalWorkerManager.request has no cancellation support, so the probe
+  // cannot be aborted once posted. Race it against a timeout instead: a late
+  // worker response settles into an abandoned promise (fire-and-forget) and
+  // never mutates state after the timeout decision.
+  let timeoutId;
+  try {
+    const result = await Promise.race([
+      terminalWorkerManager.request("netcatty:ai:shellReadiness", { sessionId }, {}),
+      new Promise((resolve) => {
+        timeoutId = setTimeout(
+          () => resolve(null),
+          WORKER_SHELL_READINESS_TIMEOUT_MS,
+        );
+      }),
+    ]);
+    if (result?.ok !== true || result.found !== true) return null;
+    return {
+      trackedShell: result.trackedShell === true,
+      ready: Boolean(result.freshIdlePrompt || result.visibleIdlePrompt),
+    };
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
 sessionService = createSessionService({
+  validateReconnect: (params = {}) => {
+    const scopeErr = validateSessionScope(params.sessionId, params.chatSessionId, params.scopedSessionIds);
+    if (scopeErr) return { ok: false, error: scopeErr };
+    if (isChatSessionCancelled(params.chatSessionId)) return { ok: false, error: "Chat session is cancelled." };
+    if (permissionMode === "observer") return { ok: false, error: "Recovery is unavailable in observer mode." };
+    if (sessionIdleManager.isClosing(params.sessionId)) return { ok: false, error: "Session is closing." };
+    return { ok: true };
+  },
+  inspectRecovery: async (params, timeoutMs) => {
+    if (typeof invokeVaultAgentFn !== "function") return { ok: false, error: "Session recovery bridge is unavailable." };
+    sessionIdleManager.touch(null, params.sessionId);
+    const state = await invokeVaultAgentFn("session.inspectRecovery", { sessionId: params.sessionId }, { timeoutMs });
+    if (state?.ok !== true) return state;
+    const runtime = sessions?.get(params.sessionId);
+    const meta = getSessionMeta(params.sessionId, params.chatSessionId);
+    const probe = runtime ? {
+      trackedShell: typeof runtime._promptTrackTail === "string",
+      ready: Boolean(getFreshIdlePrompt(runtime) || getVisibleIdlePrompt(runtime)),
+    } : await queryWorkerShellReadiness(params.sessionId, state.status);
+    const trackedShell = Boolean(probe?.trackedShell) && !isNetworkDeviceLikeMeta(meta);
+    // shellReady semantics: transport not connected → false; connected but
+    // the shell is untracked or the probe missed/timed out → null (unknown);
+    // a tracked shell reports its observed readiness. It is advisory for
+    // callers: recovery never writes to the PTY, so an unknown or false
+    // readiness only asks for an inspect_shell step, never blocks.
+    const shellReady = state.status !== "connected" ? false : !probe ? null : trackedShell
+      ? Boolean(probe.ready) : null;
+    return { ...state, shellReady, busy: Boolean(getSessionBusyError(params.sessionId)) };
+  },
   invokeSessionAgent: (...args) => {
     if (typeof invokeVaultAgentFn !== "function") {
       return Promise.resolve({ ok: false, error: "Vault agent bridge is unavailable." });
@@ -1653,6 +1790,7 @@ const dispatchCapabilityRpc = createCapabilityRpcDispatcher({
     return invokeVaultAgentFn(...args);
   },
   evaluatePermissionWithGrants,
+  isDelegatedApproval: (context) => pluginAgentDelegations.isApproved(context),
   get permissionMode() {
     return permissionMode;
   },
@@ -1809,7 +1947,65 @@ function buildTerminalToolGuidance(toolHints) {
   return "";
 }
 
-async function handleWorkerTerminalExec(params = {}, beforeExecute) {
+/**
+ * Command-safety check for a worker-owned session, run before anything is sent.
+ * Shared by terminal_execute and the terminal_execute_bulk preflight so both
+ * apply the same policy. Returns an error message, or null when allowed.
+ */
+function checkWorkerExecSafety(sessionId, command, chatSessionId) {
+  const meta = getSessionMeta(sessionId, chatSessionId) || {};
+  if (isNetworkDeviceLikeMeta(meta)) return null;
+  // meta.shellType is not reported for remote sessions yet; until it is,
+  // defer the shell-selected default patterns to the terminal worker, which
+  // resolves the shell kind from the live session and idle prompt.
+  const safety = meta.shellType
+    ? checkCommandSafetyForShell(command, meta.shellType)
+    : checkCommandSafetyCommonOnly(command);
+  return safety.blocked ? `Command blocked by safety policy. Pattern: ${safety.matchedPattern}` : null;
+}
+
+/**
+ * Bulk preflight for a worker-owned session. Applies the bridge-side safety check, then asks
+ * the worker to run every other deterministic check (transport, shell kind, shell-aware
+ * blocklist, unsupported local shell, busy background job) without sending anything.
+ */
+async function preflightWorkerExec(params = {}, { probe = true } = {}) {
+  const { sessionId, command, chatSessionId } = params;
+  if (!terminalWorkerManager?.request) return { ok: false, error: "Session not found" };
+  const blocked = checkWorkerExecSafety(sessionId, command, chatSessionId || null);
+  if (blocked) return { ok: false, error: blocked };
+  try {
+    const result = await terminalWorkerManager.request("netcatty:ai:exec", {
+      sessionId,
+      command,
+      chatSessionId: chatSessionId || null,
+      commandTimeoutMs,
+      sessionMeta: getSessionMeta(sessionId, chatSessionId || null) || {},
+      enforceWallTimeout: true,
+      commandBlocklist,
+      precheck: true,
+      // Before approval the worker must not open any channel to the host.
+      ...(probe ? {} : { probe: false }),
+    }, {});
+    return result && result.ok === false
+      ? { ok: false, error: result.error || "Session does not support command execution" }
+      : { ok: true };
+  } catch (err) {
+    return { ok: false, error: err?.message || String(err) };
+  }
+}
+
+/** Cancel only the foreground execs a chat has running inside the terminal worker. */
+function cancelWorkerExecsForChat(chatSessionId) {
+  if (!chatSessionId) return;
+  try {
+    terminalWorkerManager?.send?.("netcatty:ai:exec:cancel", { chatSessionId }, {});
+  } catch {
+    // The worker may already be gone.
+  }
+}
+
+async function handleWorkerTerminalExec(params = {}, beforeExecute, options = {}) {
   const { sessionId, command } = params;
   if (!sessionId || !command) throw new Error("sessionId and command are required");
   if (typeof command !== "string" || !command.trim()) {
@@ -1821,22 +2017,16 @@ async function handleWorkerTerminalExec(params = {}, beforeExecute) {
 
   const chatSessionId = params?.chatSessionId || null;
   const meta = getSessionMeta(sessionId, chatSessionId) || {};
-  if (!isNetworkDeviceLikeMeta(meta)) {
-    // meta.shellType is not reported for remote sessions yet; until it is,
-    // defer the shell-selected default patterns to the terminal worker, which
-    // resolves the shell kind from the live session and idle prompt.
-    const safety = meta.shellType
-      ? checkCommandSafetyForShell(command, meta.shellType)
-      : checkCommandSafetyCommonOnly(command);
-    if (safety.blocked) {
-      return { ok: false, error: `Command blocked by safety policy. Pattern: ${safety.matchedPattern}` };
-    }
-  }
+  const blockedMessage = checkWorkerExecSafety(sessionId, command, chatSessionId);
+  if (blockedMessage) return { ok: false, error: blockedMessage };
 
   const reservation = reserveSessionExecution(sessionId, "exec");
   if (!reservation.ok) return reservation;
   const sessionToken = reservation.token;
-  const executionLock = beginChatExecution(chatSessionId, sessionId, command);
+  // terminal_execute_bulk holds the per-chat lock once for the whole fan-out.
+  const executionLock = options.chatLockHeld === true
+    ? { ok: true, release() {} }
+    : beginChatExecution(chatSessionId, sessionId, command);
   if (!executionLock.ok) {
     releaseSessionExecution(sessionId, sessionToken);
     return {
@@ -1918,9 +2108,11 @@ async function handleWorkerJobStart(params = {}, beforeExecute) {
         }, {}));
         return { ok: false, error: "Session is closing.", jobId: result.jobId, status: "cancelled" };
       }
+      pruneCompletedWorkerRoutes();
       workerBackgroundJobs.set(result.jobId, {
         chatSessionId: chatSessionId || null,
         sessionId,
+        completedAt: null,
       });
     }
     return result;
@@ -1947,6 +2139,18 @@ function deleteWorkerRoute(jobId, job, via) {
   workerBackgroundJobs.delete(jobId);
 }
 
+// Retain completed worker job routes for BACKGROUND_JOB_RETENTION_MS (matching
+// aiExec.cjs and backgroundJobs.cjs) so subsequent jobPoll/jobStop calls remain
+// idempotent and return the terminal job state rather than "not found".
+function pruneCompletedWorkerRoutes(now = Date.now()) {
+  for (const [jobId, job] of workerBackgroundJobs) {
+    const completedAt = Number(job?.completedAt) || 0;
+    if (completedAt > 0 && now - completedAt > BACKGROUND_JOB_RETENTION_MS) {
+      deleteWorkerRoute(jobId, job, "retention-expired");
+    }
+  }
+}
+
 // Why getWorkerJob/terminalWorkerManager could not serve a poll or stop:
 // the route is gone, the caller's chat scope does not own it, or the worker
 // manager is unavailable. These are different failures and must not share a label.
@@ -1967,9 +2171,10 @@ function getWorkerJob(jobId, chatSessionId) {
 
 const WORKER_JOB_NOT_FOUND_ERROR = "Background job not found";
 
-async function handleWorkerJobPoll(params = {}) {
+async function handleWorkerJobPoll(params = {}, beforeExecute) {
   const { jobId, chatSessionId, scopedSessionIds } = params || {};
   if (!jobId) throw new Error("jobId is required");
+  pruneCompletedWorkerRoutes();
   const job = getWorkerJob(jobId, chatSessionId || null);
   if (!job || !terminalWorkerManager?.request) {
     emitJobDiag("job-stop-miss", { jobId, chatSessionId: chatSessionId || null, op: "poll", reason: describeWorkerRouteMiss(jobId) });
@@ -1979,20 +2184,21 @@ async function handleWorkerJobPoll(params = {}) {
     const scopeErr = validateSessionScope(job.sessionId, chatSessionId || null, scopedSessionIds);
     if (scopeErr) return { ok: false, error: scopeErr };
   }
-  const result = await terminalWorkerManager.request("netcatty:ai:jobPoll", params, {});
+  const result = await terminalWorkerManager.request("netcatty:ai:jobPoll", params, typeof beforeExecute === "function" ? { beforeExecute } : {});
   if (result?.ok === false && result.error === WORKER_JOB_NOT_FOUND_ERROR) {
     // The route is still here but the worker no longer knows the job (pruned or restarted).
     emitJobDiag("job-stop-miss", { jobId, chatSessionId: chatSessionId || null, op: "poll", reason: "worker-job-missing" });
   }
-  if (result?.completed) {
-    deleteWorkerRoute(jobId, job, "poll-completed");
+  if (result?.completed && !job.completedAt) {
+    job.completedAt = Date.now();
   }
   return result;
 }
 
-async function handleWorkerJobStop(params = {}) {
+async function handleWorkerJobStop(params = {}, beforeExecute) {
   const { jobId, chatSessionId, scopedSessionIds } = params || {};
   if (!jobId) throw new Error("jobId is required");
+  pruneCompletedWorkerRoutes();
   const job = getWorkerJob(jobId, chatSessionId || null);
   if (!job || !terminalWorkerManager?.request) {
     emitJobDiag("job-stop-miss", { jobId, chatSessionId: chatSessionId || null, op: "stop", reason: describeWorkerRouteMiss(jobId) });
@@ -2001,21 +2207,23 @@ async function handleWorkerJobStop(params = {}) {
   if (Array.isArray(scopedSessionIds) && job.sessionId && !scopedSessionIds.includes(job.sessionId)) {
     return { ok: false, error: `Session "${job.sessionId}" is not in the current scope.` };
   }
-  const result = await terminalWorkerManager.request("netcatty:ai:jobStop", params, {});
+  const result = await terminalWorkerManager.request("netcatty:ai:jobStop", params, typeof beforeExecute === "function" ? { beforeExecute } : {});
   if (result?.ok === false && result.error === WORKER_JOB_NOT_FOUND_ERROR) {
     // The route is still here but the worker no longer knows the job (pruned or restarted).
     emitJobDiag("job-stop-miss", { jobId, chatSessionId: chatSessionId || null, op: "stop", reason: "worker-job-missing" });
   }
-  if (result?.completed) {
-    deleteWorkerRoute(jobId, job, "stop-completed");
+  if (result?.completed && !job.completedAt) {
+    job.completedAt = Date.now();
   }
   return result;
 }
 
 async function hasActiveWorkerJobForTerminalSession(sessionId) {
+  pruneCompletedWorkerRoutes();
   const matchingJobs = Array.from(workerBackgroundJobs.entries())
     .filter(([, job]) => job?.sessionId === sessionId);
   for (const [jobId, job] of matchingJobs) {
+    if (job.completedAt) continue;
     if (!terminalWorkerManager?.request) return true;
     try {
       const result = await terminalWorkerManager.request("netcatty:ai:jobPoll", {
@@ -2077,7 +2285,7 @@ async function cancelWorkerBackgroundJobsForTerminalSession(sessionId) {
   for (const [jobId, job] of workerBackgroundJobs) {
     if (job.sessionId !== sessionId) continue;
     matchingJobs.push([jobId, job]);
-    if (terminalWorkerManager?.request) {
+    if (!job.completedAt && terminalWorkerManager?.request) {
       pending.push(waitForWorkerCleanup(terminalWorkerManager.request("netcatty:ai:jobStop", {
         jobId,
         sessionId,
@@ -2127,6 +2335,13 @@ function getBuiltinRpcHandlerRegistry() {
       "attachment.read": handleReadAttachment,
       "harness.terminal.read_context": handleReadContext,
       "terminal.execute": handleExec,
+      // terminal_execute_bulk is intercepted in dispatchCore (preflight, one
+      // fresh approval, fan-out). Reaching the registry means that path was
+      // bypassed, so refuse instead of running unapproved.
+      "terminal.executeBulk": () => ({
+        ok: false,
+        error: "terminal_execute_bulk must be dispatched through the bulk executor.",
+      }),
       "sftp.list": handleSftpList,
       "sftp.read": handleSftpRead,
       "sftp.write": handleSftpWrite,
@@ -2148,7 +2363,17 @@ function getBuiltinRpcHandlerRegistry() {
 }
 
 async function dispatch(method, params, approvalContext = {}) {
-  debugLog("dispatch", { method, params, permissionMode });
+  if (pluginAgentDelegations.isReserved(params?.chatSessionId)) {
+    return pluginAgentDelegations.dispatch(method, params, approvalContext,
+      (approved) => dispatchCore(method, params, approved));
+  }
+  return dispatchCore(method, params, approvalContext);
+}
+
+async function dispatchCore(method, params, approvalContext = {}) {
+  const delegated = pluginAgentDelegations.isApproved(approvalContext);
+  if (delegated) debugLog("Delegated dispatch", { method });
+  else debugLog("dispatch", { method, params, permissionMode });
 
   if (!method.startsWith("netcatty/")) {
     const capabilityResult = await dispatchCapabilityRpc(method, params || {}, approvalContext);
@@ -2162,9 +2387,11 @@ async function dispatch(method, params, approvalContext = {}) {
     ? params?.sessionId
     : null;
   pruneCompletedBackgroundJobs();
+  pruneCompletedWorkerRoutes();
 
   const approvalTarget = getApprovalTarget(params);
-  const permission = evaluatePermissionWithGrants({
+  const permission = delegated ? { allowed: !isChatSessionCancelled(params?.chatSessionId), requiresApproval: false }
+    : evaluatePermissionWithGrants({
     rpcMethod: method,
     surface: CAPABILITY_SURFACES.BUILTIN,
     permissionMode,
@@ -2176,6 +2403,12 @@ async function dispatch(method, params, approvalContext = {}) {
   }, permissionGrantsSnapshot);
   if (!permission.allowed) {
     return { ok: false, error: permission.error };
+  }
+
+  if (capability?.id === "terminal.executeBulk") {
+    // Plugin-delegated agents never get fan-out execution.
+    if (delegated) return { ok: false, error: "terminal_execute_bulk is not available to this client." };
+    return execBulkHandler.run(params, approvalContext, permission);
   }
 
   // Validate session scope *first* so out-of-scope callers cannot infer the
@@ -2266,10 +2499,10 @@ async function dispatch(method, params, approvalContext = {}) {
       return await handleWorkerJobStart(params, approvalContext.beforeExecute);
     }
     if (capability?.id === "terminal.poll" && workerBackgroundJobs.has(params?.jobId)) {
-      return await handleWorkerJobPoll(params);
+      return await handleWorkerJobPoll(params, approvalContext.beforeExecute);
     }
     if (capability?.id === "terminal.stop" && workerBackgroundJobs.has(params?.jobId)) {
-      return await handleWorkerJobStop(params);
+      return await handleWorkerJobStop(params, approvalContext.beforeExecute);
     }
     return await handler(params, approvalContext);
   } finally {
@@ -2284,10 +2517,12 @@ async function dispatch(method, params, approvalContext = {}) {
 
 // ── Handler: getContext ──
 
-async function handleGetContext(params) {
-  debugLog("handleGetContext:start", { params, sessionCount: sessions?.size || 0 });
-  const toolHints = buildMcpToolHints();
+async function handleGetContext(params, approvalContext) {
+  const delegated = pluginAgentDelegations.isApproved(approvalContext);
+  debugLog("handleGetContext:start", delegated ? { delegated: true } : { params, sessionCount: sessions?.size || 0 });
+  const toolHints = delegated ? null : buildMcpToolHints();
   if (!sessions) {
+    if (delegated) return { environment: "netcatty-terminal", description: "No host-selected terminal sessions are available.", hosts: [], hostCount: 0 };
     return {
       hosts: [],
       instructions: "No sessions available.",
@@ -2333,7 +2568,7 @@ async function handleGetContext(params) {
       description: "No hosts are available in the current scope.",
       hosts: [],
       hostCount: 0,
-      tools: toolHints,
+      ...(delegated ? {} : { tools: toolHints }),
     };
   }
   for (const [sessionId, session] of sessions.entries()) {
@@ -2383,6 +2618,12 @@ async function handleGetContext(params) {
     }
   }
 
+  if (pluginAgentDelegations.isApproved(approvalContext)) {
+    // Do not query or serialize app-wide tunnel/tool inventory for a delegated
+    // conversation. Its core-owned scope already selected the session metadata.
+    return { environment: "netcatty-terminal", description: "Use only these host-selected session IDs.",
+      hosts, hostCount: hosts.length };
+  }
   let activePortForwardTunnels = [];
   try {
     activePortForwardTunnels = await listActivePortForwards();
@@ -2504,19 +2745,61 @@ const execHandlerApi = createExecHandlerApi({
   get commandTimeoutMs() { return commandTimeoutMs; },
   DEFAULT_BACKGROUND_JOB_TIMEOUT_MS, DEFAULT_BACKGROUND_JOB_POLL_INTERVAL_MS, MAX_BACKGROUND_JOB_OUTPUT_CHARS,
   backgroundJobs, activePtyExecs,
-  debugLog, getSessionMeta, checkCommandSafetyForShell, resolveSessionBlocklistShellKind, reserveSessionExecution, releaseSessionExecution,
+  debugLog, getSessionMeta, checkCommandSafetyForShell, checkCommandSafetyCommonOnly, resolveSessionBlocklistShellKind, reserveSessionExecution, releaseSessionExecution,
   beginChatExecution, execViaRawPty, execViaPty, execViaChannel, startPtyJob,
   getFreshIdlePrompt, echoCommandToSession, createBackgroundJobId, storeCompletedJobOutput,
   serializeBackgroundJob, validateSessionScope, Date, Error,
 });
 const {
   resolveExecContext,
+  preflightExec,
   handleExec,
   handleJobStart,
   getScopedJob,
   handleJobPoll,
   handleJobStop,
 } = execHandlerApi;
+
+// terminal_execute_bulk: validate every target, ask once, then fan out.
+const { createExecBulkHandler } = require("./mcpServerBridge/execBulk.cjs");
+function execOnSessionForBulk(params, executionContext) {
+  // Mirrors dispatchCore: sessions not in the main-process map live in the terminal worker.
+  if (!sessions?.get?.(params.sessionId)) {
+    return handleWorkerTerminalExec(params, executionContext.beforeExecute, { chatLockHeld: true });
+  }
+  return handleExec(params, executionContext);
+}
+const execBulkHandler = createExecBulkHandler({
+  getSessions: () => sessions,
+  getSessionMeta,
+  validateSessionScope,
+  closingTerminalSessions,
+  getSessionBusyError,
+  pendingSessionWriteApprovals,
+  getActiveChatExecution,
+  beginChatExecution,
+  isChatSessionCancelled,
+  preflightMainExec: preflightExec,
+  preflightWorkerExec,
+  execOnSession: execOnSessionForBulk,
+  requestApproval: requestApprovalFromRenderer,
+  sessionIdleManager,
+  getCommandTimeoutMs: () => commandTimeoutMs,
+  getLivePermission: (params) => evaluateRpcPermission({
+    rpcMethod: "netcatty/execBulk",
+    surface: CAPABILITY_SURFACES.BUILTIN,
+    permissionMode,
+    params,
+    context: { chatSessionCancelled: isChatSessionCancelled(params?.chatSessionId) },
+  }),
+  cancelExecsForChat: (chatSessionId) => {
+    cancelPtyExecsForSession(chatSessionId);
+    cancelWorkerExecsForChat(chatSessionId);
+  },
+  USER_DENIED_MESSAGE,
+  CHAT_SESSION_CANCELLED_MESSAGE,
+  debugLog,
+});
 const { createConfigAndCleanupApi } = require("./mcpServerBridge/configAndCleanup.cjs");
 const configAndCleanupApi = createConfigAndCleanupApi({
   get authToken() { return authToken; },
@@ -2526,18 +2809,42 @@ const configAndCleanupApi = createConfigAndCleanupApi({
   cancelWorkerBackgroundJobsForSession,
   cancelWorkerBackgroundJobsForTerminalSession,
   clearPendingApprovals, cancelSftpOpsForSession, sftpBridge,
+  get terminalWorkerManager() { return terminalWorkerManager; },
   preserveIdleSessionCleanup: sessionIdleManager.scopeCleared,
   clearOpenedSessionScope: openedSessionOwnership.clearScope,
 });
 const { resolveMcpServerRuntimeCommand, buildMcpServerConfig, cleanupScopedMetadata } = configAndCleanupApi;
 
 function cleanup() {
+  pluginAgentDelegations.shutdown();
   try { disposeWorkerSessionClosed?.dispose?.(); } catch { /* ignore */ }
   disposeWorkerSessionClosed = null;
   shutdownHost();
 }
 
+// Keep identifier exports so Node 22's CJS namespace analysis also preserves the
+// existing named exports consumed by renderer-side harness tests.
+const registerPluginAgentDelegation = (...args) => pluginAgentDelegations.register(...args);
+const getPluginAgentMcpConfiguration = (id, tag) => pluginAgentDelegations.configuration(id, tag);
+const isPluginAgentConversation = (id) => pluginAgentDelegations.isReserved(id);
+const assertPluginAgentCaller = (id, senderId, tag) => pluginAgentDelegations.assertCaller(id, senderId, tag);
+const onPluginAgentRelease = (id, tag, cancel) => pluginAgentDelegations.onRelease(id, tag, cancel);
+
+const beginPluginAgentModelRequest = (id, senderId, tag) => pluginAgentDelegations.beginModelRequest(id, senderId, tag);
+function getPluginAgentJobTarget(jobId, chatSessionId) {
+  if (!pluginAgentDelegations.isReserved(chatSessionId)) return null;
+  const job = workerBackgroundJobs.get(jobId) ?? backgroundJobs.get(jobId);
+  return job?.chatSessionId === chatSessionId && typeof job.sessionId === "string" ? job.sessionId : null;
+}
+
 module.exports = {
+  getPluginAgentJobTarget,
+  beginPluginAgentModelRequest,
+  registerPluginAgentDelegation,
+  getPluginAgentMcpConfiguration,
+  isPluginAgentConversation,
+  assertPluginAgentCaller,
+  onPluginAgentRelease,
   init,
   setCommandBlocklist,
   getCommandBlocklist,
@@ -2566,6 +2873,7 @@ module.exports = {
   getScopedSessionIds,
   getOrCreateHost,
   ensureCliDiscoveryFile,
+  ensureCliDiscoveryFileAsync,
   buildMcpServerConfig,
   activePtyExecs,
   cancelBackgroundJobsForSession,

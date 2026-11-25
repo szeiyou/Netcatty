@@ -1,7 +1,7 @@
 import { useCallback, useRef, useState } from "react";
 import type { SftpFileEntry } from "../../../types";
 import type { TransferStatus } from "../../../domain/models";
-import { getParentPath, joinPath as joinFsPath } from "../../../application/state/sftp/utils";
+import { getParentPath, joinTransferTargetPath } from "../../../application/state/sftp/utils";
 import {
   DEFAULT_SFTP_FILE_TRANSFER_CONCURRENCY,
   runBoundedConcurrency,
@@ -12,6 +12,7 @@ import { netcattyBridge } from "../../../infrastructure/services/netcattyBridge"
 import { getFileExtension, getLanguageId, FileOpenerType, SystemAppInfo } from "../../../lib/sftpFileUtils";
 import { isNavigableDirectory } from "../utils";
 import { resolveDownloadSourceSnapshot } from "../../../application/state/sftp/downloadSourceSnapshot";
+import { getSftpDownloadDialogDirectoryOptions } from "../../../application/state/sftp/downloadLocation";
 import { reportSftpUploadResults } from "../reportSftpUploadResults";
 import { editorTabStore } from "../../../application/state/editorTabStore";
 import { popOutEditorTab } from "../../../application/state/editorWindowClient";
@@ -19,6 +20,9 @@ import { toEditorTabId, activeTabStore } from "../../../application/state/active
 import type { TextEditorModalSnapshot } from "../../TextEditorModal";
 import type { UseSftpViewFileOpsParams, UseSftpViewFileOpsResult } from "./useSftpViewFileOps.types";
 import { assertSftpFileFitsBuiltinEditor } from "../sftpEditorFileLimits";
+import type { PackedDownloadRequest } from "../../../application/state/sftp/useSftpTransfers.types";
+import { createSftpArchiveForPane } from "../../../application/state/sftp/createSftpArchive";
+import type { SftpArchiveCreationOptions, SftpArchiveCreationTarget } from "../../../domain/sftpArchiveCreation";
 
 /** Local multi-select blob downloads read whole files into ArrayBuffers. */
 const LOCAL_BLOB_DOWNLOAD_CONCURRENCY = 1;
@@ -449,6 +453,32 @@ export const useSftpViewFileOps = ({
     [handleUploadExternalFolderForSide],
   );
 
+  // Return the local folder only if the caller should continue via ordinary SFTP.
+  const tryPackedDownload = useCallback(async (request: PackedDownloadRequest): Promise<string | null> => {
+    let localDirectory = request.localDirectory;
+    for (;;) {
+      if (getSftpIdForConnection?.(request.connectionId) !== request.sftpId) {
+        throw new Error("The SFTP connection changed while choosing the download target");
+      }
+      const status = await sftpRef.current.tryPackedDownload?.({ ...request, localDirectory }) ?? "regular";
+      if (status === "conflict") {
+        if (!window.confirm(t("sftp.packedDownload.conflict"))) return null;
+        const destination = await selectDirectory?.(
+          t("sftp.context.download"),
+          undefined,
+          getSftpDownloadDialogDirectoryOptions(),
+        );
+        if (!destination) return null;
+        localDirectory = destination;
+        continue;
+      }
+      if (status === "unsupported") toast.info(t("sftp.packedDownload.fallback"), "SFTP");
+      if (status === "regular" || status === "unsupported") return localDirectory;
+      if (status === "completed") toast.success(`${t("sftp.context.download")}: ${request.fileName}`, "SFTP");
+      return null;
+    }
+  }, [getSftpIdForConnection, selectDirectory, sftpRef, t]);
+
   const handleDownloadFileForSide = useCallback(
     async (side: "left" | "right", file: SftpFileEntry, fullPath?: string) => {
       const pane = side === "left" ? sftpRef.current.leftPane : sftpRef.current.rightPane;
@@ -511,7 +541,11 @@ export const useSftpViewFileOps = ({
             return;
           }
 
-          const selectedDirectory = await selectDirectory(t("sftp.context.download"));
+          const selectedDirectory = await selectDirectory(
+            t("sftp.context.download"),
+            undefined,
+            getSftpDownloadDialogDirectoryOptions(),
+          );
           if (!selectedDirectory) return;
 
           // The picker may stay open while the remote entry changes again.
@@ -523,7 +557,15 @@ export const useSftpViewFileOps = ({
           if (!selectedSnapshot.isDirectory) {
             throw new Error("Remote source changed while choosing the download target");
           }
-          const targetPath = joinFsPath(selectedDirectory, file.name);
+          // The ordinary walker follows selected directory symlinks. A tar stream
+          // contains the link itself, which may point outside this selection.
+          const destination = file.type === "symlink" ? selectedDirectory : await tryPackedDownload({
+            names: [file.name], fileName: file.name, remoteDirectory: getParentPath(resolvedFullPath),
+            localDirectory: selectedDirectory, sftpId, connectionId: pane.connection.id,
+            sourceHostId: pane.connection.hostId, sourceHostLabel: pane.connection.hostLabel, sourceEncoding: pane.filenameEncoding,
+          });
+          if (!destination) return;
+          const targetPath = joinTransferTargetPath(destination, file.name);
 
           try {
             const status = await sftpRef.current.downloadToLocal({
@@ -553,7 +595,11 @@ export const useSftpViewFileOps = ({
 
           return;
         }
-        const targetPath = await showSaveDialog(file.name);
+        const targetPath = await showSaveDialog(
+          file.name,
+          undefined,
+          getSftpDownloadDialogDirectoryOptions(),
+        );
         if (!targetPath) return;
 
         const selectedSnapshot = await resolveDownloadSourceSnapshot(
@@ -600,6 +646,7 @@ export const useSftpViewFileOps = ({
       getSftpIdForConnection,
       statSftp,
       listSftp,
+      tryPackedDownload,
     ],
   );
 
@@ -659,15 +706,43 @@ export const useSftpViewFileOps = ({
     [handleExtractArchiveForSide],
   );
 
+  const handleCreateArchiveForSide = useCallback(
+    async (side: "left" | "right", options: SftpArchiveCreationOptions, target: SftpArchiveCreationTarget) => {
+      const result = await createSftpArchiveForPane({
+        getPane: () => side === "left" ? sftpRef.current.leftPane : sftpRef.current.rightPane,
+        target,
+        options,
+        bridge: netcattyBridge.get(),
+        getSftpIdForConnection,
+        refresh: (tabId) => sftpRef.current.refresh(side, { tabId }),
+        t,
+      });
+      if (result.success) {
+        toast.success(t("sftp.archive.success", { fileName: options.archiveName }), "SFTP");
+      }
+      return result;
+    },
+    [getSftpIdForConnection, sftpRef, t],
+  );
+  const onCreateArchiveLeft = useCallback(
+    (options: SftpArchiveCreationOptions, target: SftpArchiveCreationTarget) => handleCreateArchiveForSide("left", options, target),
+    [handleCreateArchiveForSide],
+  );
+  const onCreateArchiveRight = useCallback(
+    (options: SftpArchiveCreationOptions, target: SftpArchiveCreationTarget) => handleCreateArchiveForSide("right", options, target),
+    [handleCreateArchiveForSide],
+  );
+
   // Multi-file download. For local panes, each file auto-downloads as a blob
   // (no prompt). For remote panes, prompts for a target directory once and
   // streams all selected entries into it — avoids the per-file save dialog
   // that would otherwise appear N times.
   const handleDownloadFilesForSide = useCallback(
-    async (side: "left" | "right", files: SftpFileEntry[]) => {
+    async (side: "left" | "right", files: SftpFileEntry[], fullPaths?: string[]) => {
       if (files.length === 0) return;
+      if (fullPaths && (fullPaths.length !== files.length || fullPaths.some((path) => !path))) return;
       if (files.length === 1) {
-        await handleDownloadFileForSide(side, files[0]);
+        await handleDownloadFileForSide(side, files[0], fullPaths?.[0]);
         return;
       }
 
@@ -679,8 +754,8 @@ export const useSftpViewFileOps = ({
         await runBoundedConcurrency(
           files,
           LOCAL_BLOB_DOWNLOAD_CONCURRENCY,
-          async (file) => {
-            await handleDownloadFileForSide(side, file);
+          async (file, index) => {
+            await handleDownloadFileForSide(side, file, fullPaths?.[index]);
           },
         );
         return;
@@ -697,9 +772,44 @@ export const useSftpViewFileOps = ({
         return;
       }
 
-      const selectedDirectory = await selectDirectory(t("sftp.context.download"));
+      const connectionId = pane.connection.id;
+      const paths = fullPaths ?? files.map((file) => sftpRef.current.joinPath(pane.connection.currentPath, file.name));
+      // Selecting two tree paths with the same basename needs two independent destinations.
+      if (new Set(files.map((file) => file.name.normalize("NFC").toLowerCase())).size !== files.length) {
+        for (const [index, file] of files.entries()) {
+          const currentPane = side === "left" ? sftpRef.current.leftPane : sftpRef.current.rightPane;
+          if (currentPane.connection?.id !== connectionId || getSftpIdForConnection(connectionId) !== sftpId) {
+            toast.error("The SFTP connection changed while choosing the download target", "SFTP");
+            return;
+          }
+          await handleDownloadFileForSide(side, file, paths[index]);
+        }
+        return;
+      }
+      const parents = paths.map((path) => getParentPath(path));
+      let selectedDirectory = await selectDirectory(
+        t("sftp.context.download"),
+        undefined,
+        getSftpDownloadDialogDirectoryOptions(),
+      );
       if (!selectedDirectory) return;
 
+      if (parents.every((parent) => parent === parents[0]) && files.every((file) => file.type !== "symlink")) {
+        try {
+          selectedDirectory = await tryPackedDownload({
+            names: files.map((file) => file.name),
+            fileName: t("sftp.packedDownload.selection", { count: files.length }),
+            remoteDirectory: parents[0], localDirectory: selectedDirectory,
+            sftpId, connectionId: pane.connection.id, sourceHostId: pane.connection.hostId,
+            sourceHostLabel: pane.connection.hostLabel, sourceEncoding: pane.filenameEncoding,
+          });
+        } catch (error) {
+          toast.error(error instanceof Error ? error.message : t("sftp.error.downloadFailed"), "SFTP");
+          return;
+        }
+        if (!selectedDirectory) return;
+      }
+      const destination = selectedDirectory;
       // Bound root jobs: each directory root walks and transfers independently,
       // so unbounded Promise.allSettled would multiply session / LIST pressure.
       const results: Array<PromiseSettledResult<{ file: SftpFileEntry; status: TransferStatus }>> = [];
@@ -708,8 +818,8 @@ export const useSftpViewFileOps = ({
         MULTI_SELECT_ROOT_DOWNLOAD_CONCURRENCY,
         async (file, index) => {
           try {
-            const sourcePath = sftpRef.current.joinPath(pane.connection.currentPath, file.name);
-            const targetPath = joinFsPath(selectedDirectory, file.name);
+            const sourcePath = paths[index];
+            const targetPath = joinTransferTargetPath(destination, file.name);
             // Re-stat each root: the listed entries can be stale after
             // terminal-side delete + recreate without a refresh.
             const sourceSnapshot = await resolveDownloadSourceSnapshot(
@@ -767,16 +877,17 @@ export const useSftpViewFileOps = ({
       statSftp,
       listSftp,
       handleDownloadFileForSide,
+      tryPackedDownload,
     ],
   );
 
   const onDownloadFilesLeft = useCallback(
-    (files: SftpFileEntry[]) => handleDownloadFilesForSide("left", files),
+    (files: SftpFileEntry[], fullPaths?: string[]) => handleDownloadFilesForSide("left", files, fullPaths),
     [handleDownloadFilesForSide],
   );
 
   const onDownloadFilesRight = useCallback(
-    (files: SftpFileEntry[]) => handleDownloadFilesForSide("right", files),
+    (files: SftpFileEntry[], fullPaths?: string[]) => handleDownloadFilesForSide("right", files, fullPaths),
     [handleDownloadFilesForSide],
   );
 
@@ -875,6 +986,8 @@ export const useSftpViewFileOps = ({
     onDownloadFileRight,
     onExtractArchiveLeft,
     onExtractArchiveRight,
+    onCreateArchiveLeft,
+    onCreateArchiveRight,
     onDownloadFilesLeft,
     onDownloadFilesRight,
     onUploadExternalFilesLeft,

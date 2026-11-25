@@ -46,7 +46,7 @@ test('visible tab recovery reuses a cached fit when the container size is unchan
 test('short unchanged tab reveals skip the recovery work entirely', () => {
   const recoverIndex = source.indexOf('const recoverTerminalAfterBecomeVisible = () => {');
   const fastPathIndex = source.indexOf('getHiddenDurationMs() < CSS_ONLY_TAB_REVEAL_MAX_HIDDEN_MS', recoverIndex);
-  const webglRecoveryIndex = source.indexOf('xtermRuntimeRef.current?.ensureWebglRenderer();', recoverIndex);
+  const webglRecoveryIndex = source.indexOf('xtermRuntimeRef.current?.clearTextureAtlas();', recoverIndex);
 
   assert.ok(recoverIndex >= 0);
   assert.ok(fastPathIndex > recoverIndex);
@@ -60,7 +60,7 @@ test('short unchanged tab reveals skip the recovery work entirely', () => {
 test('short unchanged tab reveals still flush pending hidden-output scroll', () => {
   const recoverIndex = source.indexOf('const recoverTerminalAfterBecomeVisible = () => {');
   const fastPathIndex = source.indexOf('getHiddenDurationMs() < CSS_ONLY_TAB_REVEAL_MAX_HIDDEN_MS', recoverIndex);
-  const webglRecoveryIndex = source.indexOf('xtermRuntimeRef.current?.ensureWebglRenderer();', recoverIndex);
+  const webglRecoveryIndex = source.indexOf('xtermRuntimeRef.current?.clearTextureAtlas();', recoverIndex);
   const delayedSkipIndex = source.indexOf('lastWebglRecoveryLayoutKeyRef.current === paneLayoutKey', webglRecoveryIndex);
   const delayedTimerIndex = source.indexOf('const timer = setTimeout', delayedSkipIndex);
 

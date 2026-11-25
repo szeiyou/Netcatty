@@ -17,7 +17,7 @@ export interface UserSkillSlashOption {
   description: string;
 }
 
-export type SystemSlashCommandSlug = 'stop' | 'compact';
+export type SystemSlashCommandSlug = 'stop' | 'compact' | 'rename' | 'chats' | 'rebind';
 
 export interface SystemSlashCommand {
   slug: SystemSlashCommandSlug;
@@ -124,6 +124,9 @@ export function filterUserSkillsForSlash(
 export const SYSTEM_BUILTIN_SLASH_COMMANDS: SystemSlashCommand[] = [
   { slug: 'compact', name: 'Compact context', descriptionKey: 'ai.chat.slashCompactDesc' },
   { slug: 'stop', name: 'Stop', descriptionKey: 'ai.chat.slashStopDesc' },
+  { slug: 'rename', name: 'Rename chat', descriptionKey: 'ai.chat.slashRenameDesc' },
+  { slug: 'chats', name: 'List chats', descriptionKey: 'ai.chat.slashChatsDesc' },
+  { slug: 'rebind', name: 'Rebind chat', descriptionKey: 'ai.chat.slashRebindDesc' },
 ];
 
 export function filterSystemSlashCommands(
@@ -193,14 +196,29 @@ export function createQuickMessageId(): string {
   return `qm_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
-export function isSystemStopSlashCommand(input: string): boolean {
-  const trimmed = input.trim();
-  return /^\/stop(?:\s|$)/i.test(trimmed) || trimmed.toLowerCase() === '/stop';
-}
-
 export function getSystemSlashCommand(input: string): SystemSlashCommandSlug | null {
   const trimmed = input.trim().toLowerCase();
   if (/^\/stop(?:\s|$)/.test(trimmed)) return 'stop';
   if (trimmed === '/compact') return 'compact';
+  if (/^\/rename(?:\s|$)/.test(trimmed)) return 'rename';
+  if (trimmed === '/chats') return 'chats';
+  if (/^\/rebind(?:\s|$)/.test(trimmed)) return 'rebind';
   return null;
+}
+
+/**
+ * Extracts the argument from a `/rebind <n>` submission (the 1-based number
+ * of a dangling entry in the last `/chats` listing). Returns the empty string
+ * when no argument was provided (the caller shows a usage hint).
+ */
+export function getRebindSlashCommandArg(input: string): string {
+  return input.trim().replace(/^\/rebind\s*/i, '').trim();
+}
+
+/**
+ * Extracts the new title from a `/rename <title>` submission. Returns the
+ * empty string when no title was provided (the caller shows a usage hint).
+ */
+export function getRenameSlashCommandTitle(input: string): string {
+  return input.trim().replace(/^\/rename\s*/i, '').trim();
 }

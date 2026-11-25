@@ -179,7 +179,12 @@ class BrowserPluginRuntime {
     this.port = port1;
     this.router = new PluginRpcRouter({
       pluginId: this.plugin.id,
-      send: (message, transfer = []) => port1.postMessage(message, transfer),
+      send: (message, transfer = []) => {
+        // Electron MessagePortMain transfers ports only. ArrayBuffers remain
+        // in the envelope and are structured-cloned; passing them in this
+        // transfer list throws before the first database greeting is sent.
+        port1.postMessage(message, transfer.filter((item) => !(item instanceof ArrayBuffer)));
+      },
       requestHandlers: this.requestHandlers,
       notificationHandlers: this.notificationHandlers,
       onBeforeMessage: this.onBeforeMessage,
@@ -288,9 +293,9 @@ class BrowserPluginRuntime {
     this.router.notify(method, params);
   }
 
-  openStream(streamId, windowBytes) {
+  openStream(streamId, windowBytes, options) {
     if (!this.router) return Promise.reject(new Error("Plugin browser runtime is not connected"));
-    return this.router.streams.openOutgoing(streamId, windowBytes);
+    return this.router.streams.openOutgoing(streamId, windowBytes, options);
   }
 
   getProcessId() {

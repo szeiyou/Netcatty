@@ -11,7 +11,7 @@ import {
 } from 'lucide-react';
 import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { cn } from '../lib/utils';
-import { matchesHostSearchQuery, matchesSearchQuery } from '../lib/searchMatcher';
+import { matchesHostSearchQuery, matchesSearchQuery } from '../domain/searchMatcher';
 import { useI18n } from '../application/i18n/I18nProvider';
 import {
   collectSelectableHostIdsInGroup,
@@ -50,6 +50,7 @@ export interface SelectHostPanelContentProps {
   /** Preferred multi-select path for host/group toggles (selection resolves to host ids). */
   onSelectionChange?: (selectedHostIds: string[]) => void;
   onConfirm: () => void;
+  confirmDisabled?: boolean;
   onNewHost?: () => void;
   availableKeys?: SSHKey[];
   identities?: import('../domain/models').Identity[];
@@ -79,6 +80,7 @@ export const SelectHostPanelContent: React.FC<SelectHostPanelContentProps> = ({
   onSelect,
   onSelectionChange,
   onConfirm,
+  confirmDisabled = false,
   onNewHost,
   availableKeys = [],
   identities = [],
@@ -643,7 +645,7 @@ export const SelectHostPanelContent: React.FC<SelectHostPanelContentProps> = ({
         <div className="px-4 py-3 border-t border-border/60 shrink-0">
           <Button
             className="w-full"
-            disabled={selectedHostIds.length === 0}
+            disabled={confirmDisabled || selectedHostIds.length === 0}
             onClick={onConfirm}
           >
             {multiSelect

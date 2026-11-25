@@ -66,6 +66,68 @@ const warnOnOutdatedOptimizeDep = (): Plugin => ({
   },
 });
 
+const WOFF2_SOURCE_RE = /url\(\s*['"]?[^)'"]+\.woff2(?:[?#][^)'"]*)?['"]?\s*\)/i;
+const TRAILING_WOFF_FALLBACK_RE = /,\s*url\(\s*['"]?[^)'"]+\.woff(?:[?#][^)'"]*)?['"]?\s*\)\s*format\(\s*['"]woff['"]\s*\)/gi;
+const LEADING_WOFF_FALLBACK_RE = /url\(\s*['"]?[^)'"]+\.woff(?:[?#][^)'"]*)?['"]?\s*\)\s*format\(\s*['"]woff['"]\s*\)\s*,\s*/gi;
+const FONTSOURCE_CSS_ID_RE = /(?:^|[\\/])node_modules[\\/]@fontsource[\\/].+\.css(?:\?.*)?$/i;
+
+export function isFontsourceStylesheetId(id: string): boolean {
+  return FONTSOURCE_CSS_ID_RE.test(id);
+}
+
+/**
+ * Electron/Chromium always supports WOFF2; strip redundant legacy `.woff`
+ * fallbacks from `@fontsource/*` stylesheets when a `.woff2` source is present
+ * so Vite does not emit unused `.woff` assets into `dist/assets/`.
+ */
+export function stripFontsourceWoffFallbacks(css: string): string {
+  return css.replace(/src\s*:[^;]+;/gi, (declaration) => {
+    if (!WOFF2_SOURCE_RE.test(declaration)) {
+      return declaration;
+    }
+    return declaration
+      .replace(TRAILING_WOFF_FALLBACK_RE, '')
+      .replace(LEADING_WOFF_FALLBACK_RE, '');
+  });
+}
+
+const stripFontsourceWoffPlugin = (): Plugin => ({
+  name: 'strip-fontsource-woff-fallbacks',
+  enforce: 'pre',
+  transform(code, id) {
+    if (!isFontsourceStylesheetId(id) || !code.includes('.woff')) return null;
+    const next = stripFontsourceWoffFallbacks(code);
+    if (next === code) return null;
+    return { code: next, map: null };
+  },
+});
+
+const VENDOR_CHUNK_PACKAGES: Array<[chunk: string, packages: string[]]> = [
+  ['vendor-radix', ['@radix-ui/']],
+  ['vendor-xterm', ['@xterm/']],
+  ['vendor-ai', ['ai', '@ai-sdk/', 'zod']],
+];
+
+/** Group node_modules packages into the vendor chunks; leave everything else to Rollup. */
+function resolveVendorChunk(id: string): string | undefined {
+  // Rollup also moves unassigned dependencies of manual-chunk modules into
+  // that chunk. Vite's dynamic-import preload helper is needed by the startup
+  // entry, so give it its own tiny chunk instead of letting it ride along
+  // with the (lazily used) AI SDK.
+  if (id.includes('vite/preload-helper')) return 'preload-helper';
+  const marker = '/node_modules/';
+  const index = id.lastIndexOf(marker);
+  if (index < 0) return undefined;
+  const packagePath = id.slice(index + marker.length);
+  for (const [chunk, packages] of VENDOR_CHUNK_PACKAGES) {
+    const matches = packages.some((name) => (name.endsWith('/')
+      ? packagePath.startsWith(name)
+      : packagePath === name || packagePath.startsWith(`${name}/`)));
+    if (matches) return chunk;
+  }
+  return undefined;
+}
+
 export default defineConfig(() => {
     return {
       base: "./",
@@ -86,7 +148,12 @@ export default defineConfig(() => {
       build: {
         // The shared runtime is also required by Electron; convert it for browser builds.
         commonjsOptions: {
-          include: [/node_modules/, /domain\/systemManager\/containerRuntime\.shared\.cjs$/],
+          include: [
+            /node_modules/,
+            /domain\/(?:sshPublicKey|singleChannelSshBanner|terminalPromptSecurity|totpPrompt)\.shared\.cjs$/,
+            /domain\/systemManager\/containerRuntime\.shared\.cjs$/,
+            /domain\/plugin(?:RuntimePolicy|PermissionDescriptions|ThemePack|RemoteTreePolicy|ViewStylePolicy|GitHubRepository)\.cjs$/,
+          ],
         },
         chunkSizeWarningLimit: 3000,
         target: 'esnext', // Required for top-level await in WASM modules
@@ -94,50 +161,41 @@ export default defineConfig(() => {
         // Optimize chunk splitting for faster initial load
         rollupOptions: {
           output: {
-            manualChunks: {
-              // Vendor chunks - rarely change, can be cached aggressively
-              'vendor-radix': [
-                '@radix-ui/react-collapsible',
-                '@radix-ui/react-context-menu',
-                '@radix-ui/react-dialog',
-                '@radix-ui/react-popover',
-                '@radix-ui/react-scroll-area',
-                '@radix-ui/react-select',
-                '@radix-ui/react-tabs',
-              ],
-              'vendor-xterm': [
-                '@xterm/xterm',
-                '@xterm/addon-fit',
-                '@xterm/addon-image',
-                '@xterm/addon-ligatures',
-                '@xterm/addon-search',
-                '@xterm/addon-serialize',
-                '@xterm/addon-web-links',
-                '@xterm/addon-webgl',
-              ],
-              'vendor-ai': [
-                'ai',
-                '@ai-sdk/openai',
-                '@ai-sdk/anthropic',
-                '@ai-sdk/google',
-                'zod',
-              ],
-            },
+            // Vendor chunks - rarely change, can be cached aggressively.
+            // Function form on purpose: the object form also moves every
+            // dependency of the listed packages into the chunk, including
+            // Vite's shared preload helper (the AI SDK uses import()). The
+            // startup entry then imported that helper from vendor-ai and the
+            // whole AI SDK chunk was preloaded and evaluated on every launch.
+            manualChunks: resolveVendorChunk,
           },
         },
       },
-      plugins: [suppressMonacoSourcemapWarning(), devContentSecurityPolicyPlugin(), warnOnOutdatedOptimizeDep(), tailwindcss(), react()],
+      plugins: [suppressMonacoSourcemapWarning(), devContentSecurityPolicyPlugin(), warnOnOutdatedOptimizeDep(), stripFontsourceWoffPlugin(), tailwindcss(), react()],
       optimizeDeps: {
         include: [
           // Keep the renderer alias pre-bundled so dev serves ESM instead of raw CommonJS.
           '@/domain/systemManager/containerRuntime.shared.cjs',
+          '@/domain/sshPublicKey.shared.cjs',
+          '@/domain/singleChannelSshBanner.shared.cjs',
+          '@/domain/terminalPromptSecurity.shared.cjs',
+          '@/domain/terminalInterruptParsing.shared.cjs',
+          '@/domain/programmaticCommandLog.shared.cjs',
+          '@/domain/sdkSessionIdentity.shared.cjs',
+          '@/domain/totpPrompt.shared.cjs',
+          '@/lib/localShell.cjs',
+          '@/domain/pluginRuntimePolicy.cjs',
+          '@/domain/pluginGitHubRepository.cjs',
+          '@/domain/pluginPermissionDescriptions.cjs',
+          '@/domain/pluginThemePack.cjs',
+          '@/domain/pluginRemoteTreePolicy.cjs',
+          '@/domain/pluginViewStylePolicy.cjs',
           'ai',
           '@ai-sdk/openai',
           '@ai-sdk/anthropic',
           '@ai-sdk/google',
           'streamdown',
           '@streamdown/cjk',
-          '@streamdown/code',
           'zod',
         ],
       },

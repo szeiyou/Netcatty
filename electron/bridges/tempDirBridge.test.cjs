@@ -1038,3 +1038,146 @@ test("Linux basic_text and unknown backends are not treated as secure storage", 
   assert.equal(tempDirBridge.isSecureToolOutputStorageAvailable(storage("gnome_libsecret"), "linux"), true);
   assert.equal(tempDirBridge.isSecureToolOutputStorageAvailable(storage("basic_text"), "darwin"), true);
 });
+
+test("reapplying the same custom temp root does not rebind it", () => {
+  const fixture = fs.realpathSync(fs.mkdtempSync(tempDirBridge.getTempFilePath("pref-noop-")));
+  const userData = path.join(fixture, "prefs");
+  fs.mkdirSync(userData);
+  try {
+    tempDirBridge.configureTempDirPreference({ app: { getPath: () => userData } });
+    const managed = tempDirBridge.setCustomTempDir(path.join(fixture, "custom"));
+    const generation = tempDirBridge.getTempDirRebindGeneration();
+    assert.equal(tempDirBridge.setCustomTempDir(managed), managed);
+    assert.equal(tempDirBridge.getTempDirRebindGeneration(), generation);
+    assert.equal(tempDirBridge.applyCustomTempDir(managed), managed);
+    assert.equal(tempDirBridge.getTempDirRebindGeneration(), generation);
+  } finally {
+    tempDirBridge.configureTempDirPreference({ app: { getPath: () => fixture } });
+    fs.rmSync(fixture, { recursive: true, force: true });
+  }
+});
+
+test("custom temp preference validates, creates, persists, and resets roots", async () => {
+  const bridge = require("./tempDirBridge.cjs");
+  const fixture = fs.realpathSync(fs.mkdtempSync(tempDirBridge.getTempFilePath("pref-test-")));
+  const userData = path.join(fixture, "prefs");
+  fs.mkdirSync(userData);
+  try {
+    bridge.configureTempDirPreference({ app: { getPath: () => userData } });
+    assert.equal(bridge.getTempDir(), bridge.resolvePrivateTempDir());
+    const existing = path.join(fixture, "existing");
+    fs.mkdirSync(existing);
+    fs.chmodSync(existing, 0o755);
+    const sibling = path.join(existing, "keep.txt");
+    fs.writeFileSync(sibling, "keep");
+    const managed = path.join(existing, "Netcatty");
+    bridge.setCustomTempDir(existing);
+    assert.equal(bridge.getTempDir(), managed);
+    if (process.platform !== "win32") {
+      assert.equal(fs.statSync(existing).mode & 0o777, 0o755);
+      assert.equal(fs.statSync(managed).mode & 0o777, 0o700);
+    }
+    fs.writeFileSync(path.join(managed, "staged.txt"), "staged");
+    await bridge.clearTempDir();
+    assert.equal(fs.readFileSync(sibling, "utf8"), "keep");
+    assert.equal(fs.existsSync(path.join(managed, "staged.txt")), false);
+    assert.equal(fs.existsSync(path.join(managed, ".netcatty-managed-temp")), true);
+    const unsafeParent = path.join(fixture, "unsafe");
+    const unsafe = path.join(unsafeParent, "Netcatty");
+    fs.mkdirSync(unsafe, { recursive: true });
+    fs.writeFileSync(path.join(unsafe, "user.txt"), "keep");
+    fs.writeFileSync(path.join(unsafeParent, "sibling.txt"), "keep");
+    assert.throws(() => bridge.setCustomTempDir(unsafeParent), /not empty/);
+    assert.equal(bridge.getTempDir(), managed);
+    assert.equal(fs.readFileSync(path.join(unsafe, "user.txt"), "utf8"), "keep");
+    assert.equal(fs.readFileSync(path.join(unsafeParent, "sibling.txt"), "utf8"), "keep");
+    bridge.applyCustomTempDir(managed);
+    assert.equal(bridge.getTempDir(), managed);
+    assert.equal(bridge.setCustomTempDir(managed), managed);
+    assert.equal((await bridge.getTempDirInfo()).isCustom, true);
+    const created = path.join(fixture, "new", "nested");
+    bridge.setCustomTempDir(created);
+    assert.equal(bridge.getTempDir(), path.join(created, "Netcatty"));
+    assert.equal(fs.statSync(created).isDirectory(), true);
+    const file = path.join(fixture, "file");
+    fs.writeFileSync(file, "x");
+    for (const invalid of ["", "relative", file, path.join(file, "child")]) {
+      assert.throws(() => bridge.setCustomTempDir(invalid));
+      assert.equal(bridge.getTempDir(), path.join(created, "Netcatty"));
+    }
+    if (process.platform !== "win32") {
+      const link = path.join(fixture, "link");
+      fs.symlinkSync(existing, link);
+      assert.throws(() => bridge.setCustomTempDir(link));
+      assert.equal(bridge.getTempDir(), path.join(created, "Netcatty"));
+    }
+    bridge.configureTempDirPreference({ app: { getPath: () => userData } });
+    assert.equal(bridge.getTempDir(), path.join(created, "Netcatty"));
+    bridge.resetCustomTempDir();
+    assert.equal(bridge.getTempDir(), bridge.resolvePrivateTempDir());
+    assert.equal((await bridge.getTempDirInfo()).isCustom, false);
+  } finally {
+    fs.rmSync(fixture, { recursive: true, force: true });
+  }
+});
+
+
+test("managed worker workspaces are visible, survive active cleanup, and can be cleared after a crash", async t => {
+  const { spawn } = require("node:child_process");
+  const { once } = require("node:events");
+  const root = fs.realpathSync(await fs.promises.mkdtemp(path.join(require("node:os").tmpdir(), "netcatty-workspace-")));
+  const previous = tempDirBridge.getCustomTempDir();
+  const managed = tempDirBridge.applyCustomTempDir(root);
+  const outside = path.join(root, "outside");
+  fs.mkdirSync(outside);
+  fs.writeFileSync(path.join(outside, "keep"), "outside");
+  const script = `
+    const fs = require("node:fs"), path = require("node:path");
+    const bridge = require(${JSON.stringify(require.resolve("./tempDirBridge.cjs"))});
+    bridge.applyCustomTempDir(process.argv[1]);
+    const workspace = bridge.createManagedTempDirectory("packed-download");
+    fs.mkdirSync(path.join(workspace.path, "contents"));
+    fs.writeFileSync(path.join(workspace.path, "archive"), "archive");
+    fs.writeFileSync(path.join(workspace.path, "contents", "data"), "unpacked");
+    process.send({ path: workspace.path });
+    setInterval(() => {}, 1000);
+  `;
+  const child = spawn(process.execPath, ["-e", script, managed], { stdio: ["ignore", "ignore", "pipe", "ipc"] });
+  t.after(async () => {
+    if (child.exitCode == null && child.signalCode == null) { child.kill("SIGKILL"); await once(child, "exit"); }
+    tempDirBridge.applyCustomTempDir(previous);
+    await fs.promises.rm(root, { recursive: true, force: true });
+  });
+  const [{ path: workspace }] = await once(child, "message");
+  if (process.platform !== "win32") fs.symlinkSync(outside, path.join(workspace, "outside-link"));
+  const info = await tempDirBridge.getTempDirInfo();
+  assert.equal(info.fileCount, process.platform === "win32" ? 2 : 3);
+  assert.equal(info.totalSize, 15 + (process.platform === "win32" ? 0 : fs.lstatSync(path.join(workspace, "outside-link")).size));
+  assert.deepEqual(await tempDirBridge.clearTempDir(), { deletedCount: 0, failedCount: 0 });
+  assert.equal(fs.existsSync(path.join(workspace, "archive")), true, "main-process cleanup must preserve the active worker's data");
+  child.kill("SIGKILL");
+  await once(child, "exit");
+  assert.deepEqual(await tempDirBridge.clearTempDir(), { deletedCount: 1, failedCount: 0 });
+  assert.equal(fs.existsSync(workspace), false);
+  assert.equal(fs.readFileSync(path.join(outside, "keep"), "utf8"), "outside");
+  assert.equal((await tempDirBridge.getTempDirInfo()).fileCount, 0);
+});
+
+test("failed workspace disposal releases active protection for manual cleanup in the same process", async t => {
+  const root = fs.realpathSync(await fs.promises.mkdtemp(path.join(require("node:os").tmpdir(), "netcatty-workspace-dispose-")));
+  const previous = tempDirBridge.getCustomTempDir();
+  const managed = tempDirBridge.applyCustomTempDir(root);
+  t.after(async () => { tempDirBridge.applyCustomTempDir(previous); await fs.promises.rm(root, { recursive: true, force: true }); });
+  const workspace = tempDirBridge.createManagedTempDirectory("packed-download");
+  fs.writeFileSync(path.join(workspace.path, "archive"), "archive");
+  const realRm = fs.promises.rm.bind(fs.promises);
+  const mockedRm = t.mock.method(fs.promises, "rm", async file => {
+    if (path.dirname(file) === managed) throw Object.assign(new Error("busy"), { code: "EBUSY" });
+    return realRm(file, { recursive: true, force: true });
+  });
+  await assert.rejects(workspace.dispose(), { code: "EBUSY" });
+  mockedRm.mock.restore();
+  assert.equal((await tempDirBridge.getTempDirInfo()).totalSize, 7);
+  assert.deepEqual(await tempDirBridge.clearTempDir(), { deletedCount: 1, failedCount: 0 });
+  assert.deepEqual(fs.readdirSync(managed), [".netcatty-managed-temp"]);
+});

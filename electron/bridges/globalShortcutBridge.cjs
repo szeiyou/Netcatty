@@ -439,6 +439,7 @@ function ensureTrayPanelWindow() {
     // see-through. On Windows, disable OS rounding so it does not stack under
     // the CSS radius (#2505 / Electron #46468).
     ...windowsCssRoundedOverlayChromeOptions(),
+    ...(process.platform === "darwin" ? { visualEffectState: "active" } : {}),
     webPreferences: {
       preload: path.join(__dirname, "../preload.cjs"),
       contextIsolation: true,
@@ -450,16 +451,38 @@ function ensureTrayPanelWindow() {
     },
   });
 
+  require("./windowManager.cjs").applyTrayPanelBackgroundBlur(trayPanelWindow);
+
   trayPanelWindow.webContents.on("console-message", (_event, level, message) => {
     // Forward renderer logs to main process output for easy debugging.
     console.log(`[TrayPanel:renderer:${level}] ${message}`);
   });
 
-  trayPanelWindow.on("blur", () => {
+  const panelWin = trayPanelWindow;
+
+  panelWin.on("blur", () => {
     try {
-      trayPanelWindow?.hide();
+      if (trayPanelWindow === panelWin) {
+        hideTrayPanel();
+      }
     } catch {
       // ignore
+    }
+  });
+
+  panelWin.on("hide", () => {
+    if (trayPanelWindow === panelWin) {
+      trayPanelShowWhenReady = false;
+      clearTrayPanelRefreshTimer();
+    }
+  });
+
+  panelWin.on("closed", () => {
+    if (trayPanelWindow === panelWin) {
+      clearTrayPanelRefreshTimer();
+      trayPanelWindow = null;
+      trayPanelReady = false;
+      trayPanelShowWhenReady = false;
     }
   });
 
@@ -505,6 +528,13 @@ function readCursorPoint() {
   }
 }
 
+function clearTrayPanelRefreshTimer() {
+  if (trayPanelRefreshTimer) {
+    clearInterval(trayPanelRefreshTimer);
+    trayPanelRefreshTimer = null;
+  }
+}
+
 function showTrayPanel(eventBounds) {
   if (!tray) return;
   const { screen } = electronModule;
@@ -542,7 +572,7 @@ function showTrayPanel(eventBounds) {
 
   pushTrayMenuDataToPanel();
 
-  if (trayPanelRefreshTimer) clearInterval(trayPanelRefreshTimer);
+  clearTrayPanelRefreshTimer();
   trayPanelRefreshTimer = setInterval(() => {
     try {
       if (!trayPanelWindow || trayPanelWindow.isDestroyed() || !trayPanelWindow.isVisible()) return;
@@ -555,13 +585,13 @@ function showTrayPanel(eventBounds) {
 
 function hideTrayPanel() {
   trayPanelShowWhenReady = false;
+  clearTrayPanelRefreshTimer();
   if (trayPanelWindow && !trayPanelWindow.isDestroyed()) {
-    trayPanelWindow.hide();
-  }
-
-  if (trayPanelRefreshTimer) {
-    clearInterval(trayPanelRefreshTimer);
-    trayPanelRefreshTimer = null;
+    try {
+      trayPanelWindow.hide();
+    } catch {
+      // ignore
+    }
   }
 }
 
@@ -1106,10 +1136,10 @@ function buildTrayMenuTemplate() {
       menuTemplate.push({
         label: `  ${session.hostLabel || session.label}  (${statusText})`,
         click: () => {
-          // AI silent sessions open a terminal popup from the renderer and must
-          // not be force-focused into a tab-less main-window surface.
+          // AI silent sessions and popped-out tabs open/focus a detached popup
+          // from the renderer and must not restore the main window behind it.
           void sendToMainWindow("netcatty:tray:focusSession", session.id, {
-            focus: session.aiHidden !== true,
+            focus: session.aiHidden !== true && session.poppedOut !== true,
           });
         },
       });
@@ -1266,12 +1296,16 @@ function setTrayMenuData(data) {
   if (data.portForwardRules !== undefined) {
     trayMenuData.portForwardRules = data.portForwardRules;
   }
-  if (data.hosts !== undefined) {
+  const hostsChanged = data.hosts !== undefined;
+  if (hostsChanged) {
     trayMenuData.hosts = data.hosts;
   }
-  // Rebuild menu with new data
+  // Rebuild menu with new data. The Dock menu only lists hosts, and rebuilding
+  // it sorts every host and creates one native item per host, so skip it for
+  // the frequent session/port-forward-only updates (lock changes rebuild it
+  // separately).
   updateTrayMenu();
-  updateDockMenu();
+  if (hostsChanged) updateDockMenu();
   pushTrayMenuDataToPanel();
 }
 
@@ -1279,6 +1313,8 @@ function setTrayMenuData(data) {
  * Destroy the system tray icon
  */
 function destroyTray() {
+  hideTrayPanel();
+  unbindWindowsTrayScaleListener();
   if (tray) {
     try {
       tray.destroy();
@@ -1463,14 +1499,15 @@ function registerHandlers(ipcMain) {
   });
 
   ipcMain.handle("netcatty:trayPanel:startPortForward", async (_event, ruleId) => {
-    const win = await openMainWindowReady();
-    if (!win) return { success: false, error: "Main window is not available" };
     if (isAppRuntimeLocked()) {
+      const win = await openMainWindowReady();
+      if (!win) return { success: false, error: "Main window is not available" };
       sendOrQueuePortForwardToggle(win, ruleId, true);
       return { success: true };
     }
     const delivered = await sendToMainWindow("netcatty:trayPanel:startPortForward", ruleId, {
       focus: false,
+      createIfMissing: true,
     });
     return delivered
       ? { success: true }
@@ -1522,10 +1559,7 @@ function cleanup() {
     }
   }
 
-  if (trayPanelRefreshTimer) {
-    clearInterval(trayPanelRefreshTimer);
-    trayPanelRefreshTimer = null;
-  }
+  clearTrayPanelRefreshTimer();
 
   if (trayPanelWindow && !trayPanelWindow.isDestroyed()) {
     try {

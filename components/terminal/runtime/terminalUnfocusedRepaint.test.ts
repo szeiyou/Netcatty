@@ -233,7 +233,7 @@ test("repeated local writes stay queued without forcing parser flushes", async (
   assert.deepEqual(writes, []);
   assert.equal(hasPendingTerminalWrites(term), true);
 
-  const flushed = await flushPendingTerminalWritesBeforeHibernate(term);
+  const flushed = await flushPendingTerminalWritesBeforeHibernate(term, 5000);
 
   assert.equal(flushed, true);
   assert.equal(writes.join(""), localWrites.join(""));
@@ -250,7 +250,7 @@ test("full close-style flush drains more than the synchronous resume pass limit"
     }, { deferStart: true, yieldAfter: true });
   }
 
-  const flushed = await flushPendingTerminalWritesBeforeHibernate(term);
+  const flushed = await flushPendingTerminalWritesBeforeHibernate(term, 5000);
 
   assert.equal(flushed, true);
   assert.equal(hasPendingTerminalWrites(term), false);
@@ -564,15 +564,12 @@ test("app resume recovery flushes pending writes before WebGL recovery", () => {
   assert.match(source, /recoverWebglRendererOnAppResume\(\)/);
 });
 
-test("window focus preserves output batching and avoids forced layout recovery", () => {
+test("window focus skips layout recovery while the renderer and dimensions remain valid", () => {
   const source = readFileSync(new URL("../useTerminalEffects.ts", import.meta.url), "utf8");
-  const handler = source.slice(
-    source.indexOf("const handleWindowFocus = () => {"),
-    source.indexOf("document.addEventListener('visibilitychange', handleVisibilityChange)"),
-  );
+  const handler = source.slice(source.indexOf("const handleWindowFocus = () => {"), source.indexOf("document.addEventListener('visibilitychange', handleVisibilityChange)"));
   assert.match(handler, /cancelScheduledUnfocusedRepaint\(term\)/);
-  assert.match(handler, /recoverWebglRendererOnAppResume\(\)/);
-  assert.match(handler, /safeFit\(\{ requireVisible: true \}\)/);
-  assert.match(handler, /refreshTerminalViewport\(term\)/);
-  assert.doesNotMatch(handler, /recoverTerminalOnAppResume|scheduleLayoutRecoveryRefit|flushPendingTerminalWritesOnResume|forceTerminalRepaint|clearTextureAtlas|force: true/);
+  assert.match(handler, /flushPendingTerminalWritesOnResume\(term\)/);
+  assert.match(handler, /if \(!recreatedWebgl && currentContainerSizeAlreadyFit\(\)\) \{\s*return;/);
+  assert.ok(handler.indexOf("currentContainerSizeAlreadyFit()") < handler.indexOf("forceTerminalRepaintBypassingAnimationFrame(term)"));
+  assert.doesNotMatch(handler, /clearTextureAtlas|force: true/);
 });

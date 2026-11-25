@@ -71,16 +71,28 @@ import {
   mergeLatestFollowTerminalCwdHostSetting,
   resolveHostFollowTerminalCwd,
 } from "../domain/sftpFollowTerminalCwd";
+import { isWslLocalShell, resolveWslLocalSftpInitialPath } from "../domain/sftpWslLocalPath";
 import {
   canLocateSftpPathInTerminal,
   resolveLocateSftpPathInTerminalAction,
   resolveLocateSftpPathSessionId,
 } from "../domain/sftpLocatePathInTerminal";
+import {
+  canSendSftpPathToTerminal,
+  isTerminalContinuationPrompt,
+  isTerminalDraftContextSafeForCd,
+  isTerminalDraftContextSafeForPathInsertion,
+  resolveCdSftpPathInTerminalAction,
+  resolveInsertSftpPathInTerminalAction,
+} from "../domain/sftpTerminalPath";
 import { sftpRequiresDedicatedLogin } from "../domain/sftpDedicatedLogin";
-import { classifyDistroId } from "../domain/host";
+import { classifyDistroId, resolveHostOs } from "../domain/host";
 import { useTerminalBackend } from "../application/state/useTerminalBackend";
 import { isTerminalSensitiveInputActive } from "./terminal/runtime/terminalSensitiveInputRegistry";
-import { isTerminalReadyForCommandInjection } from "./terminal/runtime/terminalCommandInjectionReadyRegistry";
+import {
+  getTerminalPromptDraftContext,
+  isTerminalReadyForCommandInjection,
+} from "./terminal/runtime/terminalCommandInjectionReadyRegistry";
 import { getNextSftpToolbarDisplayPath } from "./sftp/SftpPaneToolbar";
 import { scheduleDeferredTerminalFocus } from "./systemManager/tmuxActionFocus";
 import {
@@ -651,12 +663,17 @@ const SftpSidePanelInner: React.FC<SftpSidePanelProps> = ({
       }
       connectedKeyRef.current = "local";
       const needsNewTab = !!(leftConn && leftConn.status === "connected");
+      const initialPath = resolveWslLocalSftpInitialPath(
+        activeHost,
+        activeTerminalCwd,
+        navigator.platform.toLowerCase().includes("win"),
+      );
       if (needsNewTab) {
-        s.connect("left", "local", { forceNewTab: true });
+        s.connect("left", "local", { forceNewTab: true, initialPath });
       } else if (leftConn) {
-        void s.disconnect("left").then(() => s.connect("left", "local"));
+        void s.disconnect("left").then(() => s.connect("left", "local", { initialPath }));
       } else {
-        s.connect("left", "local");
+        s.connect("left", "local", { initialPath });
       }
       return;
     }
@@ -979,6 +996,7 @@ const SftpSidePanelInner: React.FC<SftpSidePanelProps> = ({
   }, [
     activeHost,
     activeSessionId,
+    activeTerminalCwd,
     bindPendingUploadRebindTarget,
     focusedSessionId,
     initialLocation,
@@ -1691,10 +1709,14 @@ const SftpSidePanelInteractiveBody: React.FC<SftpSidePanelInteractiveBodyProps> 
     setPendingFollowOverride(null);
   }, [sftp.leftPane.connection?.id]);
 
+  const wslLocalHost = sftp.leftPane.connection?.isLocal
+    && navigator.platform.toLowerCase().includes("win")
+    && isWslLocalShell(displayHost) ? displayHost : null;
+
   const followTerminalCwdHost = useMemo(() => {
-    if (sftp.leftPane.connection?.isLocal) return null;
+    if (sftp.leftPane.connection?.isLocal && !wslLocalHost) return null;
     return displayHost;
-  }, [displayHost, sftp.leftPane.connection?.isLocal]);
+  }, [displayHost, sftp.leftPane.connection?.isLocal, wslLocalHost]);
 
   const effectiveFollowTerminalCwd = resolveHostFollowTerminalCwd(
     followTerminalCwdHost?.sftpFollowTerminalCwd,
@@ -1704,11 +1726,12 @@ const SftpSidePanelInteractiveBody: React.FC<SftpSidePanelInteractiveBodyProps> 
   const canFollowTerminalCwd = useMemo(() => {
     if (!onGetTerminalCwd || !followTerminalCwdHost) return false;
     if (bannerRequiresSingleChannel) return false;
+    if (wslLocalHost) return true;
     const proto = followTerminalCwdHost.protocol;
     if (proto === "local" || proto === "serial") return false;
     if (followTerminalCwdHost.id?.startsWith("local-") || followTerminalCwdHost.id?.startsWith("serial-")) return false;
     return true;
-  }, [bannerRequiresSingleChannel, followTerminalCwdHost, onGetTerminalCwd]);
+  }, [bannerRequiresSingleChannel, followTerminalCwdHost, onGetTerminalCwd, wslLocalHost]);
 
   const hasActiveWork = showTextEditor || !!permissionsState || showFileOpenerDialog
     || (sftp.activeFileWatchCountRef?.current ?? 0) > 0
@@ -1720,6 +1743,7 @@ const SftpSidePanelInteractiveBody: React.FC<SftpSidePanelInteractiveBodyProps> 
     handleGoToTerminalCwd,
     handleToggleFollowTerminalCwd,
   } = useSftpFollowTerminalCwd({
+    wslLocalHost,
     activeSessionId,
     focusedSessionId,
     activeTerminalCwd,
@@ -1802,6 +1826,36 @@ const SftpSidePanelInteractiveBody: React.FC<SftpSidePanelInteractiveBodyProps> 
   ]);
 
   const canLocatePathInTerminal = canLocateSftpPathInTerminal(locatePathInTerminalContext);
+  const canSendPathToTerminal = canSendSftpPathToTerminal(locatePathInTerminalContext);
+
+  const buildLiveTerminalPathContext = useCallback(() => {
+    const connection = sftpRef.current.leftPane.connection;
+    const locateSessionId = resolveLocateSftpPathSessionId({
+      activeSessionId,
+      focusedSessionId,
+    });
+    const session = sessions.find((candidate) => candidate.id === locateSessionId) ?? null;
+    const host = displayHost ?? activeHost;
+    const isNetworkDevice = host?.deviceType === "network"
+      || classifyDistroId(host?.distro) === "network-device";
+    return {
+      sessionId: locateSessionId,
+      sessionStatus: session?.status,
+      sessionHostId: session?.hostId,
+      sftpHostId: connection?.hostId,
+      sftpIsLocal: Boolean(connection?.isLocal),
+      protocol: session?.protocol ?? host?.protocol,
+      shellType: session?.shellType,
+      hostOs: host ? resolveHostOs(host) : undefined,
+      isNetworkDevice,
+      sessionHostname: session?.hostname,
+      sessionUsername: session?.username,
+      sessionPort: session?.port,
+      sftpHostname: host?.hostname,
+      sftpUsername: host?.username,
+      sftpPort: host?.port,
+    };
+  }, [activeHost, activeSessionId, displayHost, focusedSessionId, sessions, sftpRef]);
 
   const handleLocatePathInTerminal = useCallback(() => {
     const connection = sftpRef.current.leftPane.connection;
@@ -1850,6 +1904,61 @@ const SftpSidePanelInteractiveBody: React.FC<SftpSidePanelInteractiveBodyProps> 
     sftpRef,
     terminalBackend,
   ]);
+
+  const handleInsertPathToTerminal = useCallback((targetPath: string) => {
+    const context = buildLiveTerminalPathContext();
+    if (!canSendSftpPathToTerminal(context) || !context.sessionId) return;
+    // Never insert paths into a password/sudo prompt.
+    if (isTerminalSensitiveInputActive(context.sessionId)) return;
+    // Allow inserting at a prompt that already has a typed command draft (e.g. `vim `),
+    // while still blocking alternate-screen TUIs and non-prompt states.
+    if (!isTerminalReadyForCommandInjection(context.sessionId, { allowDraft: true })) return;
+    // Refuse insertion if the cursor is inside an unclosed quote, backtick,
+    // trailing escape, or continuation prompt where standalone quoting is unsafe.
+    const draftContext = getTerminalPromptDraftContext(context.sessionId);
+    if (!draftContext || isTerminalContinuationPrompt(draftContext.promptText)) {
+      toast.warning(t("sftp.terminal.insertBlockedUnsafeQuote"), "SFTP");
+      return;
+    }
+    const action = resolveInsertSftpPathInTerminalAction({
+      ...context,
+      promptText: draftContext.promptText,
+      path: targetPath,
+    });
+    if (!action) return;
+    if (
+      !isTerminalDraftContextSafeForPathInsertion({
+        ...draftContext,
+        shellKind: action.shellKind,
+      })
+    ) {
+      toast.warning(t("sftp.terminal.insertBlockedUnsafeQuote"), "SFTP");
+      return;
+    }
+    terminalBackend.writeToSession(action.sessionId, action.data, { automated: true });
+    scheduleDeferredTerminalFocus(onRequestTerminalFocus);
+  }, [buildLiveTerminalPathContext, onRequestTerminalFocus, t, terminalBackend]);
+
+  const handleCdInTerminal = useCallback((targetPath: string) => {
+    const context = buildLiveTerminalPathContext();
+    if (!canSendSftpPathToTerminal(context) || !context.sessionId) return;
+    // Never inject cd into a password/sudo prompt.
+    if (isTerminalSensitiveInputActive(context.sessionId)) return;
+    // Only submit cd at an idle shell prompt -- never append into typed input or a TUI.
+    if (!isTerminalReadyForCommandInjection(context.sessionId)) return;
+    // Reject continuation prompts (e.g. PS2 `>`, `dquote>`) where the shell is
+    // still reading an unterminated quote or compound command.
+    const draftContext = getTerminalPromptDraftContext(context.sessionId);
+    if (!draftContext || !isTerminalDraftContextSafeForCd(draftContext)) return;
+    const action = resolveCdSftpPathInTerminalAction({
+      ...context,
+      promptText: draftContext.promptText,
+      path: targetPath,
+    });
+    if (!action) return;
+    terminalBackend.writeToSession(action.sessionId, action.data, { automated: true });
+    scheduleDeferredTerminalFocus(onRequestTerminalFocus);
+  }, [buildLiveTerminalPathContext, onRequestTerminalFocus, terminalBackend]);
 
   const MAX_VISIBLE_TRANSFERS = 5;
   const visibleTransfers = useMemo(() => {
@@ -2010,6 +2119,8 @@ const SftpSidePanelInteractiveBody: React.FC<SftpSidePanelInteractiveBodyProps> 
                   onToggleShowHiddenFiles={() => handleToggleHiddenFiles(pane.id)}
                   onGoToTerminalCwd={onGetTerminalCwd ? handleGoToTerminalCwd : undefined}
                   onLocatePathInTerminal={canLocatePathInTerminal ? handleLocatePathInTerminal : undefined}
+                  onInsertPathToTerminal={canSendPathToTerminal ? handleInsertPathToTerminal : undefined}
+                  onCdInTerminal={canSendPathToTerminal ? handleCdInTerminal : undefined}
                   followTerminalCwd={canFollowTerminalCwd ? effectiveFollowTerminalCwd : undefined}
                   onToggleFollowTerminalCwd={canFollowTerminalCwd ? handleToggleFollowTerminalCwd : undefined}
                 />

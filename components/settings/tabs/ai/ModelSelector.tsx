@@ -154,7 +154,7 @@ export const ModelSelector: React.FC<{
         await bridge.aiAllowlistAddHost(baseURL);
       }
       const url = buildProviderProbeUrl(baseURL, effectiveModelsEndpoint);
-      const headers = buildModelDiscoveryHeaders(resolvedStyle, apiKey, customHeaders);
+      const headers = buildModelDiscoveryHeaders(resolvedStyle, apiKey, customHeaders, baseURL);
       const result = await bridge.aiFetch(url, "GET", headers, undefined, undefined, undefined, undefined, skipTLSVerify);
       if (!result.ok) {
         if (discoveryKeyRef.current !== requestKey) return;
@@ -175,12 +175,12 @@ export const ModelSelector: React.FC<{
     }
   }, [baseURL, effectiveModelsEndpoint, apiKey, customHeaders, resolvedStyle, skipTLSVerify, discoveryKey]);
 
-  // Auto-fetch when dropdown first opens
+  // Failed discovery stays settled until explicit refresh or a new discovery key.
   useEffect(() => {
-    if (isOpen && canFetch && !hasFetched && !isLoading) {
+    if (isOpen && canFetch && !hasFetched && !isLoading && error === null) {
       void fetchModels();
     }
-  }, [isOpen, canFetch, hasFetched, isLoading, fetchModels]);
+  }, [isOpen, canFetch, hasFetched, isLoading, error, fetchModels]);
 
   // Filter preset and discovered models by current input value (inline autocomplete).
   const suggestions = useMemo(() => {

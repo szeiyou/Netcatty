@@ -1,3 +1,5 @@
+import { useAppThemeStyle } from "../application/app/useAppThemeStyle";
+import { selectPluginThemeTokens } from "../application/state/pluginContributionEnvironment";
 /**
  * Settings Page - Standalone settings window content
  * This component is rendered in a separate Electron window
@@ -25,8 +27,10 @@ import { useExternalMcpGrantPersister } from "./ai/useExternalMcpGrantPersister"
 import { setupMcpApprovalBridge } from "../infrastructure/ai/shared/approvalGate";
 import { usePluginContributions } from "../application/state/usePluginContributions";
 import { PluginContributionHost } from "./plugins/PluginContributionHost";
+import { PluginPermissionHost } from "./plugins/PluginPermissionHost";
 import { matchesKeyBinding } from "../domain/models";
 import { isPrimaryModifierWBinding } from "../application/state/windowCommandClose";
+import { getSettingsWindowClassName } from "./settings/settingsWindowChrome";
 
 const LazySettingsApplicationTab = lazy(() => import("./SettingsApplicationTab"));
 const LazySettingsAppearanceTab = lazy(() => import("./settings/tabs/SettingsAppearanceTab"));
@@ -244,6 +248,10 @@ const SettingsAITabContainer: React.FC = () => {
                 setResponseIdleTimeout={aiState.setResponseIdleTimeout}
                 maxIterations={aiState.maxIterations}
                 setMaxIterations={aiState.setMaxIterations}
+                toolOutputMaxChars={aiState.toolOutputMaxChars}
+                setToolOutputMaxChars={aiState.setToolOutputMaxChars}
+                aiSessionMessageCap={aiState.aiSessionMessageCap}
+                setAiSessionMessageCap={aiState.setAiSessionMessageCap}
                 webSearchConfig={aiState.webSearchConfig}
                 setWebSearchConfig={aiState.setWebSearchConfig}
                 quickMessages={aiState.quickMessages}
@@ -322,6 +330,9 @@ const SettingsSyncTabWithVault: React.FC<{ onSettingsApplied?: () => void }> = (
 };
 
 const SettingsPageContent: React.FC<{ settings: SettingsState; appLock?: AppLockState }> = ({ settings, appLock }) => {
+    // This publisher also runs in detached Settings: never broadcast a local preview.
+    const committedAppThemeStyle = useAppThemeStyle(false);
+    const pluginThemeTokens = useMemo(() => selectPluginThemeTokens(committedAppThemeStyle as Record<string, unknown>), [committedAppThemeStyle]);
     const { t } = useI18n();
     const { request, clearFocus, openSearch } = useSettingsFocus();
     const { notifyRendererReady, closeSettingsWindow, onWindowCommandCloseRequested } = useWindowControls();
@@ -401,6 +412,7 @@ const SettingsPageContent: React.FC<{ settings: SettingsState; appLock?: AppLock
         const nestedDelayMs = (request.aiSubTab || request.syncSubTab) ? 80 : 40;
         const focusHandle = window.setTimeout(() => {
             void focusSettingsAnchor(request.anchorId, {
+                fallbackAnchorId: request.fallbackAnchorId,
                 attempts: 48,
                 delayMs: 50,
             }).finally(() => {
@@ -427,7 +439,7 @@ const SettingsPageContent: React.FC<{ settings: SettingsState; appLock?: AppLock
 
     return (
         <>
-        <div className="settings-window h-screen flex flex-col bg-background text-foreground font-sans">
+        <div className={getSettingsWindowClassName(isMac)}>
             <div className="shrink-0 border-b border-border app-drag">
                 <div className="flex items-center justify-between px-4 pt-3">
                     {isMac && <div className="h-6" />}
@@ -541,6 +553,7 @@ const SettingsPageContent: React.FC<{ settings: SettingsState; appLock?: AppLock
                     {mountedTabs.has("appearance") && (
                         <SettingsLazyTab value="appearance">
                             <LazySettingsAppearanceTab
+                                pluginRuntimeAvailable={pluginRuntimeAvailable}
                                 theme={settings.theme}
                                 resolvedTheme={settings.resolvedTheme}
                                 setTheme={settings.setTheme}
@@ -717,7 +730,8 @@ const SettingsPageContent: React.FC<{ settings: SettingsState; appLock?: AppLock
             </Tabs>
         </div>
         <ExternalMcpApprovalsHost />
-        <PluginContributionHost locale={settings.uiLanguage} theme={settings.resolvedTheme} />
+        <PluginPermissionHost />
+        <PluginContributionHost locale={settings.uiLanguage} theme={settings.resolvedTheme} themeTokens={pluginThemeTokens} />
         </>
     );
 };

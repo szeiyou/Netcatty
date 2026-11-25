@@ -50,7 +50,9 @@ import { decryptField, encryptField } from '../infrastructure/persistence/secure
 import { sanitizeQuickMessages } from '../infrastructure/ai/quickMessages';
 import { emitAIStateChanged } from './state/aiStateEvents';
 import {
+  isAiSessionsHydrationComplete,
   latestAISessionsSnapshot,
+  getPersistedAiSessionsSnapshot,
   setLatestAISessionsSnapshot,
   writeSessionsForStorage,
   cleanupSdkAgentSessions,
@@ -102,6 +104,7 @@ import {
   STORAGE_KEY_SFTP_AUTO_SYNC,
   STORAGE_KEY_SFTP_SHOW_HIDDEN_FILES,
   STORAGE_KEY_SFTP_USE_COMPRESSED_UPLOAD,
+  STORAGE_KEY_SFTP_USE_PACKED_DOWNLOAD,
   STORAGE_KEY_SFTP_SKIP_UNCHANGED,
   STORAGE_KEY_SFTP_AUTO_OPEN_SIDEBAR,
   STORAGE_KEY_SFTP_FOLLOW_TERMINAL_CWD,
@@ -129,6 +132,7 @@ import {
   STORAGE_KEY_AI_COMMAND_TIMEOUT,
   STORAGE_KEY_AI_RESPONSE_IDLE_TIMEOUT,
   STORAGE_KEY_AI_MAX_ITERATIONS,
+  STORAGE_KEY_AI_TOOL_OUTPUT_MAX_CHARS,
   STORAGE_KEY_AI_AGENT_MODEL_MAP,
   STORAGE_KEY_AI_AGENT_PROVIDER_MAP,
   STORAGE_KEY_AI_AGENT_THINKING_MAP,
@@ -144,6 +148,7 @@ import {
 } from '../infrastructure/config/storageKeys';
 import { mergeAiSessionLists, mergeSyncPayloads, stripAiSessionDeviceState, stripAiSessionPayloadForSync } from '../domain/syncMerge';
 import { isTerminalSidePanelAutoOpenTab } from '../domain/terminalSidePanelAutoOpen';
+import { normalizeAiToolOutputMaxChars } from '../domain/aiToolOutputLimit';
 import { prepareRestoredPayloadConvergentWrites } from './convergentSyncReplica';
 
 // ---------------------------------------------------------------------------
@@ -335,6 +340,7 @@ export const SYNCABLE_SETTING_STORAGE_KEYS = [
   STORAGE_KEY_SFTP_AUTO_SYNC,
   STORAGE_KEY_SFTP_SHOW_HIDDEN_FILES,
   STORAGE_KEY_SFTP_USE_COMPRESSED_UPLOAD,
+  STORAGE_KEY_SFTP_USE_PACKED_DOWNLOAD,
   STORAGE_KEY_SFTP_SKIP_UNCHANGED,
   STORAGE_KEY_SFTP_AUTO_OPEN_SIDEBAR,
   STORAGE_KEY_SFTP_FOLLOW_TERMINAL_CWD,
@@ -359,6 +365,7 @@ export const SYNCABLE_SETTING_STORAGE_KEYS = [
   STORAGE_KEY_AI_COMMAND_TIMEOUT,
   STORAGE_KEY_AI_RESPONSE_IDLE_TIMEOUT,
   STORAGE_KEY_AI_MAX_ITERATIONS,
+  STORAGE_KEY_AI_TOOL_OUTPUT_MAX_CHARS,
   STORAGE_KEY_AI_AGENT_MODEL_MAP,
   STORAGE_KEY_AI_AGENT_PROVIDER_MAP,
   STORAGE_KEY_AI_AGENT_THINKING_MAP,
@@ -559,6 +566,8 @@ export function collectSyncableSettings(): SyncPayload['settings'] {
   if (hidden === 'true' || hidden === 'false') settings.sftpShowHiddenFiles = hidden === 'true';
   const compress = localStorageAdapter.readString(STORAGE_KEY_SFTP_USE_COMPRESSED_UPLOAD);
   if (compress === 'true' || compress === 'false') settings.sftpUseCompressedUpload = compress === 'true';
+  const packedDownload = localStorageAdapter.readBoolean(STORAGE_KEY_SFTP_USE_PACKED_DOWNLOAD);
+  if (packedDownload != null) settings.sftpUsePackedDownload = packedDownload;
   const skipUnchanged = localStorageAdapter.readBoolean(STORAGE_KEY_SFTP_SKIP_UNCHANGED);
   if (skipUnchanged != null) settings.sftpSkipUnchanged = skipUnchanged;
   const autoOpenSidebar = localStorageAdapter.readString(STORAGE_KEY_SFTP_AUTO_OPEN_SIDEBAR);
@@ -636,6 +645,10 @@ export function collectSyncableSettings(): SyncPayload['settings'] {
   }
   const maxIterations = localStorageAdapter.readNumber(STORAGE_KEY_AI_MAX_ITERATIONS);
   if (maxIterations != null && Number.isFinite(maxIterations)) ai.maxIterations = maxIterations;
+  const toolOutputMaxChars = localStorageAdapter.readNumber(STORAGE_KEY_AI_TOOL_OUTPUT_MAX_CHARS);
+  if (toolOutputMaxChars != null && Number.isFinite(toolOutputMaxChars)) {
+    ai.toolOutputMaxChars = normalizeAiToolOutputMaxChars(toolOutputMaxChars);
+  }
   const agentModelMap = readRecordSetting<Record<string, string>>(STORAGE_KEY_AI_AGENT_MODEL_MAP);
   if (agentModelMap) ai.agentModelMap = agentModelMap;
   const agentProviderMap = readRecordSetting<Record<string, string>>(STORAGE_KEY_AI_AGENT_PROVIDER_MAP);
@@ -875,6 +888,7 @@ async function applySyncableSettings(
   if (settings.sftpAutoSync != null) localStorageAdapter.writeString(STORAGE_KEY_SFTP_AUTO_SYNC, String(settings.sftpAutoSync));
   if (settings.sftpShowHiddenFiles != null) localStorageAdapter.writeString(STORAGE_KEY_SFTP_SHOW_HIDDEN_FILES, String(settings.sftpShowHiddenFiles));
   if (settings.sftpUseCompressedUpload != null) localStorageAdapter.writeString(STORAGE_KEY_SFTP_USE_COMPRESSED_UPLOAD, String(settings.sftpUseCompressedUpload));
+  if (typeof settings.sftpUsePackedDownload === 'boolean') localStorageAdapter.writeBoolean(STORAGE_KEY_SFTP_USE_PACKED_DOWNLOAD, settings.sftpUsePackedDownload);
   if (settings.sftpSkipUnchanged != null) localStorageAdapter.writeBoolean(STORAGE_KEY_SFTP_SKIP_UNCHANGED, settings.sftpSkipUnchanged);
   if (settings.sftpAutoOpenSidebar != null) localStorageAdapter.writeString(STORAGE_KEY_SFTP_AUTO_OPEN_SIDEBAR, String(settings.sftpAutoOpenSidebar));
   if (settings.sftpFollowTerminalCwd != null) localStorageAdapter.writeString(STORAGE_KEY_SFTP_FOLLOW_TERMINAL_CWD, String(settings.sftpFollowTerminalCwd));
@@ -944,6 +958,12 @@ async function applySyncableSettings(
       localStorageAdapter.writeNumber(STORAGE_KEY_AI_RESPONSE_IDLE_TIMEOUT, ai.responseIdleTimeout);
     }
     if (ai.maxIterations != null) localStorageAdapter.writeNumber(STORAGE_KEY_AI_MAX_ITERATIONS, ai.maxIterations);
+    if (ai.toolOutputMaxChars != null) {
+      localStorageAdapter.writeNumber(
+        STORAGE_KEY_AI_TOOL_OUTPUT_MAX_CHARS,
+        normalizeAiToolOutputMaxChars(ai.toolOutputMaxChars),
+      );
+    }
     if (ai.agentModelMap != null) localStorageAdapter.write(STORAGE_KEY_AI_AGENT_MODEL_MAP, ai.agentModelMap);
     if (ai.agentProviderMap != null) localStorageAdapter.write(STORAGE_KEY_AI_AGENT_PROVIDER_MAP, ai.agentProviderMap);
     if (ai.agentThinkingMap != null) localStorageAdapter.write(STORAGE_KEY_AI_AGENT_THINKING_MAP, ai.agentThinkingMap);
@@ -998,6 +1018,7 @@ function notifyAIStateAfterSync(ai: NonNullable<SyncPayload['settings']>['ai']):
   if (ai.commandTimeout != null) touched.push(STORAGE_KEY_AI_COMMAND_TIMEOUT);
   if (ai.responseIdleTimeout != null) touched.push(STORAGE_KEY_AI_RESPONSE_IDLE_TIMEOUT);
   if (ai.maxIterations != null) touched.push(STORAGE_KEY_AI_MAX_ITERATIONS);
+  if (ai.toolOutputMaxChars != null) touched.push(STORAGE_KEY_AI_TOOL_OUTPUT_MAX_CHARS);
   if (ai.agentModelMap != null) touched.push(STORAGE_KEY_AI_AGENT_MODEL_MAP);
   if (ai.agentThinkingMap != null) touched.push(STORAGE_KEY_AI_AGENT_THINKING_MAP);
   // agentProviderMap is *always* potentially mutated because the reconcile
@@ -1064,6 +1085,12 @@ function pruneOrphanPerAgentBindings(): void {
 export function collectAiSessionsForSync(): SyncPayload['aiSessions'] {
   const enabled = localStorageAdapter.read<{ enabled?: boolean }>(STORAGE_KEY_CLOUD_SYNC_AI_SESSIONS);
   if (enabled?.enabled !== true) return undefined;
+  // Issue #4125 review P1①: never collect before the boot hydration has
+  // settled. A pre-hydration collect falls back to the stale legacy
+  // localStorage store and the writeSessionsForStorage() call below would
+  // overwrite newer IndexedDB records with pre-migration data. Skip this
+  // sync round; the next auto-sync picks up the hydrated store.
+  if (!isAiSessionsHydrationComplete()) return undefined;
   const sessions = collectLocalAiSessions();
   if (!writeSessionsForStorage(sessions)) {
     throw new Error('Unable to persist chat history for cloud sync');
@@ -1073,8 +1100,7 @@ export function collectAiSessionsForSync(): SyncPayload['aiSessions'] {
 
 function collectLocalAiSessions(): NonNullable<SyncPayload['aiSessions']> {
   return latestAISessionsSnapshot
-    ?? localStorageAdapter.read<SyncPayload['aiSessions']>(STORAGE_KEY_AI_SESSIONS)
-    ?? [];
+    ?? getPersistedAiSessionsSnapshot();
 }
 
 /** Build the portable payload; device-local data is added by the backup builder. */
@@ -1275,6 +1301,8 @@ export async function buildLocalVaultPayloadAsync(
 
 /** Merge downloaded chat data through the existing state and persistence boundary. */
 async function applyAiSessionData(sessions: NonNullable<SyncPayload['aiSessions']>, includeLocalOnlyData: boolean): Promise<void> {
+  const { isAIChatSessionStreaming, stopAIChatSessionBeforeReplacement } = await import('./state/useAIChatStreaming');
+  const preserveActive = (id: string) => !includeLocalOnlyData && isAIChatSessionStreaming(id);
   const incoming = includeLocalOnlyData
     ? sessions
     : sessions.map(stripAiSessionDeviceState);
@@ -1282,26 +1310,29 @@ async function applyAiSessionData(sessions: NonNullable<SyncPayload['aiSessions'
   const incomingById = new Map(incoming.map((session) => [session.id, session]));
   const portableMessages = (value: typeof incoming[number]) => stripAiSessionPayloadForSync([value])[0].messages;
   const affectedIds = collectLocalAiSessions().filter((local) => {
+    if (preserveActive(local.id)) return false;
     const next = incomingById.get(local.id);
     if (!next) return true;
     const candidate = includeLocalOnlyData ? next : mergeAiSessionLists([local], [next])[0];
     return JSON.stringify(portableMessages(local)) !== JSON.stringify(portableMessages(candidate));
   }).map((session) => session.id);
   if (affectedIds.length > 0) {
-    const { stopAIChatSessionBeforeReplacement } = await import('./state/useAIChatStreaming');
     await Promise.all(affectedIds.map(stopAIChatSessionBeforeReplacement));
   }
   // Stop finalizers can finish the last local message. Read it again before
   // merging so the stopped turn cannot write into a replaced/deleted session.
   const localSessions = collectLocalAiSessions();
   const localById = new Map(localSessions.map((session) => [session.id, session]));
-  const removedIds = localSessions.filter((session) => !incomingIds.has(session.id)).map((session) => session.id);
+  const removedIds = localSessions.filter((session) => !incomingIds.has(session.id) && !preserveActive(session.id)).map((session) => session.id);
   const resetSdkSessions: string[] = [];
   // The sync merge has already decided which session IDs survive. Backups
   // restore their exact transcript; cloud survivors still retain local turns.
   const candidates = includeLocalOnlyData ? incoming
     : mergeAiSessionLists(localSessions.filter((session) => incomingIds.has(session.id)), incoming);
-  const mergedSessions = candidates.map((session) => {
+  // Keep active cloud sessions intact until a later sync, including remote deletions.
+  const retainedActive = localSessions.filter((session) => preserveActive(session.id));
+  const mergedSessions = [...candidates.filter((session) => !preserveActive(session.id)), ...retainedActive].map((session) => {
+    if (preserveActive(session.id)) return session;
     // Native SDK threads belong to this device. Reuse the local thread
     // only while it already contains the entire merged transcript.
     const local = localById.get(session.id);

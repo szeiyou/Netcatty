@@ -1,4 +1,4 @@
-import { joinSoftWrappedRows } from "../normalizeTerminalSelection";
+import { joinSoftWrappedRows } from "../../../domain/terminalSelection";
 
 type WheelLike = Pick<
   WheelEvent,
@@ -194,9 +194,10 @@ export const shouldKeepHistoryPreviewOnKey = (
   return Boolean(
     options.hasPreviewSelection
     && options.action == null
-    && (event.metaKey || event.ctrlKey)
-    && !event.altKey
-    && event.key.toLowerCase() === "c",
+    && (
+      ((event.metaKey || event.ctrlKey) && !event.altKey && event.key.toLowerCase() === "c")
+      || (event.ctrlKey && !event.shiftKey && !event.altKey && !event.metaKey && event.key === "Insert")
+    ),
   );
 };
 

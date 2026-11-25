@@ -4,6 +4,7 @@ import type { RemoteFile, SftpFileEntry, SftpFilenameEncoding } from "../../../t
 import type { SftpStateApi } from "../../../application/state/useSftpState";
 import type { FileOpenerType, SystemAppInfo } from "../../../lib/sftpFileUtils";
 import type { TextEditorModalSnapshot } from "../../TextEditorModal";
+import type { SftpArchiveCreationOptions, SftpArchiveCreationResult, SftpArchiveCreationTarget } from "../../../domain/sftpArchiveCreation";
 
 export interface UseSftpViewFileOpsParams {
   sftpRef: MutableRefObject<SftpStateApi>;
@@ -18,8 +19,16 @@ export interface UseSftpViewFileOpsParams {
     systemApp?: SystemAppInfo,
   ) => void;
   t: (key: string, vars?: Record<string, string | number>) => string;
-  showSaveDialog?: (defaultPath: string, filters?: Array<{ name: string; extensions: string[] }>) => Promise<string | null>;
-  selectDirectory?: (title?: string, defaultPath?: string) => Promise<string | null>;
+  showSaveDialog?: (
+    defaultPath: string,
+    filters?: Array<{ name: string; extensions: string[] }>,
+    directoryOptions?: NetcattyDialogDirectoryOptions,
+  ) => Promise<string | null>;
+  selectDirectory?: (
+    title?: string,
+    defaultPath?: string,
+    directoryOptions?: NetcattyDialogDirectoryOptions,
+  ) => Promise<string | null>;
   getSftpIdForConnection?: (connectionId: string) => string | undefined;
   /** Application-layer fresh stat for download source snapshots (kept off the raw bridge). */
   statSftp?: (sftpId: string, path: string, encoding?: SftpFilenameEncoding) => Promise<SftpStatResult>;
@@ -87,8 +96,10 @@ export interface UseSftpViewFileOpsResult {
   onDownloadFileRight: (file: SftpFileEntry, fullPath?: string) => void;
   onExtractArchiveLeft: (file: SftpFileEntry, fullPath?: string) => void | Promise<void>;
   onExtractArchiveRight: (file: SftpFileEntry, fullPath?: string) => void | Promise<void>;
-  onDownloadFilesLeft: (files: SftpFileEntry[]) => void;
-  onDownloadFilesRight: (files: SftpFileEntry[]) => void;
+  onCreateArchiveLeft: (options: SftpArchiveCreationOptions, target: SftpArchiveCreationTarget) => Promise<SftpArchiveCreationResult>;
+  onCreateArchiveRight: (options: SftpArchiveCreationOptions, target: SftpArchiveCreationTarget) => Promise<SftpArchiveCreationResult>;
+  onDownloadFilesLeft: (files: SftpFileEntry[], fullPaths?: string[]) => void;
+  onDownloadFilesRight: (files: SftpFileEntry[], fullPaths?: string[]) => void;
   onUploadExternalFilesLeft: (dataTransfer: DataTransfer, targetPath?: string) => void;
   onUploadExternalFilesRight: (dataTransfer: DataTransfer, targetPath?: string) => void;
   onUploadExternalFileListLeft: (fileList: FileList, targetPath?: string) => void;

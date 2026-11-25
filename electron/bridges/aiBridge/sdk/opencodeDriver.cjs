@@ -1,11 +1,16 @@
 "use strict";
 
-const net = require("node:net");
 const fs = require("node:fs");
 const path = require("node:path");
 const { pathToFileURL } = require("node:url");
 const { mcpEnvPairsToObject } = require("./injectMcp.cjs");
 const { withExclusiveProcessEnv } = require("./processEnvGate.cjs");
+const {
+  createAbortWait,
+  createStopWait,
+  findFirstExistingExecutable,
+  getAvailablePort: getSharedAvailablePort,
+} = require("./sdkDriverUtils.cjs");
 const {
   buildOpenCodeNativeSkillsPermissionRules,
   buildOpenCodeSkillsPermissionRules,
@@ -21,17 +26,7 @@ const DEFAULT_OPENCODE_PORT = 4096;
 const OPENCODE_SERVER_START_TIMEOUT_MS = process.platform === "win32" ? 60000 : 30000;
 
 function resolveUsableOpenCodeBinPath(binPath, env) {
-  const candidates = [];
-  if (binPath) candidates.push(String(binPath));
-  if (env?.OPENCODE_BIN) candidates.push(String(env.OPENCODE_BIN));
-  for (const candidate of candidates) {
-    try {
-      if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) {
-        return candidate;
-      }
-    } catch {}
-  }
-  return undefined;
+  return findFirstExistingExecutable([binPath, env?.OPENCODE_BIN]);
 }
 
 function isOpenCodeImageAttachment(attachment) {
@@ -451,19 +446,7 @@ function withOpenCodeProcessEnv(env, binPath, fn) {
 }
 
 function getAvailablePort(host = "127.0.0.1") {
-  return new Promise((resolve, reject) => {
-    const server = net.createServer();
-    server.unref();
-    server.on("error", reject);
-    server.listen(0, host, () => {
-      const address = server.address();
-      const port = typeof address === "object" && address ? address.port : 0;
-      server.close((error) => {
-        if (error) reject(error);
-        else resolve(port === DEFAULT_OPENCODE_PORT ? getAvailablePort(host) : port);
-      });
-    });
-  });
+  return getSharedAvailablePort(host, DEFAULT_OPENCODE_PORT);
 }
 
 async function withOpenCodeServerPort(options = {}) {
@@ -520,36 +503,6 @@ async function createDefaultOpenCode(options, env, binPath) {
     cleanup();
     throw error;
   }
-}
-
-function createAbortWait(signal) {
-  if (!signal) return { promise: new Promise(() => {}), dispose() {} };
-  if (signal.aborted) return { promise: Promise.resolve(), dispose() {} };
-  let resolveAbort;
-  const promise = new Promise((resolve) => { resolveAbort = resolve; });
-  const onAbort = () => resolveAbort();
-  signal.addEventListener("abort", onAbort, { once: true });
-  return {
-    promise,
-    dispose() {
-      signal.removeEventListener("abort", onAbort);
-    },
-  };
-}
-
-function createStopWait() {
-  let stopped = false;
-  let resolveStop;
-  const promise = new Promise((resolve) => { resolveStop = resolve; });
-  return {
-    promise,
-    get stopped() { return stopped; },
-    stop() {
-      if (stopped) return;
-      stopped = true;
-      resolveStop();
-    },
-  };
 }
 
 async function runOpenCodeV1Turn({

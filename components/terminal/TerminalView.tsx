@@ -495,7 +495,7 @@ function terminalViewCtxEqual(
 }
 
 function TerminalViewInner({ ctx, isPaneMagnified = false }: { ctx: TerminalViewContext; isPaneMagnified?: boolean }) {
-  const { Activity, Button, Clock3, Copy, Maximize2, Radio, RefreshCcw, SquareArrowOutUpRight, TerminalAutocomplete, TerminalComposeBar, TerminalConnectionDialog, TerminalContextMenu, TerminalSearchBar, Tooltip, TooltipContent, TooltipTrigger, Unplug, ZmodemOverwriteDialog, ZmodemProgressIndicator, auth, autocompleteAcceptTextRef, autocompleteCloseRef, autocompleteHostOs, autocompleteInputRef, autocompleteKeyEventRef, autocompleteRepositionRef, autocompleteSettings, canUpdateHost, chainProgress, cn, compactToolbar, lineTimestampsAvailable, containerRef, effectiveFontSize, effectiveFontWeight, effectiveTerminalProtocol, effectiveTheme, error, executeSnippet, executeSnippetCommand, handleAddSelectionToAI, handleCancelConnect, handleCloseDisconnectedSession, handleCloseSearch, handleDisconnect, handleDismissDisconnectedDialog, handleDragEnter, handleDragLeave, handleDragOver, handleDrop, handleFindNext, handleFindPrevious, handleHostKeyAddAndContinue, handleHostKeyClose, handleHostKeyContinue, handleOsc52ReadResponse, handleOsc7SetupConfirm, handleOsc7SetupOpenChange, handleReceiveYmodem, handleRetry, handleSearch, handleSendYmodem, handleTopOverlayMouseDownCapture, hasMouseTracking, host, hotkeyScheme, inWorkspace, isBroadcastEnabled, composeSendToAll, onToggleComposeSendTarget, isCancelling, isComposeBarOpen, isConnectionAwaitingUserInput, isDraggingOver, isFocusMode, isFocusedPane, isLocalConnection, remoteDragDropUsesZmodem, isPluginTerminalProviderAvailable, isReconnectActive, isSerialConnection, isSearchOpen, isSupportedOs, isSystemSidebarEligible, isVisible, keyBindings, keys, identities, knownCwdRef, needsHostKeyVerification, onCloseSession, onDetach, onDetachPointerDown, onExpandToFocus, onTogglePaneMagnification, onOpenSystem, onRename, onSplitHorizontal, onSplitVertical, onToggleBroadcast, onUpdateHost, osc52ReadPromptVisible, osc7SetupOpen, osc7SetupRunning, passwordPromptActiveRef, pendingHostKeyInfo, progressLogs, progressValue, renderControls, resolvedFontFamily, restoreState, scriptExecutionOverlay, searchMatchCount, searchFocusToken, sessionDisplayName, sessionId, workspaceId, sessionRef, setIsComposeBarOpen, setShowLogs, shouldShowConnectionDialog, showDisconnectedTerminalNotice, showConnectionControls, showLogs, showSelectionAIAction, isRestoringSelectionRef, snippets, status, sudoHintRef, sudoHintText, passwordPickerState, onPasswordPickerSelect, passwordPickerTitle, passwordPickerEmptyText, t, termRef, terminalContextActions, terminalCwdTracker, terminalPreviewVars, terminalSettings, terminalReconnectAvailable, reconnectNoticeMessage, timeLeft, toast, zmodem } = ctx;
+  const { Activity, Button, Clock3, Copy, Maximize2, Radio, RefreshCcw, SquareArrowOutUpRight, TerminalAutocomplete, TerminalComposeBar, TerminalConnectionDialog, TerminalContextMenu, TerminalSearchBar, Tooltip, TooltipContent, TooltipTrigger, Unplug, ZmodemOverwriteDialog, ZmodemProgressIndicator, auth, autocompleteAcceptTextRef, autocompleteCloseRef, autocompleteHostOs, autocompleteInputRef, autocompleteKeyEventRef, autocompleteRepositionRef, autocompleteSettings, canUpdateHost, chainProgress, cn, compactToolbar, lineTimestampsAvailable, containerRef, effectiveFontSize, effectiveFontWeight, effectiveTerminalProtocol, effectiveTheme, error, executeSnippet, executeSnippetCommand, handleAddSelectionToAI, handleCancelConnect, handleCloseDisconnectedSession, handleCloseSearch, handleDisconnect, handleDismissDisconnectedDialog, handleDragEnter, handleDragLeave, handleDragOver, handleDrop, handleFindNext, handleFindPrevious, handleHostKeyAddAndContinue, handleHostKeyClose, handleHostKeyContinue, handleOsc52ReadResponse, handleOsc7SetupConfirm, handleOsc7SetupOpenChange, handleReceiveYmodem, handleRetry, handleSearch, handleSendYmodem, handleTopOverlayMouseDownCapture, hasMouseTracking, host, hotkeyScheme, inWorkspace, isBroadcastEnabled, composeSendToAll, onToggleComposeSendTarget, isCancelling, isComposeBarOpen, isConnectionAwaitingUserInput, isDraggingOver, isFocusMode, isFocusedPane, isLocalConnection, remoteDragDropUsesZmodem, isPluginTerminalProviderAvailable, isReconnectActive, isSerialConnection, isSearchOpen, isSupportedOs, isSystemSidebarEligible, isVisible, keyBindings, keys, identities, knownCwdRef, needsHostKeyVerification, onCloseSession, onDetach, onDetachPointerDown, onExpandToFocus, onTogglePaneMagnification, onOpenSystem, onRename, onSplitHorizontal, onSplitVertical, onToggleBroadcast, onUpdateHost, osc52ReadPromptVisible, osc7SetupOpen, osc7SetupRunning, passwordPromptActiveRef, pendingHostKeyInfo, progressLogs, progressValue, renderControls, resolvedFontFamily, restoreState, scriptExecutionOverlay, searchMatchCount, searchFocusToken, sessionDisplayName, sessionId, workspaceId, sessionRef, setIsComposeBarOpen, setShowLogs, shouldShowConnectionDialog, showDisconnectedTerminalNotice, showConnectionControls, showLogs, showSelectionAIAction, isRestoringSelectionRef, snippets, status, sudoHintRef, sudoHintText, passwordPickerState, onPasswordPickerSelect, passwordPickerTitle, passwordPickerEmptyText, t, termRef, terminalContextActions, terminalCwdTracker, terminalPreviewVars, terminalSettings, terminalReconnectAvailable, reconnectNoticeMessage, connectionDeadlineAt, connectionTimeoutSeconds, toast, zmodem } = ctx;
   // Context menu only needs a snapshot at open; avoid selection state lifting into Terminal.
   const [contextMenuHasSelection, setContextMenuHasSelection] = useState(false);
   const isNetworkDevice = host.deviceType === 'network'
@@ -796,22 +796,26 @@ function TerminalViewInner({ ctx, isPaneMagnified = false }: { ctx: TerminalView
                   )}
                 >
                   {!showHostInfoBar && inWorkspace && onDetachPointerDown && (
-                    <div
-                      role="button"
-                      tabIndex={-1}
-                      title={t("terminal.toolbar.dragPane")}
-                      aria-label={t("terminal.toolbar.dragPane")}
-                      className={cn(
-                        "flex h-6 w-5 shrink-0 items-center justify-center rounded-md",
-                        "cursor-grab active:cursor-grabbing",
-                        "text-[color:var(--terminal-toolbar-fg)] opacity-45 hover:opacity-90",
-                        "hover:bg-[color:var(--terminal-toolbar-btn-hover)] transition-colors",
-                      )}
-                      data-terminal-detach-drag-handle="true"
-                      onPointerDown={onDetachPointerDown}
-                    >
-                      <GripVertical size={12} strokeWidth={2} aria-hidden="true" />
-                    </div>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <div
+                          role="button"
+                          tabIndex={-1}
+                          aria-label={t("terminal.toolbar.dragPane")}
+                          className={cn(
+                            "flex h-6 w-5 shrink-0 items-center justify-center rounded-md",
+                            "cursor-grab active:cursor-grabbing",
+                            "text-[color:var(--terminal-toolbar-fg)] opacity-45 hover:opacity-90",
+                            "hover:bg-[color:var(--terminal-toolbar-btn-hover)] transition-colors",
+                          )}
+                          data-terminal-detach-drag-handle="true"
+                          onPointerDown={onDetachPointerDown}
+                        >
+                          <GripVertical size={12} strokeWidth={2} aria-hidden="true" />
+                        </div>
+                      </TooltipTrigger>
+                      <TooltipContent side="bottom">{t("terminal.toolbar.dragPane")}</TooltipContent>
+                    </Tooltip>
                   )}
                   {showHostInfoBar && <div
                     className={cn(
@@ -1353,6 +1357,7 @@ function TerminalViewInner({ ctx, isPaneMagnified = false }: { ctx: TerminalView
                 restoreState={restoreState}
                 error={error}
                 progressValue={progressValue}
+                progressAnimating={connectionDeadlineAt != null}
                 chainProgress={chainProgress}
                 needsAuth={auth.needsAuth}
                 showLogs={showLogs}
@@ -1392,7 +1397,8 @@ function TerminalViewInner({ ctx, isPaneMagnified = false }: { ctx: TerminalView
                   isValid: auth.isValid,
                 }}
                 progressProps={{
-                  timeLeft,
+                  timeLeft: connectionTimeoutSeconds,
+                  deadlineAt: connectionDeadlineAt,
                   isAwaitingUserInput: Boolean(isConnectionAwaitingUserInput),
                   isCancelling,
                   progressLogs,
@@ -1431,6 +1437,7 @@ function TerminalViewInner({ ctx, isPaneMagnified = false }: { ctx: TerminalView
         {/* Compose Bar (solo sessions only; workspace uses TerminalLayer's global bar) */}
         {isComposeBarOpen && !inWorkspace && (
           <TerminalComposeBar
+            contextChipsEnabled={terminalSettings?.contextChipsEnabled !== false}
             key={sessionId}
             sessionId={sessionId}
             onSend={async (text) => {
@@ -1444,6 +1451,7 @@ function TerminalViewInner({ ctx, isPaneMagnified = false }: { ctx: TerminalView
                 let anyRecipientSensitive = false;
                 let broadcastRecipientIds: readonly string[] = [];
                 const sent = await executeSnippetCommand(text, false, {
+                  preferBracketedPaste: true,
                   // Explicit target: active-only stays local while toolbar
                   // broadcast (keystrokes) can remain on, and send-to-all
                   // still fans out when the toolbar switch is off.

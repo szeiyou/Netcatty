@@ -5,7 +5,7 @@
  *
  * - Spawns the user's system `claude` binary via an ABSOLUTE pathToClaudeCodeExecutable
  *   (SDK existsSync-checks it; PATH is not resolved — issue #205).
- * - Repairs ~/.claude.json before spawn (ensureClaudeConfig).
+ * - Repairs ~/.claude.json before builtin turns only (ensureClaudeConfig).
  * - Bypasses the SDK's built-in permission system and BLOCKS built-in
  *   side-effect tools so the agent can only act through the injected netcatty
  *   MCP server (approval/scope/blocklist enforced there).
@@ -13,6 +13,12 @@
  */
 const { mcpEnvPairsToObject } = require("./injectMcp.cjs");
 const { ensureClaudeConfig } = require("./claudeConfig.cjs");
+const {
+  buildMultimodalUserPrompt,
+  forwardAnthropicStreamEvent,
+  forwardAnthropicToolResultBlocks,
+  querySupportedModelsWithIdleSession,
+} = require("./sdkDriverUtils.cjs");
 
 // Built-in tools that need interactive UI netcatty doesn't provide - they would
 // hang the turn waiting for a response, so they are blocked in BOTH modes.
@@ -23,15 +29,6 @@ const UI_DISALLOWED_TOOLS = ["EnterPlanMode", "ExitPlanMode", "AskUserQuestion"]
 // mcpServers; this only controls Claude Code's own local-machine tools.
 const MCP_MODE_TOOLS = [];
 const SKILLS_MODE_TOOLS = ["Bash", "Skill"];
-const CLAUDE_IMAGE_MEDIA_TYPES = new Set(["image/jpeg", "image/png", "image/gif", "image/webp"]);
-
-function isClaudeImageAttachment(attachment) {
-  return Boolean(
-    attachment &&
-    CLAUDE_IMAGE_MEDIA_TYPES.has(String(attachment.mediaType || "").toLowerCase()) &&
-    attachment.base64Data,
-  );
-}
 
 /**
  * Resolve built-in tools for the active tool-integration mode.
@@ -101,7 +98,9 @@ function mergeClaudeEffortSettings(settings, effort) {
 function buildClaudeQueryOptions({
   cwd, model, env, pathToClaudeCodeExecutable, abortController, injectedMcpServers, settings, resume,
   toolIntegrationMode,
+  delegatedAgent = false,
 }) {
+  if (delegatedAgent && toolIntegrationMode !== "mcp") throw Error("Delegated Claude requires MCP mode");
   const { model: resolvedModel, effort } = splitClaudeModelSelection(model);
   const options = {
     cwd,
@@ -130,8 +129,17 @@ function buildClaudeQueryOptions({
     options.pathToClaudeCodeExecutable = pathToClaudeCodeExecutable;
   }
   // Optional settings.json path / inline object — additive to CLAUDE_CONFIG_DIR.
-  const parsedSettings = mergeClaudeEffortSettings(parseClaudeSettings(settings), effort);
+  const parsedSettings = mergeClaudeEffortSettings(delegatedAgent ? undefined : parseClaudeSettings(settings), effort);
   if (parsedSettings !== undefined) options.settings = parsedSettings;
+  if (delegatedAgent) {
+    options.strictMcpConfig = true;
+    options.settingSources = [];
+    options.maxTurns = 12;
+    // Global plugin history belongs to core's source namespace. Rehydrate from
+    // that history each turn instead of creating a second native history store.
+    options.persistSession = false;
+    delete options.resume;
+  }
   return options;
 }
 
@@ -151,14 +159,7 @@ function translateClaudeMessage(message, emitter) {
   }
 
   if (type === "stream_event" && message.event) {
-    const ev = message.event;
-    if (ev.type === "content_block_delta" && ev.delta) {
-      if (ev.delta.type === "text_delta" && ev.delta.text) {
-        emitter.text(ev.delta.text);
-      } else if (ev.delta.type === "thinking_delta" && ev.delta.thinking) {
-        emitter.reasoning(ev.delta.thinking);
-      }
-    }
+    forwardAnthropicStreamEvent(message.event, emitter);
     return;
   }
 
@@ -173,14 +174,7 @@ function translateClaudeMessage(message, emitter) {
   }
 
   if (type === "user" && message.message && Array.isArray(message.message.content)) {
-    for (const block of message.message.content) {
-      if (block?.type === "tool_result") {
-        const out = typeof block.content === "string"
-          ? block.content
-          : JSON.stringify(block.content);
-        emitter.toolResult(block.tool_use_id, out, undefined);
-      }
-    }
+    forwardAnthropicToolResultBlocks(message.message.content, emitter);
     return;
   }
   // 'result' carries final usage/cost — handled by the run loop, no per-event emit.
@@ -198,30 +192,7 @@ function classifyClaudeSpawnError(error) {
 }
 
 function buildClaudePromptInput(prompt, attachments) {
-  const imageAttachments = Array.isArray(attachments)
-    ? attachments.filter(isClaudeImageAttachment)
-    : [];
-  if (imageAttachments.length === 0) return String(prompt || "");
-
-  const content = [{ type: "text", text: String(prompt || "") }];
-  for (const attachment of imageAttachments) {
-    content.push({
-      type: "image",
-      source: {
-        type: "base64",
-        media_type: String(attachment.mediaType).toLowerCase(),
-        data: attachment.base64Data,
-      },
-    });
-  }
-
-  return (async function* claudePromptInput() {
-    yield {
-      type: "user",
-      message: { role: "user", content },
-      parent_tool_use_id: null,
-    };
-  }());
+  return buildMultimodalUserPrompt(prompt, attachments);
 }
 
 /**
@@ -233,8 +204,10 @@ function buildClaudePromptInput(prompt, attachments) {
  * @param {object} args.emitter  createStreamEmitter(...)
  * @param {Function} [args.queryFn] inject @anthropic-ai/claude-agent-sdk query (for tests)
  */
-async function runClaudeTurn({ prompt, attachments, options, emitter, queryFn, assertSessionValid }) {
-  ensureClaudeConfig();
+async function runClaudeTurn({ prompt, attachments, options, emitter, queryFn, assertSessionValid, delegatedAgent = false }) {
+  // A delegated turn may use the selected host profile for authentication, but
+  // must not repair or delete unrelated files in the main process's home.
+  if (!delegatedAgent) ensureClaudeConfig();
   let query = queryFn;
   if (!query) {
     let sdk;
@@ -355,52 +328,12 @@ async function listClaudeModels({
     try { sdk = await import("@anthropic-ai/claude-agent-sdk"); } catch { return []; }
     query = sdk.query;
   }
-  const queryAbortController = new AbortController();
-  const forwardAbort = () => {
-    try { queryAbortController.abort(externalSignal?.reason); } catch {}
-  };
-  if (externalSignal) {
-    externalSignal.addEventListener("abort", forwardAbort, { once: true });
-    if (externalSignal.aborted) forwardAbort();
-  }
-  // Idle streaming input: keeps the session open (init handshake completes)
-  // without sending a turn, so supportedModels() resolves; then we abort.
-  async function* idleInput() {
-    await new Promise((resolve) => {
-      if (queryAbortController.signal.aborted) return resolve();
-      queryAbortController.signal.addEventListener("abort", () => resolve(), { once: true });
-    });
-  }
-  let q;
-  try {
-    q = query({
-      prompt: idleInput(),
-      options: {
-        pathToClaudeCodeExecutable,
-        env,
-        abortController: queryAbortController,
-        includePartialMessages: false,
-      },
-    });
-    const result = await Promise.race([
-      Promise.resolve(q.supportedModels()).then((models) => ({ type: "models", models })),
-      new Promise((resolve) => {
-        if (queryAbortController.signal.aborted) return resolve({ type: "aborted" });
-        queryAbortController.signal.addEventListener(
-          "abort",
-          () => resolve({ type: "aborted" }),
-          { once: true },
-        );
-      }),
-    ]);
-    return result.type === "models" ? mapClaudeModels(result.models) : [];
-  } catch {
-    return [];
-  } finally {
-    if (externalSignal) externalSignal.removeEventListener("abort", forwardAbort);
-    queryAbortController.abort();
-    try { void Promise.resolve(q?.return?.(undefined)).catch(() => {}); } catch { /* best effort */ }
-  }
+  return querySupportedModelsWithIdleSession({
+    queryFn: query,
+    queryOptions: { pathToClaudeCodeExecutable, env },
+    externalSignal,
+    mapModels: mapClaudeModels,
+  });
 }
 
 module.exports = {

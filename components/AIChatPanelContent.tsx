@@ -55,8 +55,24 @@ interface AIChatPanelContentProps {
   contextUsage?: import('../application/state/useAgentCompactionUi').AgentContextUsage | null;
   inputValue: string;
   setInputValue: (value: string) => void;
-  handleSend: () => void;
+  handleSend: (textOverride?: string) => void;
   handleCompact: () => void;
+  /** Rename a chat by id (history drawer edit affordance). Panel action, never agent content. */
+  onRenameSession?: (sessionId: string, title: string) => void;
+  /** `/rename <title>` for the current chat. Panel action, never agent content. */
+  onRenameActiveChat?: (title: string) => void;
+  /** `/chats`: list the chats visible to this panel. Panel action, never agent content. */
+  onListChats?: () => void;
+  /** `/rebind <n>`: rebind a dangling chat to this panel's scope. Panel action, never agent content. */
+  onRebindChat?: (arg: string) => void;
+  /** `/chats` listing output, rendered as a system-style note above the composer. */
+  panelCommandNote?: string | null;
+  onDismissPanelCommandNote?: () => void;
+  /** Manual durability escape hatch: export/import the whole session store. */
+  onExportSessions?: () => void;
+  onImportSessions?: () => void;
+  /** Global session manager slot rendered by the drawer's "all chats" tab (#4098). */
+  globalManagerNode?: React.ReactNode;
   /** Undo last turn is offered at a safe boundary (never mid-tool / mid-compaction). */
   canUndoLastTurn?: boolean;
   handleUndoLastTurn?: () => void;
@@ -79,6 +95,7 @@ interface AIChatPanelContentProps {
   modelCatalogFetchedAt?: string;
   /** Retry a failed SDK model catalog load from the warning banner. */
   handleModelCatalogRetry?: () => void;
+  handleModelPickerOpen?: () => void;
   agentModelPresets: AgentModelPreset[];
   /** Suppress the composer picker's "use custom model" action (locked model). */
   allowCustomModelEntry?: boolean;
@@ -142,12 +159,22 @@ export const AIChatPanelContent: React.FC<AIChatPanelContentProps> = ({
   setInputValue,
   handleSend,
   handleCompact,
+  onRenameSession,
+  onRenameActiveChat,
+  onListChats,
+  onRebindChat,
+  panelCommandNote,
+  onDismissPanelCommandNote,
+  onExportSessions,
+  onImportSessions,
+  globalManagerNode,
   canUndoLastTurn = false,
   handleUndoLastTurn,
   canCompact = false,
   handleSteer,
   handleStop,
   handleModelCatalogRetry,
+  handleModelPickerOpen,
   canSteer,
   isSteering,
   steerWarning,
@@ -189,6 +216,7 @@ export const AIChatPanelContent: React.FC<AIChatPanelContentProps> = ({
   parked = false,
   sending = false,
 }) => {
+  const handleContinue = React.useCallback(() => handleSend(t('ai.chat.continue')), [handleSend, t]);
   const mentionHosts = React.useMemo(
     () => terminalSessions.map((session) => ({
       sessionId: session.sessionId,
@@ -309,6 +337,10 @@ export const AIChatPanelContent: React.FC<AIChatPanelContentProps> = ({
             activeSessionId={activeSessionId}
             onSelect={sending ? () => undefined : handleSelectSession}
             onDelete={handleDeleteSession}
+            onRename={onRenameSession}
+            onExportSessions={onExportSessions}
+            onImportSessions={onImportSessions}
+            globalManager={globalManagerNode}
             onClose={() => setShowHistory(false)}
           />
         </React.Profiler>
@@ -320,6 +352,7 @@ export const AIChatPanelContent: React.FC<AIChatPanelContentProps> = ({
               <ChatMessageList
                 messages={messages}
                 isStreaming={isStreaming}
+                onContinue={handleContinue}
                 activeSessionId={activeSessionId}
                 activeCompaction={activeCompaction}
                 contextCompaction={activeSession?.contextCompaction}
@@ -369,6 +402,21 @@ export const AIChatPanelContent: React.FC<AIChatPanelContentProps> = ({
           {!hideInput && (
             <React.Profiler {...getAIPanelProfilerProps('AIChatPanel.Input')}>
               <div>
+                {panelCommandNote ? (
+                  <div role="status" className="mx-3 mb-1.5 rounded-md border border-border/50 bg-muted/30 px-2.5 py-1.5 text-[11px] leading-4 text-muted-foreground">
+                    <span className="block max-h-48 overflow-y-auto whitespace-pre-wrap break-words">{panelCommandNote}</span>
+                    {onDismissPanelCommandNote && (
+                      <button
+                        type="button"
+                        aria-label={t('common.close')}
+                        onClick={onDismissPanelCommandNote}
+                        className="mt-1 text-[11px] text-muted-foreground/60 underline-offset-2 transition-colors hover:text-foreground hover:underline cursor-pointer"
+                      >
+                        {t('common.close')}
+                      </button>
+                    )}
+                  </div>
+                ) : null}
                 {steerWarning ? (
                   <div role="status" className="mx-3 mb-1.5 rounded-md border border-amber-500/25 bg-amber-500/10 px-2.5 py-1.5 text-[11px] leading-4 text-amber-600 dark:text-amber-400">
                     {steerWarning}
@@ -396,6 +444,9 @@ export const AIChatPanelContent: React.FC<AIChatPanelContentProps> = ({
                   onChange={setInputValue}
                   onSend={handleSend}
                   onCompact={handleCompact}
+                  onRenameSession={onRenameActiveChat}
+                  onListChats={onListChats}
+                  onRebindChat={onRebindChat}
                   canCompact={canCompact}
                   onSteer={handleSteer}
                   onStop={handleStop}
@@ -413,6 +464,7 @@ export const AIChatPanelContent: React.FC<AIChatPanelContentProps> = ({
                   modelCatalogFetchedAt={modelCatalogFetchedAt}
                   modelCatalogWarning={modelCatalogWarning}
                   onRefreshModelCatalog={handleModelCatalogRetry}
+                  onModelPickerOpen={handleModelPickerOpen}
                   allowCustomModelEntry={allowCustomModelEntry}
                   selectedModelId={selectedAgentModel}
                   onModelSelect={handleAgentModelSelect}

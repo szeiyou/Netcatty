@@ -51,6 +51,29 @@ type TimestampLedgerEntry = {
    * disposed when the line is trimmed from scrollback. Prefer when live.
    */
   marker?: TimestampMarker;
+  disposeListener?: { dispose: () => void };
+};
+
+type SortedTimestampStamp = {
+  label: string;
+  secondKey: number;
+  line: number;
+};
+
+type SortedLedgerCache = {
+  ledgerRevision: number;
+  baseY: number;
+  bufferLength: number;
+  cols: number;
+  rows: number;
+  bufferType: string;
+  stamps: SortedTimestampStamp[];
+  maxLine: number;
+};
+
+type AnchorDriftProbe = {
+  entry: TimestampLedgerEntry;
+  line: number;
 };
 
 type TimestampStore = {
@@ -64,6 +87,15 @@ type TimestampStore = {
    * Source of truth: per-second stamps with buffer line anchors.
    */
   ledger: TimestampLedgerEntry[];
+  /** Monotonic revision bumped whenever ledger entries or anchors mutate. */
+  ledgerRevision: number;
+  /** Monotonic revision bumped when a parsed terminal write completes. */
+  writeRevision: number;
+  /** Cached sorted snapshot keyed by ledgerRevision + buffer geometry. */
+  sortedLedgerCache: SortedLedgerCache | null;
+  /** O(1) live-anchor probes detecting in-place IMarker.line drift at constant buffer geometry. */
+  firstAnchoredProbe: AnchorDriftProbe | null;
+  lastAnchoredProbe: AnchorDriftProbe | null;
   /** Last secondKey accepted (one stamp per second). */
   lastStampSecondKey: number | null;
   /**
@@ -75,8 +107,6 @@ type TimestampStore = {
   lastSeenBufferLength: number | null;
   /** Last seen cols; when cols change, reflow may have shifted bare line numbers. */
   lastSeenCols: number | null;
-  /** @deprecated materialize path removed; always false. */
-  ledgerMaterialized: boolean;
   /**
    * Markers dropped from `entries` but not yet disposed. Drained with a per-pass
    * budget so rewrite storms do not O(n²)-freeze on xterm marker list splices.
@@ -323,17 +353,6 @@ const isBulkMeasurableEscapeSequence = (sequence: string): boolean =>
   getAlternateScreenAction(sequence) === null
   && (getWraparoundAction(sequence) !== null || isSgrSequence(sequence));
 
-const isPotentialAlternateScreenSequence = (sequence: string): boolean => {
-  if (!sequence.startsWith("\x1b[?")) return false;
-
-  const params = sequence.slice(3).split(";");
-  const alternateScreenModes = ["47", "1047", "1049"];
-  return params.some((part) => (
-    part === ""
-    || alternateScreenModes.some((mode) => mode.startsWith(part) || part.startsWith(mode))
-  ));
-};
-
 const isPrintableOutput = (char: string): boolean => {
   if (char === "\t") return true;
   const code = char.codePointAt(0);
@@ -501,11 +520,15 @@ const getTimestampStore = (term: XTerm): TimestampStore => {
       segmenter: createTerminalLineTimestampSegmenter(),
       entries: [],
       ledger: [],
+      ledgerRevision: 0,
+      writeRevision: 0,
+      sortedLedgerCache: null,
+      firstAnchoredProbe: null,
+      lastAnchoredProbe: null,
       lastStampSecondKey: null,
       lastSeenBaseY: null,
       lastSeenBufferLength: null,
       lastSeenCols: null,
-      ledgerMaterialized: false,
       orphanedMarkers: [],
       listeners: new Set(),
       timestampOnlyPrefix: "",
@@ -707,7 +730,65 @@ const advanceStampCursorThroughData = (
   return { absoluteLine, column, wraparoundMode, altActive };
 };
 
+const markLedgerDirty = (store: TimestampStore): void => {
+  store.ledgerRevision += 1;
+  store.sortedLedgerCache = null;
+  store.firstAnchoredProbe = null;
+  store.lastAnchoredProbe = null;
+};
+
+const hasProbeDrifted = (probe: AnchorDriftProbe | null): boolean => {
+  if (!probe) return false;
+  const marker = probe.entry.marker;
+  if (!marker || marker.isDisposed) return true;
+  return typeof marker.line === "number"
+    && Number.isFinite(marker.line)
+    && Math.max(0, marker.line) !== probe.line;
+};
+
+const hasEntryAnchorDrifted = (entry: TimestampLedgerEntry | undefined): boolean => {
+  if (!entry?.marker) return false;
+  if (entry.marker.isDisposed) return true;
+  return typeof entry.marker.line === "number"
+    && Number.isFinite(entry.marker.line)
+    && Math.max(0, entry.marker.line) !== entry.line;
+};
+
+const hasLiveAnchorDrifted = (store: TimestampStore): boolean => {
+  if (hasProbeDrifted(store.firstAnchoredProbe) || hasProbeDrifted(store.lastAnchoredProbe)) {
+    return true;
+  }
+  if (!store.firstAnchoredProbe && !store.lastAnchoredProbe && store.ledger.length > 0) {
+    return (
+      hasEntryAnchorDrifted(store.ledger[0])
+      || hasEntryAnchorDrifted(store.ledger[store.ledger.length - 1])
+    );
+  }
+  return false;
+};
+
+const refreshAnchorProbes = (store: TimestampStore): void => {
+  let first: AnchorDriftProbe | null = null;
+  let last: AnchorDriftProbe | null = null;
+  for (let index = 0; index < store.ledger.length; index += 1) {
+    const entry = store.ledger[index]!;
+    if (!entry.marker || entry.marker.isDisposed) continue;
+    first = { entry, line: effectiveLedgerLine(entry) };
+    break;
+  }
+  for (let index = store.ledger.length - 1; index >= 0; index -= 1) {
+    const entry = store.ledger[index]!;
+    if (!entry.marker || entry.marker.isDisposed) continue;
+    last = { entry, line: effectiveLedgerLine(entry) };
+    break;
+  }
+  store.firstAnchoredProbe = first;
+  store.lastAnchoredProbe = last;
+};
+
 const disposeLedgerMarker = (entry: TimestampLedgerEntry): void => {
+  entry.disposeListener?.dispose();
+  entry.disposeListener = undefined;
   const marker = entry.marker;
   entry.marker = undefined;
   if (!marker || marker.isDisposed) return;
@@ -724,6 +805,7 @@ const trimLedgerToCapacity = (
       disposeLedgerMarker(store.ledger[index]!);
     }
     store.ledger.splice(0, drop);
+    markLedgerDirty(store);
   }
 };
 
@@ -753,6 +835,7 @@ const pushLedgerStamp = (
     line: Math.max(0, line),
   };
   store.ledger.push(entry);
+  markLedgerDirty(store);
   trimLedgerToCapacity(store, capacity);
   return entry;
 };
@@ -774,6 +857,7 @@ const attachLedgerAnchors = (
 
   const stillInLedger = new Set(store.ledger);
   const cursorLine = getAbsoluteCursorLine(term);
+  let changed = false;
   for (const entry of pending) {
     if (!stillInLedger.has(entry)) continue;
     if (entry.marker && !entry.marker.isDisposed) continue;
@@ -785,10 +869,18 @@ const attachLedgerAnchors = (
       marker = undefined;
     }
     if (!marker || marker.isDisposed) continue;
+    entry.disposeListener?.dispose();
     entry.marker = marker;
+    entry.disposeListener = marker.onDispose?.(() => {
+      markLedgerDirty(store);
+    });
     if (typeof marker.line === "number" && Number.isFinite(marker.line)) {
       entry.line = Math.max(0, marker.line);
     }
+    changed = true;
+  }
+  if (changed) {
+    markLedgerDirty(store);
   }
 };
 
@@ -797,33 +889,16 @@ export const restoreTerminalLineTimestampAnchors = (term: XTerm): void => {
   const store = getTimestampStore(term);
   for (const entry of store.ledger) {
     if (!entry.marker?.isDisposed) continue;
+    entry.disposeListener?.dispose();
+    entry.disposeListener = undefined;
     entry.marker = undefined;
   }
   attachLedgerAnchors(term, store, store.ledger);
   store.lastSeenBaseY = term.buffer.normal.baseY;
   store.lastSeenBufferLength = term.buffer.normal.length;
   store.lastSeenCols = _getTerminalColumnCount(term);
+  markLedgerDirty(store);
   notifyTimestampStore(store);
-};
-
-export const snapshotTerminalLineTimestampLedger = (term: XTerm): Array<{
-  label: string;
-  secondKey: number;
-  line: number;
-}> => getTimestampStore(term).ledger.map((entry) => ({
-  label: entry.label,
-  secondKey: entry.secondKey,
-  line: entry.marker && !entry.marker.isDisposed ? entry.marker.line : entry.line,
-}));
-
-export const restoreTerminalLineTimestampLedger = (
-  term: XTerm,
-  snapshot: readonly { label: string; secondKey: number; line: number }[],
-): void => {
-  const store = getTimestampStore(term);
-  store.ledger = snapshot.map((entry) => ({ ...entry }));
-  store.lastStampSecondKey = store.ledger.at(-1)?.secondKey ?? null;
-  restoreTerminalLineTimestampAnchors(term);
 };
 
 /**
@@ -834,24 +909,41 @@ export const restoreTerminalLineTimestampLedger = (
 const syncLedgerFromAnchors = (store: TimestampStore): void => {
   if (store.ledger.length === 0) return;
   let write = 0;
+  let mutated = false;
   for (let read = 0; read < store.ledger.length; read += 1) {
     const entry = store.ledger[read]!;
     const marker = entry.marker;
     if (marker) {
       if (marker.isDisposed) {
+        entry.disposeListener?.dispose();
+        entry.disposeListener = undefined;
         entry.marker = undefined;
+        mutated = true;
         // Trimmed away with its scrollback row — drop the stamp.
         continue;
       }
       if (typeof marker.line === "number" && Number.isFinite(marker.line)) {
-        entry.line = Math.max(0, marker.line);
+        const nextLine = Math.max(0, marker.line);
+        if (nextLine !== entry.line) {
+          entry.line = nextLine;
+          mutated = true;
+        }
       }
     }
-    if (entry.line < 0) continue;
+    if (entry.line < 0) {
+      mutated = true;
+      continue;
+    }
     store.ledger[write] = entry;
     write += 1;
   }
-  store.ledger.length = write;
+  if (write !== store.ledger.length) {
+    store.ledger.length = write;
+    mutated = true;
+  }
+  if (mutated) {
+    markLedgerDirty(store);
+  }
 };
 
 const resolveBufferMaxLines = (term: XTerm): number => {
@@ -900,6 +992,7 @@ const rebaseLedgerForScrollback = (term: XTerm, store: TimestampStore): void => 
 
   // Only while full (or staying full) does baseY growth mean "N lines dropped
   // from the top" for entries that still use bare line numbers.
+  let mutated = false;
   if (
     bufferWasFull
     && bufferIsFull
@@ -910,6 +1003,7 @@ const rebaseLedgerForScrollback = (term: XTerm, store: TimestampStore): void => 
     for (const entry of store.ledger) {
       if (entry.marker && !entry.marker.isDisposed) continue;
       entry.line -= delta;
+      mutated = true;
     }
   }
 
@@ -919,6 +1013,7 @@ const rebaseLedgerForScrollback = (term: XTerm, store: TimestampStore): void => 
       if (entry.marker && !entry.marker.isDisposed) continue;
       // Unanchored after reflow — line no longer trustworthy.
       entry.line = -1;
+      mutated = true;
     }
   }
 
@@ -930,22 +1025,33 @@ const rebaseLedgerForScrollback = (term: XTerm, store: TimestampStore): void => 
 
   syncLedgerFromAnchors(store);
 
-  if (store.ledger.length === 0) return;
+  if (store.ledger.length === 0) {
+    if (mutated) markLedgerDirty(store);
+    return;
+  }
   let write = 0;
   for (let read = 0; read < store.ledger.length; read += 1) {
     const entry = store.ledger[read]!;
     if (entry.line < 0) {
       disposeLedgerMarker(entry);
+      mutated = true;
       continue;
     }
     if (bufferLength > 0 && entry.line >= bufferLength) {
       disposeLedgerMarker(entry);
+      mutated = true;
       continue;
     }
     store.ledger[write] = entry;
     write += 1;
   }
-  store.ledger.length = write;
+  if (write !== store.ledger.length) {
+    store.ledger.length = write;
+    mutated = true;
+  }
+  if (mutated) {
+    markLedgerDirty(store);
+  }
 };
 
 /**
@@ -956,13 +1062,16 @@ const resolveLastPaintBufferLine = (
   term: XTerm,
   store: TimestampStore,
   bufferLength: number,
+  knownLastLedgerLine?: number,
 ): number => {
-  let lastLedgerLine = -1;
-  for (const entry of store.ledger) {
-    const line = entry.marker && !entry.marker.isDisposed && typeof entry.marker.line === "number"
-      ? entry.marker.line
-      : entry.line;
-    if (line > lastLedgerLine) lastLedgerLine = line;
+  let lastLedgerLine = knownLastLedgerLine ?? -1;
+  if (knownLastLedgerLine === undefined) {
+    for (const entry of store.ledger) {
+      const line = entry.marker && !entry.marker.isDisposed && typeof entry.marker.line === "number"
+        ? entry.marker.line
+        : entry.line;
+      if (line > lastLedgerLine) lastLedgerLine = line;
+    }
   }
 
   let cursorAbs = 0;
@@ -1149,11 +1258,11 @@ const resetTimestampStore = (store: TimestampStore) => {
   }
   store.entries = [];
   store.ledger = [];
+  markLedgerDirty(store);
   store.lastStampSecondKey = null;
   store.lastSeenBaseY = null;
   store.lastSeenBufferLength = null;
   store.lastSeenCols = null;
-  store.ledgerMaterialized = false;
   store.orphanedMarkers = [];
   store.segmenter.reset();
   store.timestampOnlyPrefix = "";
@@ -1187,7 +1296,6 @@ const _recordTerminalLineTimestamp = (
     entry.disposeListener = undefined;
   });
   store.entries.push(entry);
-  store.ledgerMaterialized = true;
   if (!options.skipPrune) {
     maybePruneTimestampEntries(term, store);
   }
@@ -1195,18 +1303,6 @@ const _recordTerminalLineTimestamp = (
     notifyTimestampStore(store);
   }
   return true;
-};
-
-/** Test/diagnostics helper: live entry count after optional prune. */
-export const getTerminalLineTimestampEntryCount = (
-  term: XTerm,
-  options: { prune?: boolean } = {},
-): number => {
-  const store = getTimestampStore(term);
-  if (options.prune !== false) {
-    pruneDisposedEntries(store, resolveTerminalLineTimestampCapacity(term));
-  }
-  return store.entries.length;
 };
 
 const _countLineFeeds = (data: string): number => {
@@ -1234,29 +1330,6 @@ const _getTerminalCursorColumn = (term: XTerm): number => {
 const _getTerminalWraparoundMode = (term: XTerm): boolean => (
   ((term as XTerm & { modes?: { wraparoundMode?: boolean } }).modes?.wraparoundMode) !== false
 );
-
-/**
- * True when DECSTBM (or equivalent) leaves a partial scrolling region.
- * Bulk row-offset measurement assumes full-buffer advancement; inside a
- * region, newlines recycle rows and measured offsets would invent fake
- * history and evict still-valid scrollback timestamps.
- */
-export const hasPartialScrollingRegion = (term: XTerm): boolean => {
-  const core = (term as XTerm & {
-    _core?: { buffer?: { scrollTop?: number; scrollBottom?: number } };
-  })._core;
-  const scrollTop = core?.buffer?.scrollTop;
-  const scrollBottom = core?.buffer?.scrollBottom;
-  const rows = Number.isFinite(term.rows) && term.rows > 0 ? term.rows : 0;
-  if (
-    !Number.isFinite(scrollTop)
-    || !Number.isFinite(scrollBottom)
-    || rows <= 0
-  ) {
-    return false;
-  }
-  return Number(scrollTop) > 0 || Number(scrollBottom) < rows - 1;
-};
 
 const isUnsafeGraphemeSequenceCodePoint = (codePoint: number): boolean => (
   codePoint === 0x200d
@@ -1415,9 +1488,6 @@ const measureSimpleAsciiRows = (
 /** Test-only: counts tryMeasureVisualRows invocations on the shipped path. */
 let visualRowMeasureCountForTests = 0;
 export const getVisualRowMeasureCountForTests = (): number => visualRowMeasureCountForTests;
-export const resetVisualRowMeasureCountForTests = (): void => {
-  visualRowMeasureCountForTests = 0;
-};
 
 export const tryMeasureVisualRows = (
   term: XTerm,
@@ -1600,6 +1670,104 @@ const effectiveLedgerLine = (entry: TimestampLedgerEntry): number => {
   return entry.line;
 };
 
+const buildSortedTimestampStamps = (
+  ledger: readonly TimestampLedgerEntry[],
+): SortedTimestampStamp[] => {
+  const stamps: SortedTimestampStamp[] = [];
+  let isSorted = true;
+  let prevLine = -1;
+  let prevSecondKey = Number.NEGATIVE_INFINITY;
+  for (let index = 0; index < ledger.length; index += 1) {
+    const entry = ledger[index]!;
+    const line = effectiveLedgerLine(entry);
+    if (line < 0) continue;
+    if (
+      isSorted
+      && (line < prevLine || (line === prevLine && entry.secondKey < prevSecondKey))
+    ) {
+      isSorted = false;
+    }
+    prevLine = line;
+    prevSecondKey = entry.secondKey;
+    stamps.push({ label: entry.label, secondKey: entry.secondKey, line });
+  }
+  if (!isSorted) {
+    stamps.sort((left, right) => left.line - right.line || left.secondKey - right.secondKey);
+  }
+  return stamps;
+};
+
+const findLatestStampIndexAtOrBefore = (
+  stamps: readonly SortedTimestampStamp[],
+  targetLine: number,
+): number => {
+  let low = 0;
+  let high = stamps.length - 1;
+  let result = -1;
+  while (low <= high) {
+    const mid = (low + high) >>> 1;
+    if (stamps[mid]!.line <= targetLine) {
+      result = mid;
+      low = mid + 1;
+    } else {
+      high = mid - 1;
+    }
+  }
+  return result;
+};
+
+const resolveTerminalTimestampGutterRowsFromSortedStamps = ({
+  viewportY,
+  rows,
+  stamps,
+  isWrappedLine,
+  lastPaintLine,
+}: {
+  viewportY: number;
+  rows: number;
+  stamps: readonly SortedTimestampStamp[];
+  isWrappedLine?: (line: number) => boolean;
+  lastPaintLine?: number;
+}): TerminalTimestampGutterRow[] => {
+  if (stamps.length === 0 || rows <= 0) return [];
+
+  const resolveSourceLine = (line: number): number => {
+    if (!isWrappedLine?.(line)) return line;
+    let sourceLine = line;
+    while (sourceLine > 0 && isWrappedLine(sourceLine)) {
+      sourceLine -= 1;
+    }
+    return sourceLine;
+  };
+
+  const maxLine = typeof lastPaintLine === "number" && Number.isFinite(lastPaintLine)
+    ? lastPaintLine
+    : Number.POSITIVE_INFINITY;
+
+  if (viewportY > maxLine) return [];
+
+  const visible: TerminalTimestampGutterRow[] = [];
+  const firstSourceLine = resolveSourceLine(viewportY);
+  let stampIndex = findLatestStampIndexAtOrBefore(stamps, firstSourceLine);
+  let currentLabel: string | undefined = stampIndex >= 0 ? stamps[stampIndex]!.label : undefined;
+
+  for (let row = 0; row < rows; row += 1) {
+    const line = viewportY + row;
+    if (line > maxLine) break;
+    if (row > 0) {
+      const sourceLine = resolveSourceLine(line);
+      while (stampIndex + 1 < stamps.length && stamps[stampIndex + 1]!.line <= sourceLine) {
+        stampIndex += 1;
+        currentLabel = stamps[stampIndex]!.label;
+      }
+    }
+    if (currentLabel) {
+      visible.push({ row, label: currentLabel });
+    }
+  }
+  return visible;
+};
+
 /**
  * Render gutter rows from the per-second ledger.
  * Each visible line uses the latest stamp with stamp.line <= line so blank
@@ -1624,63 +1792,123 @@ export const resolveTerminalTimestampGutterRowsFromLedger = ({
   lastPaintLine?: number;
 }): TerminalTimestampGutterRow[] => {
   if (ledger.length === 0 || rows <= 0) return [];
+  const stamps = buildSortedTimestampStamps(ledger);
+  return resolveTerminalTimestampGutterRowsFromSortedStamps({
+    viewportY,
+    rows,
+    stamps,
+    isWrappedLine,
+    lastPaintLine,
+  });
+};
 
-  const stamps = ledger
-    .map((entry) => ({ label: entry.label, secondKey: entry.secondKey, line: effectiveLedgerLine(entry) }))
-    .filter((entry) => entry.line >= 0)
-    .sort((left, right) => left.line - right.line || left.secondKey - right.secondKey);
-
-  const resolveSourceLine = (line: number): number => {
-    if (!isWrappedLine?.(line)) return line;
-    let sourceLine = line;
-    while (sourceLine > 0 && isWrappedLine(sourceLine)) {
-      sourceLine -= 1;
-    }
-    return sourceLine;
-  };
-
-  const maxLine = typeof lastPaintLine === "number" && Number.isFinite(lastPaintLine)
-    ? lastPaintLine
-    : Number.POSITIVE_INFINITY;
-
-  const visible: TerminalTimestampGutterRow[] = [];
-  let stampIndex = -1;
-  let currentLabel: string | undefined;
-  for (let row = 0; row < rows; row += 1) {
-    const line = viewportY + row;
-    if (line > maxLine) break;
-    const sourceLine = resolveSourceLine(line);
-    while (stampIndex + 1 < stamps.length && stamps[stampIndex + 1].line <= sourceLine) {
-      stampIndex += 1;
-      currentLabel = stamps[stampIndex].label;
-    }
-    if (currentLabel) {
-      visible.push({ row, label: currentLabel });
-    }
+const getOrBuildSortedLedgerCache = (
+  term: XTerm,
+  store: TimestampStore,
+  bufferType: string,
+): SortedLedgerCache => {
+  let baseY = 0;
+  let bufferLength = 0;
+  try {
+    const active = term.buffer?.active as { baseY?: number; length?: number } | undefined;
+    baseY = typeof active?.baseY === "number" ? active.baseY : 0;
+    bufferLength = typeof active?.length === "number" ? active.length : 0;
+  } catch {
+    baseY = 0;
+    bufferLength = 0;
   }
-  return visible;
+  const rawCols = _getTerminalColumnCount(term);
+  const cols = Number.isFinite(rawCols) ? rawCols : 0;
+  const rows = Number.isFinite(term.rows) ? term.rows : 0;
+
+  if (hasLiveAnchorDrifted(store)) {
+    markLedgerDirty(store);
+  }
+
+  // xterm mutates live IMarker.line in place on reflow/scrollback eviction, so
+  // only reuse the cached sorted snapshot when ledgerRevision AND buffer
+  // geometry are all unchanged and live anchors have not drifted.
+  const cached = store.sortedLedgerCache;
+  if (
+    cached
+    && cached.ledgerRevision === store.ledgerRevision
+    && cached.baseY === baseY
+    && cached.bufferLength === bufferLength
+    && cached.cols === cols
+    && cached.rows === rows
+    && cached.bufferType === bufferType
+  ) {
+    return cached;
+  }
+
+  rebaseLedgerForScrollback(term, store);
+  refreshAnchorProbes(store);
+  const stamps = buildSortedTimestampStamps(store.ledger);
+  const maxLine = stamps.length > 0 ? stamps[stamps.length - 1]!.line : -1;
+  const nextCache: SortedLedgerCache = {
+    ledgerRevision: store.ledgerRevision,
+    baseY,
+    bufferLength,
+    cols,
+    rows,
+    bufferType,
+    stamps,
+    maxLine,
+  };
+  store.sortedLedgerCache = nextCache;
+  return nextCache;
+};
+
+/**
+ * Lightweight state key for gutter render short-circuiting on idle onRender
+ * ticks (e.g. cursor blink) without touching layout or sorting the ledger.
+ */
+export const getTerminalLineTimestampViewportStateKey = (term: XTerm): string => {
+  const active = term.buffer?.active as
+    | {
+      type?: string;
+      viewportY?: number;
+      baseY?: number;
+      length?: number;
+      cursorY?: number;
+      cursorX?: number;
+    }
+    | undefined;
+  const bufferType = active?.type ?? "normal";
+  if (bufferType === "alternate") return "alternate";
+  const store = getTimestampStore(term);
+  if (hasLiveAnchorDrifted(store)) {
+    markLedgerDirty(store);
+  }
+  const viewportY = typeof active?.viewportY === "number" ? active.viewportY : 0;
+  const baseY = typeof active?.baseY === "number" ? active.baseY : 0;
+  const bufferLength = typeof active?.length === "number" ? active.length : 0;
+  const cursorY = typeof active?.cursorY === "number" ? active.cursorY : 0;
+  const cursorX = typeof active?.cursorX === "number" ? active.cursorX : 0;
+  const cols = Number.isFinite(term.cols) ? term.cols : 0;
+  const rows = Number.isFinite(term.rows) ? term.rows : 0;
+  return `${store.ledgerRevision}|${store.writeRevision}|${viewportY}|${baseY}|${bufferLength}|${cols}|${rows}|${bufferType}|${cursorY}|${cursorX}`;
 };
 
 export const getVisibleTerminalLineTimestampRows = (
   term: XTerm,
 ): TerminalTimestampGutterRow[] => {
-  if ((term.buffer.active as { type?: string }).type === "alternate") {
+  const bufferType = (term.buffer.active as { type?: string }).type ?? "normal";
+  if (bufferType === "alternate") {
     return [];
   }
   const store = getTimestampStore(term);
-  rebaseLedgerForScrollback(term, store);
-  let bufferLength = 0;
-  try {
-    const active = term.buffer?.active as { length?: number } | undefined;
-    bufferLength = typeof active?.length === "number" ? active.length : 0;
-  } catch {
-    bufferLength = 0;
-  }
-  const lastPaintLine = resolveLastPaintBufferLine(term, store, bufferLength);
-  return resolveTerminalTimestampGutterRowsFromLedger({
+  const cache = getOrBuildSortedLedgerCache(term, store, bufferType);
+  const lastPaintLine = resolveLastPaintBufferLine(
+    term,
+    store,
+    cache.bufferLength,
+    cache.maxLine,
+  );
+  return resolveTerminalTimestampGutterRowsFromSortedStamps({
     viewportY: term.buffer.active.viewportY,
     rows: term.rows,
-    ledger: store.ledger,
+    stamps: cache.stamps,
     isWrappedLine: (line) => term.buffer.active.getLine(line)?.isWrapped === true,
     lastPaintLine,
   });
@@ -1711,7 +1939,7 @@ const writeTerminalDataWithSecondLedger = (
   const segments = store.segmenter.append(dataForTimestamps, stampDate);
 
   const pendingEscapeSequence = store.segmenter.flushPendingEscapeSequence();
-  if (isPotentialAlternateScreenSequence(pendingEscapeSequence)) {
+  if (canRetainIncompleteTerminalControlSequence(pendingEscapeSequence)) {
     store.timestampOnlyPrefix = pendingEscapeSequence;
   }
 
@@ -1763,6 +1991,9 @@ const writeTerminalDataWithSecondLedger = (
 
   const writeStartedAt = shouldMeasureDiagnostics ? performance.now() : 0;
   term.write(data, () => {
+    if (data.length > 0) {
+      store.writeRevision += 1;
+    }
     attachLedgerAnchors(term, store, pendingAnchors);
     rebaseLedgerForScrollback(term, store);
     if (ledgerChanged) {
@@ -1779,6 +2010,40 @@ const writeTerminalDataWithSecondLedger = (
   });
 };
 
+/**
+ * Normal-screen erasure needs real parser coordinates. Keep erase writes
+ * separate from text so anchors are attached before an erase,
+ * and subsequent stamps are seeded after xterm has moved/trimmed the buffer.
+ * Standalone cursor moves stay on the bulk path: a backwards sparse stamp
+ * would overwrite the fill-forward time of untouched rows below it.
+ * Skip alternate-screen programs and string controls (OSC/DCS payloads).
+ */
+const findTimestampCursorBoundary = (term: XTerm, data: string): {
+  start: number;
+  end: number;
+} | null => {
+  const prefix = getTimestampStore(term).timestampOnlyPrefix;
+  const input = prefix + data;
+  let altActive = term.buffer?.active?.type === "alternate";
+  for (let index = input.indexOf("\x1b"); index !== -1;) {
+    const parsed = readEscapeSequence(input, index);
+    if (!parsed?.complete) break;
+    const sequence = parsed.sequence;
+    const action = getAlternateScreenAction(sequence);
+    if (action) altActive = action === "enter";
+    const final = getCsiFinal(sequence);
+    const params = sequence.slice(2, -1);
+    if (!altActive && final === "J" && /^[\d;]*$/.test(params)) {
+      return {
+        start: Math.max(0, index - prefix.length),
+        end: parsed.endIndex + 1 - prefix.length,
+      };
+    }
+    index = input.indexOf("\x1b", parsed.endIndex + 1);
+  }
+  return null;
+};
+
 export const writeTerminalDataWithLineTimestamps = (
   term: XTerm,
   data: string,
@@ -1790,6 +2055,9 @@ export const writeTerminalDataWithLineTimestamps = (
   const writeFallbackOnly = (fallbackData: string, onComplete: () => void): void => {
     const writeStartedAt = shouldMeasureDiagnostics ? performance.now() : 0;
     term.write(fallbackData, () => {
+      if (fallbackData.length > 0) {
+        getTimestampStore(term).writeRevision += 1;
+      }
       if (diagnostics) {
         diagnostics.onStep?.({
           kind: "fallback-write",
@@ -1810,17 +2078,48 @@ export const writeTerminalDataWithLineTimestamps = (
     store.segmenter.reset();
     store.timestampOnlyPrefix = "";
     store.lastStampSecondKey = null;
-    writeFallbackOnly(data, done);
+    writeFallbackOnly(data, () => {
+      markLedgerDirty(store);
+      done();
+    });
     return;
   }
 
-  // Record/render separation: per-second ledger + sparse reflow anchors.
-  writeTerminalDataWithSecondLedger(
-    term,
-    data,
-    done,
-    options,
-    diagnostics,
-    shouldMeasureDiagnostics,
-  );
+  // Preserve arrival time across parser checkpoints, including a second rollover.
+  const writeOptions = { ...options, timestampDate: options?.timestampDate ?? new Date() };
+  const writeStamped = (part: string, onComplete: () => void) => {
+    writeTerminalDataWithSecondLedger(
+      term, part, onComplete, writeOptions, diagnostics, shouldMeasureDiagnostics,
+    );
+  };
+  const writeNext = (remaining: string): void => {
+    const boundary = findTimestampCursorBoundary(term, remaining);
+    if (!boundary) {
+      writeStamped(remaining, done);
+      return;
+    }
+    const writeControl = () => {
+      writeFallbackOnly(remaining.slice(boundary.start, boundary.end), () => {
+        const store = getTimestampStore(term);
+        store.segmenter.reset();
+        store.timestampOnlyPrefix = "";
+        // Erasure can dispose the current second's anchor. A redraw must be
+        // allowed to stamp again even when its arrival time is the same second.
+        store.lastStampSecondKey = null;
+        rebaseLedgerForScrollback(term, store);
+        notifyTimestampStore(store);
+        if (boundary.end < remaining.length) {
+          writeNext(remaining.slice(boundary.end));
+        } else {
+          done();
+        }
+      });
+    };
+    if (boundary.start > 0) {
+      writeStamped(remaining.slice(0, boundary.start), writeControl);
+    } else {
+      writeControl();
+    }
+  };
+  writeNext(data);
 };

@@ -1,7 +1,9 @@
 import { redactSecretsForModel } from './modelSecretRedaction';
+import { sliceHead } from '../textBoundaries';
 
 const MAX_DECISIONS = 15;
 const MAX_BLOCKERS = 10;
+const DEFAULT_MAX_SESSIONS = 64;
 
 export interface ActiveTerminalJobState {
   sessionId?: string;
@@ -68,9 +70,28 @@ function terminalJobDefinitelyGone(result: Record<string, unknown> | undefined, 
 
 export class SessionStateStore {
   private readonly bySession = new Map<string, CattySessionState>();
+  private readonly maxSessions: number;
+
+  constructor(maxSessions = DEFAULT_MAX_SESSIONS) {
+    this.maxSessions = Math.max(1, Math.floor(maxSessions));
+  }
+
+  private setSessionState(chatSessionId: string, state: CattySessionState): void {
+    this.bySession.delete(chatSessionId);
+    this.bySession.set(chatSessionId, state);
+    while (this.bySession.size > this.maxSessions) {
+      const oldestKey = this.bySession.keys().next().value;
+      if (oldestKey === undefined) break;
+      this.bySession.delete(oldestKey);
+    }
+  }
 
   get(chatSessionId: string): CattySessionState {
-    return this.bySession.get(chatSessionId) ?? emptyState();
+    const existing = this.bySession.get(chatSessionId);
+    if (!existing) return emptyState();
+    this.bySession.delete(chatSessionId);
+    this.bySession.set(chatSessionId, existing);
+    return existing;
   }
 
   clear(chatSessionId: string): void {
@@ -80,9 +101,9 @@ export class SessionStateStore {
   mergeFromUserGoal(chatSessionId: string, goal: string | undefined): void {
     if (!goal?.trim()) return;
     const state = { ...this.get(chatSessionId) };
-    state.userGoal = goal.trim().slice(0, 500);
+    state.userGoal = sliceHead(goal.trim(), 500);
     state.updatedAt = Date.now();
-    this.bySession.set(chatSessionId, state);
+    this.setSessionState(chatSessionId, state);
   }
 
   mergeFromAssistantContent(chatSessionId: string, content: string): void {
@@ -102,7 +123,7 @@ export class SessionStateStore {
         };
       }
     }
-    this.bySession.set(chatSessionId, state);
+    this.setSessionState(chatSessionId, state);
   }
 
   mergeFileChanges(chatSessionId: string, paths: string[]): void {
@@ -112,17 +133,17 @@ export class SessionStateStore {
       state.editedFiles,
     );
     state.updatedAt = Date.now();
-    this.bySession.set(chatSessionId, state);
+    this.setSessionState(chatSessionId, state);
   }
 
   mergePlan(chatSessionId: string, items: Array<{ text: string; completed: boolean }>): void {
     const state = { ...this.get(chatSessionId) };
     state.planItems = items.slice(-30).map(item => ({
-      text: item.text.slice(0, 300),
+      text: sliceHead(item.text, 300),
       completed: item.completed,
     }));
     state.updatedAt = Date.now();
-    this.bySession.set(chatSessionId, state);
+    this.setSessionState(chatSessionId, state);
   }
 
   updateFromToolResult(
@@ -241,14 +262,14 @@ export class SessionStateStore {
     }
 
     if (isError) {
-      const preview = resultText.slice(0, 160).replace(/\s+/g, ' ').trim();
+      const preview = sliceHead(resultText, 160).replace(/\s+/g, ' ').trim();
       if (preview) {
         state.blockers = pushUnique(state.blockers, `${toolName}: ${preview}`, MAX_BLOCKERS);
       }
     }
 
     state.updatedAt = Date.now();
-    this.bySession.set(chatSessionId, state);
+    this.setSessionState(chatSessionId, state);
   }
 
   toReinjectionText(chatSessionId: string): string | undefined {
@@ -290,5 +311,3 @@ export class SessionStateStore {
     return lines.join('\n');
   }
 }
-
-export const globalSessionStateStore = new SessionStateStore();

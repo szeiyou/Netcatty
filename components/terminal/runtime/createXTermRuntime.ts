@@ -1,3 +1,5 @@
+import { shouldBroadcastDuringSensitivePrompt } from "../../../domain/terminalBroadcast";
+import type { SensitiveInputActiveRef } from "../autocomplete/terminalAutocompletePrompt";
 import { clearTerminalBroadcastUserInput, captureTerminalBroadcastInput, isTerminalBroadcastInputCurrent, markTerminalBroadcastUserInput, type TerminalPacedBroadcast } from "./terminalPacedBroadcast";
 import { stringCellWidth } from "../autocomplete/terminalStringCellWidth";
 import type { TerminalBroadcastInputOptions } from "../terminalHelpers";
@@ -69,7 +71,7 @@ import {
   installEraseInDisplayHandlers,
 } from "../clearTerminalViewport";
 import { pulseCopyOnSelectUserCommand } from "../copyOnSelect";
-import { getTerminalSelectionForClipboard } from "../normalizeTerminalSelection";
+import { getTerminalSelectionForClipboard } from "../../../domain/terminalSelection";
 import {
   createKittyKeyboardSessionStateStore,
   encodeKittyCompositionText,
@@ -107,10 +109,13 @@ import { watchDevicePixelRatio } from "./rendererDprWatch";
 import { dispatchWin32InputModeEvent } from "./win32InputMode";
 import { shouldDeferWebglUntilVisible } from "./webglRendererPolicy";
 import {
+  createBoundedLigaturesAddon,
   createTerminalLigatureController,
   terminalFontLigaturesEnabled,
 } from "./terminalFontLigatures";
+import { createPaneBidiJoiner, findRightToLeftRuns } from "./terminalBidiJoiner";
 import { createWebglRendererController } from "./webglRendererController";
+import { getSharedWebglContextBudget } from "./webglContextBudget";
 import {
   captureMiddleClickTerminalMouseEvent,
   markMiddleClickContextMenuEvent,
@@ -306,9 +311,15 @@ export type XTermRuntime = {
    * not been created yet. Idempotent; a no-op when WebGL is disabled or already
    * active. Called when a deferred pane first becomes visible.
    */
-  ensureWebglRenderer: () => void;
+  ensureWebglRenderer: () => boolean;
   /** Drop the WebGL addon while keeping the terminal alive (soft-hide). */
   suspendWebglRenderer: () => void;
+  /**
+   * Re-read isPaneVisibleRef after the pane is shown or hidden. Hidden panes
+   * wait for the reveal path to rebuild a lost WebGL renderer, and past the
+   * shared context budget they give theirs up (see webglContextBudget).
+   */
+  syncPaneVisibility: () => void;
   /**
    * Turn programming ligatures on or off. An active WebGL renderer is rebuilt
    * because its glyph atlas captures font-feature-settings only at creation.
@@ -412,7 +423,9 @@ export type CreateXTermRuntimeContext = {
     recordEnter: (options?: { sensitive?: boolean }) => Promise<void>;
     captureSubmittedLineRecorder?: () => ((line: string, options?: { sensitive?: boolean; includePendingInput?: boolean; consumePendingInput?: boolean }) => Promise<void>) | undefined;
   } | undefined>;
-  passwordPromptActiveRef?: RefObject<boolean>;
+  passwordPromptActiveRef?: SensitiveInputActiveRef;
+  /** Includes raw PTY screen transitions not yet parsed by xterm. */
+  isPromptSecurityAlternateScreenActive?: () => boolean;
   /**
    * Opt-in "broadcast without password protection" (#3488). When true, an
    * active password prompt no longer pauses raw-string broadcast fan-out.
@@ -476,9 +489,18 @@ export type CreateXTermRuntimeContext = {
   // background tabs) to avoid spinning up many WebGL contexts at once. Defaults
   // to visible (immediate WebGL) when omitted.
   initiallyVisible?: boolean;
+  /**
+   * Whether the pane is on screen right now. Unlike initiallyVisible, which
+   * stays true for hidden panes unless hibernation is on, this feeds the WebGL
+   * context budget. Treated as always visible when omitted.
+   */
+  isPaneVisibleRef?: RefObject<boolean>;
   /** When true, keep the DOM renderer until replay completes (hibernate wake). */
   deferWebglUntilReplayComplete?: boolean;
 };
+
+/** Private xterm fields used to release a disposed renderer's WebGL context. */
+type WebglAddonInternals = { _renderer?: { _gl?: WebGL2RenderingContext } };
 
 const detectPlatform = (): XTermPlatform => {
   if (
@@ -712,6 +734,13 @@ export const createXTermRuntime = (ctx: CreateXTermRuntimeContext): XTermRuntime
     _core?: {
       _renderService?: {
         _renderer?: MaybeRenderer;
+        dimensions?: {
+          device?: {
+            cell?: {
+              width?: number;
+            };
+          };
+        };
       };
     };
     options?: {
@@ -900,17 +929,32 @@ export const createXTermRuntime = (ctx: CreateXTermRuntimeContext): XTermRuntime
     }
   };
 
+  // Disposing the addon leaves its WebGL context alive until the canvas is
+  // garbage collected, still holding GPU memory and one of Chromium's 16
+  // context slots. Lose it explicitly so both come back right away.
+  const disposeWebglAddon = (addon: WebglAddon) => {
+    const gl = (addon as unknown as WebglAddonInternals)._renderer?._gl;
+    addon.dispose();
+    try {
+      if (gl && !gl.isContextLost()) gl.getExtension("WEBGL_lose_context")?.loseContext();
+    } catch (err) {
+      logger.warn("[XTerm] Failed to release WebGL context", err);
+    }
+  };
+
   let restoreWebglFrameRenderer: (() => void) | undefined;
+  const isPaneVisibleRef = ctx.isPaneVisibleRef;
   const webglController = createWebglRendererController({
     enabled: performanceConfig.useWebGLAddon,
-    // Background output is also painted outside rAF. Keep the last complete
-    // frame across compositor passes and tab visibility transitions.
+    budget: getSharedWebglContextBudget(),
+    isVisible: isPaneVisibleRef ? () => isPaneVisibleRef.current !== false : undefined,
     createAddon: () => new WebglAddon({ preserveDrawingBuffer: true }),
     loadAddon: (addon) => {
       term.loadAddon(addon);
       restoreWebglFrameRenderer?.();
       restoreWebglFrameRenderer = installRetainedWebglFrameClear(term);
     },
+    disposeAddon: disposeWebglAddon,
     repaint: repaintTerminal,
     setLoaded: (loaded) => {
       webglLoaded = loaded;
@@ -931,8 +975,29 @@ export const createXTermRuntime = (ctx: CreateXTermRuntimeContext): XTermRuntime
   // The ligatures addon sets font-feature-settings on the terminal element.
   // WebGL's glyph atlas inherits that only when the atlas is created, so this
   // has to run before the first WebGL load. Later toggles rebuild WebGL.
+  // Wrap the addon's character joiner so unbounded horizontal-rule ligatures
+  // (e.g. `nvidia-smi` `+---...---+` borders) cannot exceed WebGL's 512px
+  // normal atlas page and trigger a 16384x16384 (~2 GiB) overflow atlas.
   const ligatures = createTerminalLigatureController({
-    createAddon: () => new LigaturesAddon(),
+    createAddon: () =>
+      createBoundedLigaturesAddon(new LigaturesAddon(), {
+        getDeviceCellWidth: () => {
+          const measured = (term as IntrospectableTerminal)._core?._renderService
+            ?.dimensions?.device?.cell?.width;
+          if (typeof measured === "number" && Number.isFinite(measured) && measured > 0) {
+            return measured;
+          }
+          const fontSize =
+            typeof term.options.fontSize === "number" && Number.isFinite(term.options.fontSize) && term.options.fontSize > 0
+              ? term.options.fontSize
+              : 14;
+          const dpr =
+            typeof window !== "undefined" && Number.isFinite(window.devicePixelRatio) && window.devicePixelRatio > 0
+              ? window.devicePixelRatio
+              : 1;
+          return fontSize * dpr;
+        },
+      }),
     loadAddon: (addon) => term.loadAddon(addon),
     isWebglActive: () => webglLoaded,
     recreateWebgl: reloadWebglRenderer,
@@ -1052,6 +1117,22 @@ export const createXTermRuntime = (ctx: CreateXTermRuntimeContext): XTermRuntime
   term.loadAddon(unicodeGraphemes);
   term.unicode.activeVersion = '15-graphemes';
 
+  // Draw Arabic, Persian and Hebrew runs in display order with joined letters.
+  // Display only: the buffer, selection and copy keep the logical text.
+  term.registerCharacterJoiner(performanceConfig.useWebGLAddon
+    ? createPaneBidiJoiner(
+      () => webglController.getAddon() !== null,
+      () => {
+        if (runtimeDisposed) return;
+        // The pinned WebGL addon allocates a maximum-size atlas page for a
+        // wide joined glyph. Prevent attach/recovery again for just this pane.
+        webglController.dispose();
+        logger.info("[XTerm] Using DOM renderer for right-to-left text in this pane");
+        repaintTerminal();
+      },
+    )
+    : findRightToLeftRuns);
+
   trackRenderer();
 
   const appLevelActions = getAppLevelActions();
@@ -1069,8 +1150,12 @@ export const createXTermRuntime = (ctx: CreateXTermRuntimeContext): XTermRuntime
     // classification carried in the paste options must still tag the fan-out.
     const sourceSensitive = dispatchingFromPasswordPrompt || options?.sensitive === true;
     if (
-      (!dispatchingFromPasswordPrompt
-        || ctx.broadcastPasswordBypassRef?.current === true)
+      shouldBroadcastDuringSensitivePrompt({
+        sensitivePromptActive: dispatchingFromPasswordPrompt,
+        broadcastPasswordBypass: ctx.broadcastPasswordBypassRef?.current === true,
+        sensitivePromptSource: ctx.passwordPromptActiveRef?.source,
+        alternateScreen: ctx.isPromptSecurityAlternateScreenActive?.() || term.buffer?.active.type === "alternate",
+      })
       && ctx.isBroadcastEnabledRef.current
       && ctx.onBroadcastInputRef.current
     ) {
@@ -1395,9 +1480,9 @@ export const createXTermRuntime = (ctx: CreateXTermRuntimeContext): XTermRuntime
     // reconnect may have cleared passwordPromptActiveRef while the dialog was
     // open, so the live ref alone would downgrade the secret to nonsensitive.
     // The override is consumed only for the flagged paste data.
-    const sensitive = ctx.passwordPromptActiveRef?.current === true
-      || options?.sensitive === true
+    const carriedSensitive = options?.sensitive === true
       || shouldOverrideTerminalUserPasteSensitivity(term, logicalData ?? data);
+    const sensitive = ctx.passwordPromptActiveRef?.current === true || carriedSensitive;
     if (!options?.lineDelayMs && logicalData !== null
       && !isPrintableInput(logicalData) && !isTerminalReportSequence(logicalData)) {
       commandBufferRevision += 1;
@@ -1426,8 +1511,12 @@ export const createXTermRuntime = (ctx: CreateXTermRuntimeContext): XTermRuntime
     // The password bypass (#3488) only lifts the live password-prompt pause.
     // Explicitly classified sensitive payloads (confirmed pastes, preloaded
     // sudo credentials) stay non-broadcastable regardless of the opt-in.
-    const canBroadcastInput = (!sensitive
-      || (ctx.broadcastPasswordBypassRef?.current === true && options?.sensitive !== true)) &&
+    const canBroadcastInput = shouldBroadcastDuringSensitivePrompt({
+      sensitivePromptActive: sensitive,
+      broadcastPasswordBypass: ctx.broadcastPasswordBypassRef?.current === true && options?.sensitive !== true,
+      sensitivePromptSource: carriedSensitive ? "explicit" : ctx.passwordPromptActiveRef?.source,
+      alternateScreen: ctx.isPromptSecurityAlternateScreenActive?.() || term.buffer?.active.type === "alternate",
+    }) &&
       inputSource !== "kitty" &&
       !handlingKittyBroadcast &&
       !suppressTerminalBroadcast &&
@@ -1716,6 +1805,7 @@ export const createXTermRuntime = (ctx: CreateXTermRuntimeContext): XTermRuntime
   } | null = null;
   const win32InputModeForwardedKeys = new Map<string, KittyKeyboardForwardedPress>();
   const kittyForwardedKeys = new Map<string, KittyKeyboardForwardedPress>();
+  const suppressedKeyUpIdentities = new Set<string>();
   const broadcastForwardedKeys = new Map<string, KittyKeyboardForwardedPress>();
   const win32BroadcastForwardedKeys = new Map<string, KittyKeyboardForwardedPress>();
   // Command+Period interrupt presses are recorded under their normalized Ctrl+C identity
@@ -1761,8 +1851,12 @@ export const createXTermRuntime = (ctx: CreateXTermRuntimeContext): XTermRuntime
     isHandlingBroadcast: () => handlingKittyBroadcast,
     isBroadcastEnabled: () => ctx.isBroadcastEnabledRef.current,
     // The #3488 bypass lifts the password-prompt pause for Kitty key fan-out too.
-    isSensitiveInput: () => ctx.passwordPromptActiveRef?.current === true
-      && ctx.broadcastPasswordBypassRef?.current !== true,
+    isSensitiveInput: () => !shouldBroadcastDuringSensitivePrompt({
+      sensitivePromptActive: ctx.passwordPromptActiveRef?.current === true,
+      broadcastPasswordBypass: ctx.broadcastPasswordBypassRef?.current === true,
+      sensitivePromptSource: ctx.passwordPromptActiveRef?.source,
+      alternateScreen: ctx.isPromptSecurityAlternateScreenActive?.() || term.buffer?.active.type === "alternate",
+    }),
     // Dispatching from an active prompt under the bypass must tag the payload
     // so peer writes keep input interceptors skipped.
     isSensitivePromptSource: () => ctx.passwordPromptActiveRef?.current === true,
@@ -2058,6 +2152,7 @@ export const createXTermRuntime = (ctx: CreateXTermRuntimeContext): XTermRuntime
       );
       const identity = kittyKeyIdentity(releaseEvent);
       const hasForwardedWin32KeyDown = win32InputModeForwardedKeys.delete(identity);
+      const hasSuppressedKeyUp = suppressedKeyUpIdentities.delete(identity);
       if (broadcastLegacyDataPending === identity) clearBroadcastLegacyDataPending();
       if (term.modes.win32InputMode) {
         // Broadcast peers may still need a paired Kitty release for a keydown
@@ -2077,6 +2172,11 @@ export const createXTermRuntime = (ctx: CreateXTermRuntimeContext): XTermRuntime
           logicalData: null,
         };
         return true;
+      }
+      if (hasSuppressedKeyUp) {
+        e.preventDefault();
+        e.stopPropagation();
+        return false;
       }
       if (releaseForwardedKittyPress(toKittyKeyboardEvent(releaseEvent)) || releasedInterrupt) {
         e.preventDefault();
@@ -2567,6 +2667,40 @@ export const createXTermRuntime = (ctx: CreateXTermRuntimeContext): XTermRuntime
       }
     }
 
+    // Claim Shift+Insert as clipboard paste before Kitty/Win32 or xterm can
+    // encode it as an Insert key, while preserving user shortcut precedence.
+    if (
+      e.key === "Insert" && e.shiftKey
+      && !e.ctrlKey && !e.altKey && !e.metaKey
+    ) {
+      e.preventDefault();
+      e.stopPropagation();
+      void ctx.terminalContextActionsRef?.current?.onPaste?.();
+      return false;
+    }
+
+    // Claim Ctrl+Insert as clipboard copy before Kitty/Win32 or xterm can
+    // encode it as an Insert key (under Windows ConPTY win32InputMode, letting
+    // xterm encode Ctrl+Insert clears the selection, cancels copyOnSelect, and
+    // leaks ESC[2;5~ / "5~" into nested shells when selection tools like Doubao
+    // inject Ctrl+Insert), while preserving user shortcut precedence (#4351).
+    if (
+      e.key === "Insert" && e.ctrlKey
+      && !e.shiftKey && !e.altKey && !e.metaKey
+    ) {
+      suppressedKeyUpIdentities.add(kittyKeyIdentity(e));
+      e.preventDefault();
+      e.stopPropagation();
+      const selection = previewSelection || getTerminalSelectionForClipboard(
+        term,
+        ctx.terminalSettingsRef.current?.normalizeTextOnCopy ?? true,
+      );
+      if (selection) {
+        void Promise.resolve(navigator.clipboard?.writeText?.(selection)).catch(() => {});
+      }
+      return false;
+    }
+
     // Sogou/macOS CJK punctuation: keydown still reports ASCII "," while the
     // full-width "，" arrives on insertText. Returning false (without
     // preventDefault) stops xterm/Kitty from sending the half-width key so the
@@ -2886,6 +3020,7 @@ export const createXTermRuntime = (ctx: CreateXTermRuntimeContext): XTermRuntime
     win32InputModePendingEvent = null;
     win32InputModeForwardedKeys.clear();
     kittyForwardedKeys.clear();
+    suppressedKeyUpIdentities.clear();
     // broadcastForwardedKeys is retained so pending peer releases still pair
     // after a reconnect; keep the aliases whose normalized press is still
     // owed a broadcast release, otherwise the physical keyup can no longer
@@ -2924,9 +3059,11 @@ export const createXTermRuntime = (ctx: CreateXTermRuntimeContext): XTermRuntime
         kittyKeyboardLockState,
       );
       kittyForwardedKeys.clear();
+      suppressedKeyUpIdentities.clear();
       win32InputModePendingEvent = null;
     } else {
       win32InputModeForwardedKeys.clear();
+      suppressedKeyUpIdentities.clear();
       flushKittyKeyboardBroadcastReleases(
         kittyForwardedKeys,
         (input) => {
@@ -3181,6 +3318,12 @@ export const createXTermRuntime = (ctx: CreateXTermRuntimeContext): XTermRuntime
     handleTerminalInputData(sanitizedRawData, {
       perCharacterWrites: shouldSplitRawPasteInputForWire(sanitizedRawData),
     });
+  });
+
+  term.onBinary((data) => {
+    // Legacy mouse reports are wire bytes, not text input or broadcast keys.
+    const id = ctx.sessionRef.current;
+    if (id) ctx.terminalBackend.writeToSession(id, data, { binary: true });
   });
 
   const handleKittyKeyboardBroadcast = createKittyKeyboardBroadcastHandler({
@@ -3509,6 +3652,7 @@ export const createXTermRuntime = (ctx: CreateXTermRuntimeContext): XTermRuntime
     clearTextureAtlas: clearWebglTextureAtlas,
     ensureWebglRenderer: loadWebglRenderer,
     suspendWebglRenderer,
+    syncPaneVisibility: webglController.syncVisibility,
     syncFontLigatures: (enabled: boolean) => {
       ligatures.apply(enabled);
     },

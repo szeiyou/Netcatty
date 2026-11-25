@@ -56,7 +56,12 @@ export interface CattyTurnContext {
   activeProvider: ProviderConfig | undefined;
   activeModelId: string;
   reasoningEffort?: string;
-  scopeType: 'terminal' | 'workspace';
+  scopeType: 'terminal' | 'workspace' | 'global';
+  agentKind?: import('../../agentKinds').AgentKind;
+  /** Trusted host only: tools still pass the main source-bound dispatcher. */
+  delegated?: boolean;
+  delegationTag?: string;
+  allowedCapabilityIds?: readonly string[];
   scopeTargetId?: string;
   scopeLabel?: string;
   globalPermissionMode: AIPermissionMode;
@@ -64,6 +69,7 @@ export interface CattyTurnContext {
   commandBlocklist?: string[];
   commandTimeout?: number;
   responseIdleTimeout?: number;
+  toolOutputMaxChars?: number;
   terminalSessions: TerminalSessionInfo[];
   webSearchConfig?: WebSearchConfig | null;
   getExecutorContext?: () => ExecutorContext;
@@ -74,6 +80,9 @@ export interface CattyTurnContext {
 }
 
 export interface ExternalTurnContext {
+  scopeType?: 'terminal' | 'workspace' | 'global';
+  scopeTargetId?: string;
+  delegationTag?: string;
   existingSessionId?: string;
   updateExternalSessionId?: (sessionId: string, externalSessionId: string | undefined) => void;
   historyMessages?: Array<{ role: 'user' | 'assistant'; content: string }>;
@@ -183,6 +192,7 @@ export interface PrepareStepContextInput {
   maxOutputTokens?: number;
   protectRecentMessages?: number;
   toolOutputStore?: ToolOutputStore;
+  toolOutputMaxChars?: number;
   runtimeContext: import('../cattyRuntimeContext').CattyRuntimeContext;
   onEvent?: AgentEventListener;
 }

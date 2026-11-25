@@ -1,0 +1,159 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { createTerminalDirectoryIO } from './terminalDirectory';
+
+test('native Windows IO requires same-runspace FileSystem reports and fresh confirmation after input', async () => {
+  let revision = 1;
+  let provider = 'FileSystem';
+  let cwd = 'C:\\base';
+  const writes: string[] = [];
+  const reads: string[] = [];
+  const io = createTerminalDirectoryIO({
+    getSessionPwd: async () => ({ success: provider === 'FileSystem', cwd, directoryState: {
+      revision, provider, shellKind: 'powershell', pathFlavor: 'win32', cwd, home: 'C:\\Users\\me',
+    } }),
+    listLocalDir: async path => { reads.push(path); return [{ name: 'child', type: 'directory', size: '', lastModified: '' }]; },
+    realpathLocal: async path => path,
+    writeToSession: (_id, data) => { writes.push(data); },
+  } as unknown as NetcattyBridge, 'native-session', { local: true, hostname: '', username: '', pathFlavor: 'win32' });
+  assert.equal(await io.cwd(), 'C:\\base');
+  assert.deepEqual((await io.list('C:\\base')).entries.map(entry => entry.path), ['C:\\base\\child']);
+  await assert.rejects(io.list('/home'), { code: 'unsupportedPath' });
+  await assert.rejects(io.validateChange!('D:\\stale'), { code: 'unavailable' });
+  await io.validateChange!('C:\\base');
+  io.write('a command\r');
+  await assert.rejects(io.cwd(), { code: 'unknown' });
+  revision++; cwd = 'D:\\actual';
+  assert.equal(await io.cwd(), cwd);
+  provider = 'Registry'; revision++;
+  await assert.rejects(io.cwd(), { code: 'nonFilesystem' });
+  await assert.rejects(io.list('C:\\base'), { code: 'nonFilesystem' });
+  assert.deepEqual(reads, ['C:\\base']);
+  assert.deepEqual(writes, ['a command\r']);
+});
+
+test('Windows local IO never substitutes process cwd or home for absent integration', async () => {
+  let reads = 0;
+  const io = createTerminalDirectoryIO({
+    getSessionPwd: async () => ({ success: true, cwd: 'C:\\guessed-process-cwd' }),
+    listLocalDir: async () => { reads++; return []; },
+    getHomeDir: async () => 'C:\\guessed-home',
+  } as unknown as NetcattyBridge, 'native-session', { local: true, hostname: '', username: '', pathFlavor: 'win32' });
+  await assert.rejects(io.cwd(), { code: 'integrationUnavailable' });
+  await assert.rejects(io.home!(), { code: 'integrationUnavailable' });
+  await assert.rejects(io.list('C:\\base'), { code: 'integrationUnavailable' });
+  assert.equal(reads, 0);
+});
+
+test('CMD directory reads wait for a report from the expected shell', async () => {
+  const cwd = 'C:\\base';
+  let shellKind: 'powershell' | 'cmd' | undefined;
+  let reads = 0;
+  const io = createTerminalDirectoryIO({
+    getSessionPwd: async () => ({ success: true, cwd, directoryState: shellKind && {
+      revision: 1, provider: 'FileSystem', shellKind, pathFlavor: 'win32', cwd, home: null,
+    } }),
+    listLocalDir: async () => { reads++; return []; },
+  } as unknown as NetcattyBridge, 'cmd', { local: true, hostname: '', username: '', pathFlavor: 'win32', windowsShell: 'cmd' });
+  await assert.rejects(io.cwd(), { code: 'cmdIntegrationUnavailable' });
+  shellKind = 'powershell';
+  await assert.rejects(io.list(cwd), { code: 'cmdIntegrationUnavailable' });
+  assert.equal(reads, 0);
+  shellKind = 'cmd';
+  assert.equal(await io.cwd(), cwd);
+  assert.deepEqual(await io.list(cwd), { entries: [], home: null });
+  assert.equal(reads, 1);
+});
+
+test('Windows local IO distinguishes denied listings from other read failures', async () => {
+  const cwd = 'C:\\legacy-junction';
+  let failure = new Error("Error invoking remote method 'netcatty:local:list': Error: EPERM: operation not permitted, scandir");
+  const io = createTerminalDirectoryIO({
+    getSessionPwd: async () => ({ success: true, cwd, directoryState: {
+      revision: 1, provider: 'FileSystem', shellKind: 'cmd', pathFlavor: 'win32', cwd, home: null,
+    } }),
+    listLocalDir: async () => { throw failure; },
+  } as unknown as NetcattyBridge, 'cmd', { local: true, hostname: '', username: '', pathFlavor: 'win32', windowsShell: 'cmd' });
+  await assert.rejects(io.list(cwd), { code: 'accessDenied' });
+  assert.equal(await io.cwd(), cwd);
+  failure = new Error('ENOENT: directory removed');
+  await assert.rejects(io.list(cwd), failure);
+});
+
+test('remote reads use only the exact terminal connection and always close their channel', async () => {
+  const calls: unknown[] = [];
+  const bridge = {
+    getSessionRemoteInfo: async () => ({ success: true, remoteSshVersion: 'OpenSSH_9.6' }),
+    openSftpForSession: async (id: string, opts: NetcattySSHOptions) => { calls.push([id, opts]); return 'owned-channel'; },
+    listSftp: async () => { throw new Error('denied'); },
+    closeSftp: async (id: string) => { calls.push(['close', id]); },
+  } as unknown as NetcattyBridge;
+  const io = createTerminalDirectoryIO(bridge, 'terminal-a', { local: false, hostname: 'remote', username: 'me', port: 2222 });
+  await assert.rejects(io.list('/project'), /denied/);
+  assert.deepEqual(calls, [['terminal-a', { hostname: 'remote', username: 'me', port: 2222, requireExactSourceSession: true, reuseExactSessionOnly: true, fileProtocol: 'sftp' }], ['close', 'owned-channel']]);
+});
+
+test('cwd probes forbid home/login-shell fallbacks, and writes are addressed to one session', async () => {
+  const calls: unknown[] = [];
+  const bridge = {
+    getSessionPwd: async (id: string, opts: unknown) => { calls.push([id, opts]); return { success: true, cwd: '/actual' }; },
+    writeToSession: (...args: unknown[]) => { calls.push(args); },
+  } as unknown as NetcattyBridge;
+  const io = createTerminalDirectoryIO(bridge, 'terminal-a', { local: true, hostname: '', username: '' });
+  assert.equal(await io.cwd(), '/actual');
+  io.write("cd -- '/actual'\r");
+  assert.deepEqual(calls, [
+    ['terminal-a', { allowHomeFallback: false, allowLoginShellFallback: false, timeoutMs: 2000 }],
+    ['terminal-a', "cd -- '/actual'\r", { automated: true }],
+  ]);
+});
+
+test('network-device SSH banners refuse probes before opening exec or SFTP', async () => {
+  let probes = 0;
+  const io = createTerminalDirectoryIO({
+    getSessionRemoteInfo: async () => ({ success: true, remoteSshVersion: '-' }),
+    getSessionPwd: async () => { probes++; return { success: true, cwd: '/wrong' }; },
+  } as unknown as NetcattyBridge, 'router', { local: false, hostname: 'router', username: 'me' });
+  await assert.rejects(io.cwd(), { code: 'unavailable' });
+  assert.equal(probes, 0);
+});
+
+test('single-channel sessions never invoke dedicated-login SFTP fallback', async () => {
+  let opened = false;
+  const io = createTerminalDirectoryIO({
+    getSessionRemoteInfo: async () => ({ success: true, singleChannelSsh: true, remoteSshVersion: 'OpenSSH_9.6' }),
+    openSftpForSession: async () => { opened = true; return 'unexpected'; },
+  } as unknown as NetcattyBridge, 'limited', { local: false, hostname: 'limited', username: 'me' });
+  await assert.rejects(io.list('/project'), { code: 'unavailable' });
+  assert.equal(opened, false);
+});
+
+test('a connection invalidated while metadata is loading does not open another channel', async () => {
+  let finish!: (value: { success: boolean; remoteSshVersion: string }) => void;
+  let current = true; let opened = false;
+  const io = createTerminalDirectoryIO({
+    getSessionRemoteInfo: () => new Promise(resolve => { finish = resolve; }),
+    openSftpForSession: async () => { opened = true; return 'unexpected'; },
+  } as unknown as NetcattyBridge, 'old', { local: false, hostname: 'remote', username: 'me' }, () => current);
+  const read = io.list('/project'); current = false;
+  finish({ success: true, remoteSshVersion: 'OpenSSH_9.6' });
+  await assert.rejects(read, { code: 'unavailable' });
+  assert.equal(opened, false);
+});
+
+test('closing a picker during channel open closes the handle without listing', async () => {
+  let finish!: (id: string) => void;
+  let listed = false; let closed = false;
+  const io = createTerminalDirectoryIO({
+    getSessionRemoteInfo: async () => ({ success: true, remoteSshVersion: 'OpenSSH_9.6' }),
+    openSftpForSession: () => new Promise(resolve => { finish = resolve; }),
+    listSftp: async () => { listed = true; return []; },
+    closeSftp: async () => { closed = true; },
+  } as unknown as NetcattyBridge, 'remote', { local: false, hostname: 'remote', username: 'me' });
+  const cancel = new AbortController();
+  const task = io.list('/project', cancel.signal);
+  await Promise.resolve(); await Promise.resolve();
+  cancel.abort(); finish('temporary-channel');
+  await assert.rejects(task, { code: 'unavailable' });
+  assert.equal(listed, false); assert.equal(closed, true);
+});

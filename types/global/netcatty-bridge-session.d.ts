@@ -243,7 +243,7 @@ declare global {
       skipEcdsaHostKey?: boolean;
       algorithmOverrides?: import("../../domain/models").HostAlgorithmOverrides;
     }): Promise<{ stdout: string; stderr: string; code: number | null }>;
-    /** Get current working directory from an active SSH session */
+    /** Get cwd from the exact SSH transport or local interactive shell. */
     getSessionPwd?(
       sessionId: string,
       options?: {
@@ -251,7 +251,14 @@ declare global {
         allowLoginShellFallback?: boolean;
         timeoutMs?: number;
       },
-    ): Promise<{ success: boolean; cwd?: string; error?: string }>;
+    ): Promise<{ success: boolean; cwd?: string; error?: string; directoryState?: {
+      revision: number;
+      shellKind: 'powershell' | 'cmd';
+      pathFlavor: 'win32';
+      provider: string;
+      cwd: string | null;
+      home: string | null;
+    } }>;
     /**
      * Get metadata about an already-connected SSH session — currently the
      * SSH server identification string (the `software` part of the
@@ -261,6 +268,7 @@ declare global {
     getSessionRemoteInfo?(sessionId: string): Promise<{
       success: boolean;
       remoteSshVersion?: string;
+      singleChannelSsh?: boolean;
       error?: string;
     }>;
     /**
@@ -327,6 +335,8 @@ declare global {
         diskUsed: number | null;      // Disk used in GB
         diskTotal: number | null;     // Total disk in GB
         disks: Array<{                // All mounted disks
+          diskReadSpeed?: number | null; // Mounted block-device I/O, bytes/sec
+          diskWriteSpeed?: number | null;
           capacityKey?: string;       // Filesystem or shared-pool identity
           mountPoint: string;
           used: number;               // Used in GB
@@ -357,6 +367,8 @@ declare global {
       sessionId: string,
       data: string,
       options?: {
+        /** Byte-valued xterm onBinary string; bypasses text charset encoding. */
+        binary?: boolean;
         automated?: boolean;
         pasteRequestId?: string;
         /** Host-classified secret/no-echo input; always bypasses plugin observers and interceptors. */
@@ -435,6 +447,7 @@ declare global {
       passwordPromptActive?: boolean;
       cwd?: string | null;
       title?: string | null;
+      pendingReplay?: string;
       error?: string;
     }>;
     /** Home renderer: listen for snapshot requests. */
@@ -467,6 +480,7 @@ declare global {
         passwordPromptActive?: boolean;
         cwd?: string | null;
         title?: string | null;
+        connectionLogDelta?: string;
       },
       authorization: string,
     ): Promise<{
@@ -474,7 +488,12 @@ declare global {
       error?: string;
     }>;
     markAttachPopupClosePrepared?(sessionId: string, authorization: string): Promise<{ success: boolean; error?: string }>;
+    reportTerminalAttachReady?(sessionId: string, authorization: string): Promise<{ success: boolean; error?: string }>;
+    reportTerminalAttachFailed?(sessionId: string, authorization: string, error?: string): Promise<{ success: boolean; error?: string }>;
+    getDetachedTerminalReplayData?(sessionId: string): Promise<{ success: boolean; data?: string }>;
     onTerminalPopupPrepareClose?(cb: (payload: { sessionId: string; authorization: string }) => void): () => void;
+    /** Fired in the home window after an attach popup for sessionId has closed. */
+    onTerminalPopupAttachClosed?(cb: (payload: { sessionId: string }) => void): () => void;
     /** Home renderer: apply a pushed snapshot from an observe popup. */
     onTerminalSessionApplySnapshot?(
       cb: (payload: {
@@ -490,6 +509,7 @@ declare global {
         passwordPromptActive?: boolean;
         cwd?: string | null;
         title?: string | null;
+        connectionLogDelta?: string;
         requestId: string;
       }) => boolean | Promise<boolean>,
     ): () => void;

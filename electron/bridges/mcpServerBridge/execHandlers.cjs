@@ -3,11 +3,13 @@
 // where bare `require` resolves to ctx.require (based in electron/bridges/).
 const { clearSessionFlowState } = require("../terminalFlowAck.cjs");
 const { getVisibleIdlePrompt } = require("../ai/shellUtils.cjs");
+const { classifyShellReadiness } = require("../ai/shellReadinessState.cjs");
 const { emitJobDiag } = require("../ai/jobStartupDiagnostics.cjs");
 const {
   ensureSessionShellKind,
   remoteDisallowsExecChannelProbe, sessionDisallowsExtraSshChannel, ensureSessionShellKindForExec,
 } = require("../ai/sessionShellKind.cjs");
+const { CHAT_LOCK_HELD } = require("./execBulk.cjs");
 
 function createExecHandlerApi(ctx) {
   with (ctx) {
@@ -90,7 +92,10 @@ function createExecHandlerApi(ctx) {
       const reservation = reserveSessionExecution(sessionId, "exec");
       if (!reservation.ok) return reservation;
       const sessionToken = reservation.token;
-      const executionLock = beginChatExecution(chatSessionId, sessionId, command);
+      // terminal_execute_bulk holds the per-chat lock once for the whole fan-out.
+      const executionLock = executionContext?.[CHAT_LOCK_HELD] === true
+        ? { ok: true, release() {} }
+        : beginChatExecution(chatSessionId, sessionId, command);
       if (!executionLock.ok) {
         releaseSessionExecution(sessionId, sessionToken);
         return {
@@ -161,6 +166,7 @@ function createExecHandlerApi(ctx) {
             expectedPrompt: getFreshIdlePrompt(session),
             getReadyPrompt: typeof session._promptTrackTail === "string"
               ? () => getFreshIdlePrompt(session) || getVisibleIdlePrompt(session) : undefined,
+            classifyReadiness: () => classifyShellReadiness(session),
             typedInput: true,
             echoCommand: (rawCommand) => echoCommandToSession(session, sessionId, rawCommand),
             chatSessionId,
@@ -224,6 +230,59 @@ function createExecHandlerApi(ctx) {
       return { ok: false, error: "Session does not support command execution" };
     }
     
+    /**
+     * Side-effect-free (apart from the cached shell-kind probe handleExec also
+     * runs) check that handleExec would accept this command on this session.
+     * Mirrors handleExec's transport order; used by terminal_execute_bulk to
+     * validate every target before any command is sent.
+     */
+    async function preflightExec(params, { probe = true } = {}) {
+      const resolved = resolveExecContext(params);
+      if (!resolved.ok) return resolved;
+      const { session, sessionId, command, chatSessionId, isNetworkDevice, sshClient, ptyStream } = resolved.context;
+      const hasWritablePty = Boolean(ptyStream && typeof ptyStream.write === "function");
+      const checkShellCommand = async () => {
+        let safety;
+        if (probe) {
+          const probed = await ensureSessionShellKindForExec(session, {
+            trackForCancellation: activePtyExecs,
+            chatSessionId,
+          });
+          if (!probed.ok) return probed;
+          safety = checkCommandSafetyForShell(command, resolveSessionBlocklistShellKind(session));
+        } else {
+          // Nothing may touch the remote host yet (no approval has been given): use the
+          // shell kind only if it is already known, otherwise the shell-independent
+          // patterns. The authoritative check re-runs after approval, and again at exec.
+          const knownKind = resolveSessionBlocklistShellKind(session);
+          safety = knownKind
+            ? checkCommandSafetyForShell(command, knownKind)
+            : checkCommandSafetyCommonOnly(command);
+        }
+        if (safety.blocked) {
+          debugLog("preflightExec:blocklisted", { sessionId, matchedPattern: safety.matchedPattern });
+          return { ok: false, error: `Command blocked by safety policy. Pattern: ${safety.matchedPattern}` };
+        }
+        return { ok: true };
+      };
+
+      if (isNetworkDevice && hasWritablePty) return { ok: true };
+      if (hasWritablePty) return checkShellCommand();
+      if (isNetworkDevice) {
+        return { ok: false, error: "Network device session has no writable PTY stream for command execution" };
+      }
+      if (!session.singleChannelSsh && sshClient && typeof sshClient.exec === "function") {
+        return checkShellCommand();
+      }
+      if (session.protocol === "serial" && session.serialPort && typeof session.serialPort.write === "function") {
+        if (session.ymodemActive || session.zmodemSentry?.isActive?.()) {
+          return { ok: false, error: "Serial file transfer is already in progress" };
+        }
+        return { ok: true };
+      }
+      return { ok: false, error: "Session does not support command execution" };
+    }
+
     function handleJobStart(params, executionContext = {}) {
       const resolved = resolveExecContext(params);
       if (!resolved.ok) return resolved;
@@ -343,6 +402,7 @@ function createExecHandlerApi(ctx) {
             expectedPrompt: getFreshIdlePrompt(session),
             getReadyPrompt: typeof session._promptTrackTail === "string"
               ? () => getFreshIdlePrompt(session) || getVisibleIdlePrompt(session) : undefined,
+            classifyReadiness: () => classifyShellReadiness(session),
             typedInput: true,
             echoCommand: (rawCommand) => echoCommandToSession(session, sessionId, rawCommand),
             maxBufferedChars: MAX_BACKGROUND_JOB_OUTPUT_CHARS,
@@ -502,6 +562,7 @@ function createExecHandlerApi(ctx) {
 
     return {
       resolveExecContext,
+      preflightExec,
       handleExec,
       handleJobStart,
       getScopedJob,

@@ -99,9 +99,12 @@ function lsofBinaries(platform) {
  *
  * `cd` is a shell builtin, so the spawned process cwd changes even when the
  * shell never prints OSC 7. Linux reads `/proc/<pid>/cwd`; macOS uses lsof
- * because it has no procfs. Windows shells are not probed here.
+ * because it has no procfs. Integrated Windows shells report at the prompt.
  */
 async function readLocalSessionCwd(session, deps = {}) {
+  if ((deps.platform || process.platform) === 'win32' && session?.directoryIntegration) {
+    return session.directoryIntegration.read();
+  }
   const pid = localSessionPid(session);
   if (!pid) return { success: false, error: "Local session has no process" };
 

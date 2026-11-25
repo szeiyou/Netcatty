@@ -377,7 +377,7 @@ test('move-focus shortcut cannot send input behind a magnified pane', () => {
   assert.equal(moveCalls, 0);
 });
 
-test('Escape restores magnification after transient dialogs are closed', () => {
+test('Escape leaves magnification unchanged and reaches the terminal', () => {
   let restores = 0;
   let prevented = false;
   let stopped = false;
@@ -405,30 +405,29 @@ test('Escape restores magnification after transient dialogs are closed', () => {
     },
   }), event);
 
-  assert.equal(restores, 1);
-  assert.equal(prevented, true);
-  assert.equal(stopped, true);
+  assert.equal(restores, 0);
+  assert.equal(prevented, false);
+  assert.equal(stopped, false);
 });
 
-test('consumed Escape does not restore magnification', () => {
-  let restores = 0;
+test('Escape closes the quick switcher', () => {
+  let open = true;
   handleEscapeKeyDownImpl(() => ({
-    isQuickSwitcherOpen: false,
-    setIsQuickSwitcherOpen: () => {},
-    terminalPaneMagnificationRef: {
-      current: {
-        getState: () => 'focused',
-        focus: () => false,
-        restore: () => {
-          restores += 1;
-          return true;
-        },
-        toggle: () => false,
-      },
-    },
+    isQuickSwitcherOpen: open,
+    setIsQuickSwitcherOpen: (value: boolean) => { open = value; },
+  }), { key: 'Escape', defaultPrevented: false } as KeyboardEvent);
+
+  assert.equal(open, false);
+});
+
+test('consumed Escape leaves the quick switcher open', () => {
+  let open = true;
+  handleEscapeKeyDownImpl(() => ({
+    isQuickSwitcherOpen: open,
+    setIsQuickSwitcherOpen: (value: boolean) => { open = value; },
   }), { key: 'Escape', defaultPrevented: true } as KeyboardEvent);
 
-  assert.equal(restores, 0);
+  assert.equal(open, true);
 });
 
 test('close tab hotkey routes native plugin view tabs through their owner', () => {
@@ -1032,4 +1031,109 @@ test('toggleHostTree uses the host list toggle only while that list can show', (
 test('host list shortcut calls the same store toggle as the toolbar button', () => {
   const source = readFileSync(new URL('./app/AppSideEffects.tsx', import.meta.url), 'utf8');
   assert.match(source, /toggleHostTree:\s*\(\)\s*=>\s*terminalHostTreeStore\.toggle\(\)/);
+});
+
+test('Cmd+Shift+T on macOS and Ctrl+Shift+T on PC dispatch reopenClosedTab and stay out of text inputs', () => {
+  for (const [scheme, keyProps] of [
+    ['mac', { metaKey: true, ctrlKey: false }],
+    ['pc', { metaKey: false, ctrlKey: true }],
+  ] as const) {
+    const target = new FakeHTMLElement();
+    const actions: string[] = [];
+    let prevented = false;
+    let stopped = false;
+
+    handleGlobalHotkeyKeyDownImpl(() => ({
+      HOTKEY_DEBUG: false,
+      closeTabKeyStr: '',
+      executeHotkeyAction: (action: string) => {
+        actions.push(action);
+      },
+      hotkeyScheme: scheme,
+      keyBindings: DEFAULT_KEY_BINDINGS,
+      matchesKeyBinding,
+    }), {
+      key: 'T',
+      code: 'KeyT',
+      ...keyProps,
+      altKey: false,
+      shiftKey: true,
+      target,
+      composedPath: () => [target],
+      preventDefault: () => { prevented = true; },
+      stopPropagation: () => { stopped = true; },
+    } as unknown as KeyboardEvent);
+
+    assert.deepEqual(actions, ['reopenClosedTab']);
+    assert.equal(prevented, true);
+    assert.equal(stopped, true);
+
+    const input = new FakeInputHTMLElement();
+    const inputActions: string[] = [];
+    handleGlobalHotkeyKeyDownImpl(() => ({
+      HOTKEY_DEBUG: false,
+      closeTabKeyStr: '',
+      executeHotkeyAction: (action: string) => {
+        inputActions.push(action);
+      },
+      hotkeyScheme: scheme,
+      keyBindings: DEFAULT_KEY_BINDINGS,
+      matchesKeyBinding,
+    }), {
+      key: 'T',
+      code: 'KeyT',
+      ...keyProps,
+      altKey: false,
+      shiftKey: true,
+      target: input,
+      composedPath: () => [input],
+      preventDefault: () => {},
+      stopPropagation: () => {},
+    } as unknown as KeyboardEvent);
+
+    assert.deepEqual(inputActions, []);
+  }
+});
+
+test('executeHotkeyActionImpl reopenClosedTab calls reopenLastClosedTab and records connection logs for reopened workspace panes', () => {
+  const logs: Array<Record<string, unknown>> = [];
+  let receivedHostIds: string[] = [];
+  const hostsById = new Map([
+    ['h-1', { id: 'h-1', label: 'Prod', hostname: 'prod.test', username: 'ops', port: 22, os: 'linux', group: '', tags: [] }],
+  ]);
+
+  executeHotkeyActionImpl(() => ({
+    activeTabStore: { getActiveTabId: () => 'vault' },
+    addConnectionLogRef: { current: (log: Record<string, unknown>) => logs.push(log) },
+    editorTabs: [],
+    hostsById,
+    orderedTabs: [],
+    reopenLastClosedTab: (opts: { availableHostIds?: ReadonlySet<string> }) => {
+      receivedHostIds = [...(opts.availableHostIds ?? [])];
+      return {
+        kind: 'workspace',
+        tabId: 'ws-new',
+        workspace: { id: 'ws-new', title: 'Prod Split', root: { id: 'p', type: 'pane', sessionId: 's-new-1' } },
+        sessions: [
+          { id: 's-new-1', hostId: 'h-1', hostLabel: 'Prod', hostname: 'prod.test', username: 'ops', status: 'connecting', protocol: 'ssh', workspaceId: 'ws-new' },
+          { id: 's-new-2', hostId: 'local-terminal', hostLabel: 'Local Terminal', hostname: 'localhost', username: 'local', status: 'connecting', protocol: 'local', workspaceId: 'ws-new' },
+        ],
+      };
+    },
+    sessions: [],
+    settings: {},
+    systemInfoRef: { current: { username: 'dev', hostname: 'laptop' } },
+    toEditorTabId: (id: string) => id,
+    workspaces: [],
+  }), 'reopenClosedTab', {} as KeyboardEvent);
+
+  assert.deepEqual(receivedHostIds, ['h-1']);
+  assert.equal(logs.length, 2);
+  assert.equal(logs[0].sessionId, 's-new-1');
+  assert.equal(logs[0].hostId, 'h-1');
+  assert.equal(logs[0].username, 'ops');
+  assert.equal(logs[1].sessionId, 's-new-2');
+  assert.equal(logs[1].hostId, '');
+  assert.equal(logs[1].username, 'dev');
+  assert.equal(logs[1].protocol, 'local');
 });

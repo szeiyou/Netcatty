@@ -106,6 +106,14 @@ test("core MCP descriptions strongly route live terminal work through Netcatty",
   assert.match(vaultHosts?.description || "", /host_open/i);
 });
 
+test("vault_hosts_list exposes optional query and group filters", () => {
+  const vaultHosts = listMcpTools().find((tool) => tool.mcpTool === "vault_hosts_list");
+  assert.ok(vaultHosts);
+  assert.deepEqual(Object.keys(vaultHosts.inputShape).sort(), ["group", "query"]);
+  assert.equal(vaultHosts.inputShape.query.optional, true);
+  assert.equal(vaultHosts.inputShape.group.optional, true);
+});
+
 test("session_close is exposed to agents and external MCP clients", () => {
   const mcpTool = listMcpTools().find((tool) => tool.mcpTool === "session_close");
   assert.ok(mcpTool);
@@ -115,6 +123,20 @@ test("session_close is exposed to agents and external MCP clients", () => {
   const cattyTool = listCattyToolSpecs().find((tool) => tool.toolName === "session_close");
   assert.ok(cattyTool);
   assert.equal(cattyTool.rpcMethod, "session/close");
+});
+
+test('session reconnect is exposed to both agents without cleanup permission bypasses', () => {
+  const spec = listCattyToolSpecs().find(tool => tool.toolName === 'session_reconnect');
+  assert.equal(spec?.rpcMethod, 'session/reconnect');
+  const mcp = listMcpTools().find(tool => tool.mcpTool === 'session_reconnect');
+  assert.equal(mcp?.publicRpcMethod, 'public/session/reconnect');
+  assert.equal(mcp?.policy.bypassesApproval, false);
+  assert.equal(mcp?.policy.bypassesObserverBlock, false);
+  assert.equal(mcp?.policy.bypassesChatCancel, false);
+  const recover = listCattyToolSpecs().find(tool => tool.toolName === 'session_recover');
+  assert.equal(recover?.rpcMethod, 'session/recover');
+  const recoverMcp = listMcpTools().find(tool => tool.mcpTool === 'session_recover');
+  assert.equal(recoverMcp?.policy.bypassesApproval, false);
 });
 
 test("host_open tells agents to close sessions after use", () => {
@@ -470,4 +492,12 @@ test("terminal_execute MCP response keeps exit-only non-zero without isError", a
   assert.equal(result.isError, undefined);
   assert.equal(result.content?.[0]?.text, "[exit code: 1]");
   assert.doesNotMatch(result.content?.[0]?.text || "", /Operation failed/);
+});
+
+test("terminal_execute_bulk is MCP-only: no sidebar or global agent exposure", () => {
+  const { listMcpTools, listCattyToolSpecs, listAgentToolSpecs } = require("./toolSurfaces.cjs");
+  const { AGENT_KINDS } = require("../constants.cjs");
+  assert.ok(listMcpTools().some((tool) => tool.mcpTool === "terminal_execute_bulk"));
+  assert.equal(listCattyToolSpecs().some((spec) => spec.capabilityId === "terminal.executeBulk"), false);
+  assert.equal(listAgentToolSpecs(AGENT_KINDS.GLOBAL).some((spec) => spec.capabilityId === "terminal.executeBulk"), false);
 });

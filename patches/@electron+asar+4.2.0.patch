@@ -1,0 +1,26 @@
+diff --git a/node_modules/@electron/asar/lib/asar.js b/node_modules/@electron/asar/lib/asar.js
+index ddda18b..1194d96 100644
+--- a/node_modules/@electron/asar/lib/asar.js
++++ b/node_modules/@electron/asar/lib/asar.js
+@@ -178,7 +178,7 @@ export async function createPackageFromStreams(dest, streams) {
+                 return filesystem.insertFile(filename, stream.streamGenerator, stream.unpacked, {
+                     type: 'file',
+                     stat: stream.stat,
+-                });
++                }, { fromStream: true });
+             case 'link':
+                 links.push({
+                     filename,
+diff --git a/node_modules/@electron/asar/lib/filesystem.js b/node_modules/@electron/asar/lib/filesystem.js
+index 9ebdeb2..b96b1ad 100644
+--- a/node_modules/@electron/asar/lib/filesystem.js
++++ b/node_modules/@electron/asar/lib/filesystem.js
+@@ -96,7 +96,7 @@ export class Filesystem {
+         if (process.platform !== 'win32' && file.stat.mode & 0o100) {
+             node.executable = true;
+         }
+-        if (size <= BUFFER_HASH_THRESHOLD) {
++        if (size <= BUFFER_HASH_THRESHOLD && !options.fromStream) {
+             // Fully synchronous fast path — no Promise, no stream, no microtask yield
+             try {
+                 const fileBuffer = fs.readFileSync(p);

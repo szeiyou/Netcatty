@@ -13,6 +13,7 @@ const { promisify } = require("node:util");
 const { StringDecoder } = require("node:string_decoder");
 const { ensureNodePtySpawnHelperExecutable } = require("./nodePtySpawnHelperPermissions.cjs");
 const { createTerminalFlowPauseArbiter } = require("./terminalFlowPauseArbiter.cjs");
+const { registerWorkerHandle } = require("./workerIpcProxy.cjs");
 
 ensureNodePtySpawnHelperExecutable();
 
@@ -63,6 +64,8 @@ const { discoverShells } = require("./shellDiscovery.cjs");
 const { isWindowsAppExecutionAliasPath } = require("../../lib/localShell.cjs");
 const moshHandshake = require("./moshHandshake.cjs");
 const tempDirBridge = require("./tempDirBridge.cjs");
+const { preparePowerShellDirectoryIntegration } = require('./powerShellDirectoryIntegration.cjs');
+const { prepareCmdDirectoryIntegration } = require('./cmdDirectoryIntegration.cjs');
 const { createTelnetAutoLogin, isAutoLoginWakeInput } = require("./telnetAutoLogin.cjs");
 const telnetProtocol = require("./telnetProtocol.cjs");
 const { createPtyOutputBuffer } = require("./ptyOutputBuffer.cjs");
@@ -166,8 +169,15 @@ const {
   retryPendingAttachedSessionOutput,
   releaseAttachedSessionState,
   setRestoreAttachedSessionOutput,
+  clearAttachPopupAttached,
+  clearDetachedReplayCapture,
+  failAttachPopupAuthorization,
+  markAttachPopupAttached,
+  markAttachPopupReady,
+  peekDetachedReplayData,
   setAttachHomeLookup,
   setFanoutSessionExit,
+  takeDetachedReplayData,
   validateAttachPopupAuthorization,
 } = require("./terminalAttachRestore.cjs");
 
@@ -235,7 +245,7 @@ function requestTerminalSessionSnapshot(event, payload, terminalWorkerManager = 
       pendingTerminalSnapshots.delete(requestId);
       resolve({ success: false, snapshot: "", error: "timeout" });
     }, TERMINAL_SNAPSHOT_TIMEOUT_MS);
-    pendingTerminalSnapshots.set(requestId, { resolve, timeout, webContentsId: home.id });
+    pendingTerminalSnapshots.set(requestId, { resolve, timeout, webContentsId: home.id, sessionId });
     try {
       home.send("netcatty:terminal:snapshot-request", { sessionId, requestId });
     } catch (err) {
@@ -269,6 +279,7 @@ function handleTerminalSessionSnapshotResponse(event, payload) {
       : undefined,
     cwd: payload?.cwd === null ? null : typeof payload?.cwd === "string" ? payload.cwd : undefined,
     title: payload?.title === null ? null : typeof payload?.title === "string" ? payload.title : undefined,
+    pendingReplay: peekDetachedReplayData(pending.sessionId) || undefined,
   });
 }
 
@@ -331,6 +342,9 @@ function applyTerminalSessionSnapshot(event, payload, terminalWorkerManager = nu
     : undefined;
   const cwd = payload?.cwd === null ? null : typeof payload?.cwd === "string" ? payload.cwd : undefined;
   const title = payload?.title === null ? null : typeof payload?.title === "string" ? payload.title : undefined;
+  const connectionLogDelta = typeof payload?.connectionLogDelta === "string"
+    ? payload.connectionLogDelta
+    : undefined;
   if (
     !sessionId
     || !hasSnapshot
@@ -355,7 +369,7 @@ function applyTerminalSessionSnapshot(event, payload, terminalWorkerManager = nu
     return Promise.resolve({ success: false, error: "Home renderer not found" });
   }
   try {
-    const home = findRegisteredMainWebContents(homeId);
+    const home = findLiveAttachHomeWebContents(homeId);
     if (!home) {
       return Promise.resolve({ success: false, error: "Home renderer unavailable" });
     }
@@ -365,7 +379,7 @@ function applyTerminalSessionSnapshot(event, payload, terminalWorkerManager = nu
         pendingTerminalSnapshotApplies.delete(requestId);
         resolve({ success: false, error: "timeout" });
       }, TERMINAL_SNAPSHOT_TIMEOUT_MS);
-      pendingTerminalSnapshotApplies.set(requestId, { resolve, timeout, webContentsId: home.id });
+      pendingTerminalSnapshotApplies.set(requestId, { resolve, timeout, webContentsId: home.id, sessionId });
       try {
         home.send("netcatty:terminal:apply-snapshot", {
           sessionId,
@@ -380,6 +394,7 @@ function applyTerminalSessionSnapshot(event, payload, terminalWorkerManager = nu
           passwordPromptActive,
           cwd,
           title,
+          connectionLogDelta,
           requestId,
         });
       } catch (err) {
@@ -398,6 +413,9 @@ function handleTerminalSessionApplySnapshotResponse(event, payload) {
   if (!pending || pending.webContentsId !== event?.sender?.id) return;
   clearTimeout(pending.timeout);
   pendingTerminalSnapshotApplies.delete(payload.requestId);
+  if (payload?.success !== false) {
+    clearDetachedReplayCapture(pending.sessionId);
+  }
   pending.resolve(payload?.success === false
     ? { success: false, error: payload?.error || "Snapshot apply failed" }
     : { success: true });
@@ -432,6 +450,9 @@ async function rebindTerminalSessionOutput(event, payload, terminalWorkerManager
         await restoreAttachedSessionOutput(sessionId, terminalWorkerManager);
         return { success: false, error: "Attach window closed during rebind" };
       }
+      if (result?.success) {
+        markAttachPopupAttached(payload?.authorization, sessionId, sender.id);
+      }
       return result;
     } catch (err) {
       return { success: false, error: err?.message || String(err) };
@@ -458,6 +479,7 @@ async function rebindTerminalSessionOutput(event, payload, terminalWorkerManager
       await restoreAttachedSessionOutput(sessionId, terminalWorkerManager);
       return { success: false, error: "Attach window closed during rebind" };
     }
+    markAttachPopupAttached(payload?.authorization, sessionId, sender.id);
     return {
       success: true,
       previousWebContentsId,
@@ -492,6 +514,34 @@ function fanoutSessionLifecycleEvent(
   attachHomeWebContentsIds.delete(sessionId);
 }
 
+function findLiveAttachHomeWebContents(homeId) {
+  if (typeof homeId !== "number") return null;
+  try {
+    const wm = require("./windowManager.cjs");
+    const candidates = [
+      ...(typeof wm.getMainWindows === "function"
+        ? wm.getMainWindows()
+        : (typeof wm.getMainWindow === "function" ? [wm.getMainWindow()].filter(Boolean) : [])),
+      ...(typeof wm.getAppContentWindows === "function" ? wm.getAppContentWindows() : []),
+    ];
+    for (const win of candidates) {
+      const contents = win?.webContents;
+      if (contents && contents.id === homeId && !contents.isDestroyed?.()) {
+        return contents;
+      }
+    }
+  } catch {
+    // ignore unavailable window manager during isolated tests/startup
+  }
+  try {
+    const direct = electronModule?.webContents?.fromId?.(homeId);
+    if (direct && !direct.isDestroyed?.()) return direct;
+  } catch {
+    // ignore
+  }
+  return null;
+}
+
 function findRegisteredMainWebContents(preferredId) {
   try {
     const wm = require("./windowManager.cjs");
@@ -506,6 +556,17 @@ function findRegisteredMainWebContents(preferredId) {
     if (typeof preferredId === "number") {
       const preferred = liveContents.find((contents) => contents.id === preferredId);
       if (preferred) return preferred;
+      // Peer session windows (#/session-window) are registered as app-content
+      // windows rather than main windows; honor an exact live match when
+      // returning a moved tab to the peer window it came from.
+      if (typeof wm.getAppContentWindows === "function") {
+        for (const win of wm.getAppContentWindows()) {
+          const contents = win?.webContents;
+          if (contents && contents.id === preferredId && !contents.isDestroyed?.()) {
+            return contents;
+          }
+        }
+      }
     }
     return liveContents[0] || null;
   } catch {
@@ -555,6 +616,10 @@ async function restoreAttachedSessionOutputOnce(
               sessions, sessionId, home, closeSession, true,
             );
             attachHomeWebContentsIds.delete(sessionId);
+            const replay = takeDetachedReplayData(sessionId);
+            if (replay && !terminalOutputChannel?.send?.(sessionId, replay)) {
+              home.send("netcatty:data", { sessionId, data: replay });
+            }
             result = { success: true, restored: true, webContentsId: home.id };
           }
         } catch (err) {
@@ -636,6 +701,8 @@ async function restoreTerminalSessionOutput(event, payload, terminalWorkerManage
         return { success: false, error: result?.error || "Failed to restore session output" };
       }
       terminalWorkerManager.clearAttachHome?.(sessionId, target.id);
+      clearAttachPopupAttached(payload?.authorization, sessionId, event?.sender?.id);
+      clearDetachedReplayCapture(sessionId);
       return { success: true, restored: true, webContentsId: target.id };
     } catch (err) {
       return { success: false, error: err?.message || String(err) };
@@ -654,6 +721,8 @@ async function restoreTerminalSessionOutput(event, payload, terminalWorkerManage
       sessions, sessionId, target, closeSession, true,
     );
     attachHomeWebContentsIds.delete(sessionId);
+    clearAttachPopupAttached(payload?.authorization, sessionId, event?.sender?.id);
+    clearDetachedReplayCapture(sessionId);
     return { success: true, restored: true, webContentsId: target.id };
   } catch (err) {
     return { success: false, error: err?.message || String(err) };
@@ -959,6 +1028,9 @@ async function buildLocalSessionEnv(
 ) {
   const { buildTerminalProcessEnv } = require("./httpNetworkProxyBridge.cjs");
   const env = { ...buildTerminalProcessEnv(baseEnv), ...(payload?.env || {}) };
+  // AppImage's ARGV0 makes zsh rename external commands, including ssh. Xorg
+  // then mistakes ssh's X11 connection for a local client and sends unusable fds.
+  delete env.ARGV0;
   if (platform !== "win32") return env;
 
   const { getPathEnvKey, resolveWindowsLivePath } = require("./ai/shellUtils.cjs");
@@ -1054,16 +1126,34 @@ async function startLocalSession(event, payload) {
     }
   }
   
-  const proc = pty.spawn(shell, shellArgs, {
-    name: env.TERM || "xterm-256color",
-    cols: payload?.cols || 80,
-    rows: payload?.rows || 24,
-    env,
-    cwd,
-    encoding: null, // Return Buffer for ZMODEM binary support
-    // node-pty can only clear ConPTY through its bundled conpty.dll.
-    useConptyDll: process.platform === "win32",
-  });
+  const directoryIntegration = preparePowerShellDirectoryIntegration(shell, shellArgs)
+    ?? prepareCmdDirectoryIntegration(shell, shellArgs, env);
+  let proc;
+  try {
+    proc = pty.spawn(shell, directoryIntegration?.args ?? shellArgs, {
+      name: env.TERM || "xterm-256color",
+      cols: payload?.cols || 80,
+      rows: payload?.rows || 24,
+      env: { ...env, ...directoryIntegration?.env },
+      cwd,
+      encoding: null, // Return Buffer for ZMODEM binary support
+      // node-pty can only clear ConPTY through its bundled conpty.dll.
+      useConptyDll: process.platform === "win32",
+    });
+  } catch (error) {
+    directoryIntegration?.cleanup?.();
+    throw error;
+  }
+  directoryIntegration?.reader.setProcessId(proc.pid);
+  if (directoryIntegration) {
+    // All writers (interactive input, snippets and AI exec) share this PTY.
+    // Invalidate at the transport boundary, including direct proc/pty writes.
+    const write = proc.write.bind(proc);
+    proc.write = (data) => {
+      if (!isTerminalReportSequence(data) && /[\r\n\x03]/.test(String(data))) directoryIntegration.reader.invalidate();
+      return write(data);
+    };
+  }
   
   const session = {
     proc,
@@ -1082,6 +1172,7 @@ async function startLocalSession(event, payload) {
     label: "Local Terminal",
     shellExecutable: shell,
     shellKind,
+    directoryIntegration: directoryIntegration?.reader,
     flushPendingData: null,
     lastIdlePrompt: "",
     lastIdlePromptAt: 0,
@@ -1090,6 +1181,7 @@ async function startLocalSession(event, payload) {
   const { claimSessionSlot } = require("./sessionBootEpoch.cjs");
   const claim = claimSessionSlot(sessions, sessionId, session, payload?.bootEpoch);
   if (!claim.ok) {
+    directoryIntegration?.cleanup?.();
     try { proc.kill(); } catch { /* ignore */ }
     const supersededError = new Error("Local session superseded by a newer reconnect");
     supersededError.code = "NETCATTY_BOOT_SUPERSEDED";
@@ -1176,9 +1268,11 @@ async function startLocalSession(event, payload) {
     proc.onData((data) => {
       if (sessions.get(sessionId) !== session) return;
       if (!shouldProcessSessionOutput(session)) return;
-      trackSessionIdlePrompt(session, data);
-      bufferLocalData(data);
-      sessionLogStreamManager.appendData(sessionId, data);
+      const visibleData = session.directoryIntegration?.consume(data) ?? data;
+      if (!visibleData) return;
+      trackSessionIdlePrompt(session, visibleData);
+      bufferLocalData(visibleData);
+      sessionLogStreamManager.appendData(sessionId, visibleData);
     });
   }
 
@@ -1187,6 +1281,7 @@ async function startLocalSession(event, payload) {
     const finalizeExit = () => {
       if (localExitFinalized) return;
       localExitFinalized = true;
+      directoryIntegration?.cleanup?.();
       sessionLogStreamManager.stopStream(sessionId, logStreamToken);
       if (sessions.get(sessionId) !== session) return;
       ptyProcessTree.unregisterPid(sessionId);
@@ -1522,11 +1617,13 @@ async function startSerialSession(event, options) {
 
         let serialExitFinalized = false;
         const finalizeSerialExit = ({ exitCode, error, reason }) => {
+          if (logStreamToken) {
+            sessionLogStreamManager.stopStream(sessionId, logStreamToken);
+          }
           if (serialExitFinalized || sessions.get(sessionId) !== session) return;
           serialExitFinalized = true;
           session.zmodemSentry?.cancel();
           session.ymodemAbortController?.abort();
-          sessionLogStreamManager.stopStream(sessionId, logStreamToken);
           const primaryId = session.webContentsId;
           ptyProcessTree.unregisterPid(sessionId);
           clearPendingAutomatedWrites(session);
@@ -1734,9 +1831,14 @@ function writeToSessionNow(payload, data, logRewrite = payload.logRewrite) {
     // the transport's native string serialization keeps handling that case.
     sessionLogStreamManager.registerSudoAutofillInput(payload.sessionId, data);
     sessionLogStreamManager.registerProgrammaticCommandLogRewrite(payload.sessionId, logRewrite);
-    const inputData = session.type === 'telnet-native'
-      ? telnetProtocol.normalizeNvtNewlines(data)
+    // xterm onBinary strings contain wire bytes, including values above 127.
+    // Convert before text charset encoding or Telnet newline normalization.
+    const wireInput = payload.binary === true && typeof data === 'string'
+      ? Buffer.from(data, 'latin1')
       : data;
+    const inputData = session.type === 'telnet-native'
+      ? telnetProtocol.normalizeNvtNewlines(wireInput)
+      : wireInput;
     const outgoing = encodeTerminalInput(inputData, session.encoding);
 
     if (session.stream) {
@@ -2289,6 +2391,21 @@ function shouldRevokeOpenedSessionOwnership(payload) {
   return payload?.retainOwnership !== true;
 }
 
+function stopSessionLogStreamIfOwned(sessionId, session) {
+  const logStreamToken = session?.logStreamToken ?? session?._logStreamToken;
+  if (logStreamToken) {
+    sessionLogStreamManager.stopStream(sessionId, logStreamToken);
+  }
+}
+
+function clearSshSessionEncodingState(sessionId) {
+  try {
+    require("./sshBridge.cjs").clearSessionEncodingState?.(sessionId);
+  } catch {
+    // Ignore if sshBridge is unavailable in isolated unit tests.
+  }
+}
+
 function reportOpenedSessionClosed(sessionId, payload) {
   if (!shouldRevokeOpenedSessionOwnership(payload)) return;
   try {
@@ -2405,10 +2522,12 @@ function closeSession(event, payload) {
   } catch (err) {
     console.warn("Close failed", err);
   } finally {
+    stopSessionLogStreamIfOwned(payload.sessionId, session);
     cleanupMoshAuthTempFiles(session.moshAuthTempFiles);
   }
   ptyProcessTree.unregisterPid(payload.sessionId);
   sessions.delete(payload.sessionId);
+  clearSshSessionEncodingState(payload.sessionId);
   forgetBootEpoch(payload.sessionId, payload?.bootEpoch);
   reportOpenedSessionClosed(payload.sessionId, payload);
   return { closed: true };
@@ -2450,14 +2569,6 @@ function getTelnetEchoMode(_event, { sessionId }) {
 /**
  * Register IPC handlers for terminal operations
  */
-function registerWorkerHandle(ipcMain, terminalWorkerManager, channel) {
-  ipcMain.handle(channel, (event, payload) => {
-    return terminalWorkerManager.request(channel, payload, {
-      webContentsId: event?.sender?.id,
-    });
-  });
-}
-
 function registerWorkerSend(ipcMain, terminalWorkerManager, channel) {
   ipcMain.on(channel, (event, payload) => {
     terminalWorkerManager.send(channel, payload, {
@@ -2478,6 +2589,31 @@ function registerHandlers(ipcMain, options = {}) {
     requestTerminalSessionSnapshot(event, payload, terminalWorkerManager));
   ipcMain.handle("netcatty:terminal:applySnapshot", (event, payload) =>
     applyTerminalSessionSnapshot(event, payload, terminalWorkerManager));
+  ipcMain.handle("netcatty:terminal:reportAttachReady", (event, payload) => {
+    const sessionId = typeof payload?.sessionId === "string" ? payload.sessionId : "";
+    const authorization = typeof payload?.authorization === "string" ? payload.authorization : "";
+    const ok = markAttachPopupReady(authorization, sessionId, event?.sender?.id);
+    return ok ? { success: true } : { success: false, error: "Unauthorized attach request" };
+  });
+  ipcMain.handle("netcatty:terminal:reportAttachFailed", (event, payload) => {
+    const sessionId = typeof payload?.sessionId === "string" ? payload.sessionId : "";
+    const authorization = typeof payload?.authorization === "string" ? payload.authorization : "";
+    const error = typeof payload?.error === "string" ? payload.error : "";
+    const ok = failAttachPopupAuthorization(authorization, sessionId, event?.sender?.id, error);
+    return ok ? { success: true } : { success: false, error: "Unauthorized attach request" };
+  });
+  ipcMain.handle("netcatty:terminal:getDetachedReplayData", (event, payload) => {
+    const sessionId = typeof payload?.sessionId === "string" ? payload.sessionId : "";
+    if (!sessionId) return { success: false, data: "" };
+    const senderId = event?.sender?.id;
+    const homeId = terminalWorkerManager?.getAttachHomeWebContentsId?.(sessionId)
+      ?? attachHomeWebContentsIds.get(sessionId)
+      ?? null;
+    if (typeof senderId !== "number" || homeId !== senderId) {
+      return { success: true, data: "" };
+    }
+    return { success: true, data: peekDetachedReplayData(sessionId) };
+  });
   ipcMain.handle("netcatty:terminal:setFlowPausedAndWait", async (event, payload) => {
     const sessionId = typeof payload?.sessionId === "string" ? payload.sessionId : "";
     if (!sessionId) return { success: false, error: "Missing terminal session" };
@@ -2796,7 +2932,7 @@ function bundledEtClient(opts = {}) {
  */
 function cleanupAllSessions() {
   console.log(`[Terminal] Cleaning up ${sessions.size} sessions before quit`);
-  for (const [sessionId, session] of sessions) {
+  for (const [sessionId, session] of [...sessions.entries()]) {
     try {
       session.zmodemSentry?.cancel();
       cancelActiveYmodemSession(session);
@@ -2837,10 +2973,11 @@ function cleanupAllSessions() {
       }
     } catch (err) {
       // Ignore cleanup errors
+    } finally {
+      try { stopSessionLogStreamIfOwned(sessionId, session); } catch { /* ignore */ }
+      ptyProcessTree.unregisterPid(sessionId);
+      clearSshSessionEncodingState(sessionId);
     }
-  }
-  for (const [sessionId] of sessions) {
-    ptyProcessTree.unregisterPid(sessionId);
   }
   sessions.clear();
   terminalOutputChannel?.closeAll?.();

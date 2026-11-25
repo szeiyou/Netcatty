@@ -14,17 +14,11 @@ import {
   usePluginViewTabs,
 } from './pluginViewTabStore';
 import {
-  PluginViewLifecycleController,
   reconcilePluginViewTabCatalog,
   resolvePluginViewSnapshotSelection,
-  type HostedPluginViewState,
   type PluginViewSnapshotSelection,
 } from './pluginViewLifecycle';
-import {
-  canRetainPluginViewInScope,
-  resolvePluginRetainedViewKey,
-  resolvePluginViewWindowScope,
-} from './pluginViewScopes';
+import { closePluginViewSessionIfLoaded } from './pluginViewSessionRegistry';
 import { usePluginContributions } from './usePluginContributions';
 
 export const OPEN_PLUGIN_VIEW_EVENT = 'netcatty:open-plugin-view';
@@ -38,6 +32,16 @@ export type ResolvedPluginView = {
   plugin: NetcattyPluginContributionSnapshot['plugins'][number];
   view: NetcattyPluginContributionSnapshot['plugins'][number]['views'][number];
 };
+
+const DEFAULT_VIEW_QUERY_CONTEXT: Readonly<Record<string, unknown>> = Object.freeze({
+  'netcatty.surface': 'view',
+});
+
+export function hasPluginKeybindingContributions(
+  snapshot: NetcattyPluginContributionSnapshot,
+): boolean {
+  return snapshot.plugins.some((plugin) => plugin.keybindings.length > 0);
+}
 
 export function requestOpenPluginView(detail: OpenPluginViewDetail) {
   window.dispatchEvent(new CustomEvent(OPEN_PLUGIN_VIEW_EVENT, { detail }));
@@ -60,29 +64,30 @@ export function usePluginViewLifecycle({
   const activePluginTab = pluginViewTabs.find((tab) => tab.id === activeTabId) ?? null;
   const effectiveRequested = resolvePluginViewRequest(requested, activePluginTab);
   const viewQueryContext = useMemo(
-    () => effectiveRequested?.context ?? { 'netcatty.surface': 'view' },
+    () => effectiveRequested?.context ?? DEFAULT_VIEW_QUERY_CONTEXT,
     [effectiveRequested?.context],
   );
   const viewQueryContextKey = useMemo(() => JSON.stringify(viewQueryContext), [viewQueryContext]);
-  const contributions = usePluginContributions({ locale, context: keybindingContext });
-  const viewContributions = usePluginContributions({ locale, context: viewQueryContext });
+  const keybindingQuery = useMemo(
+    () => ({ locale, context: keybindingContext }),
+    [locale, keybindingContext],
+  );
+  const viewQuery = useMemo(
+    () => ({ locale, context: viewQueryContext }),
+    [locale, viewQueryContext],
+  );
+  const contributions = usePluginContributions(keybindingQuery, {
+    isContextSensitive: hasPluginKeybindingContributions,
+  });
+  const viewContributions = usePluginContributions(viewQuery);
   const {
     snapshot,
     executeCommand,
-    openView,
-    closeView,
-    setViewBounds,
-    setViewVisibility,
     setEnvironment,
-    onViewClosed,
   } = contributions;
-  const [instance, setInstance] = useState<HostedPluginViewState | null>(null);
-  const lifecycleRef = useRef(new PluginViewLifecycleController<HostedPluginViewState>());
-  const closeViewRef = useRef(closeView);
-  const mountRef = useRef<HTMLDivElement>(null);
   const resolvedActiveView = useMemo(() => viewContributions.snapshot.plugins
     .flatMap((plugin) => plugin.views.map((view) => ({ plugin, view })))
-    .find(({ view }) => view.id === effectiveRequested?.viewId && view.visible) ?? null,
+    .find(({ view }) => view.id === effectiveRequested?.viewId && view.visible && !['vault-page', 'terminal-sidebar'].includes(view.location)) ?? null,
   [effectiveRequested?.viewId, viewContributions.snapshot.plugins]);
   const stableActiveViewRef = useRef<PluginViewSnapshotSelection<ResolvedPluginView> | null>(null);
   const activeView = resolvePluginViewSnapshotSelection({
@@ -92,16 +97,6 @@ export function usePluginViewLifecycle({
     requestedViewId: effectiveRequested?.viewId,
     contextKey: viewQueryContextKey,
   });
-  const activeViewId = activeView?.view.id;
-  const viewScopeId = typeof window === 'undefined'
-    ? 'window:server'
-    : resolvePluginViewWindowScope(window.location);
-  const retainedViewKey = activeViewId
-    ? resolvePluginRetainedViewKey(activeViewId, viewScopeId)
-    : null;
-
-  useEffect(() => { closeViewRef.current = closeView; }, [closeView]);
-
   useEffect(() => {
     if (viewContributions.loading) return;
     stableActiveViewRef.current = resolvedActiveView && effectiveRequested?.viewId
@@ -113,30 +108,14 @@ export function usePluginViewLifecycle({
       : null;
   }, [effectiveRequested?.viewId, resolvedActiveView, viewContributions.loading, viewQueryContextKey]);
 
-  useEffect(() => onViewClosed((event) => {
-    const next = lifecycleRef.current.handleHostClose(event.instanceId);
-    if (next.matchedCurrent) {
-      setInstance(null);
-      setRequested(null);
-    }
-    if (next.closedTabId) pluginViewTabStore.close(next.closedTabId);
-  }), [onViewClosed]);
-
-  useEffect(() => pluginViewTabStore.onDidClose(({ tab }) => {
-    const next = lifecycleRef.current.handleTabClose(tab.id);
-    if (next.matchedCurrent) {
-      setInstance(null);
-      setRequested(null);
-    }
-    for (const instanceId of next.instanceIds) {
-      void closeViewRef.current(instanceId).catch(() => {});
-    }
-  }), []);
+  const keybindingContextRef = useRef(keybindingContext);
+  keybindingContextRef.current = keybindingContext;
 
   useEffect(() => {
     const bindings = snapshot.plugins.flatMap((plugin) => plugin.keybindings)
       .filter((binding) => binding.enabled)
       .sort((left, right) => `${left.command}:${left.key}`.localeCompare(`${right.command}:${right.key}`));
+    if (bindings.length === 0) return;
     const platformKey = resolvePluginShortcutPlatform(navigator.platform);
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.isComposing || isPluginShortcutEditableEvent(event)) return;
@@ -148,11 +127,11 @@ export function usePluginViewLifecycle({
       });
       if (!binding) return;
       event.preventDefault();
-      void executeCommand(binding.command, binding.args, keybindingContext);
+      void executeCommand(binding.command, binding.args, keybindingContextRef.current);
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [executeCommand, keybindingContext, snapshot.plugins]);
+  }, [executeCommand, snapshot.plugins]);
 
   useEffect(() => {
     const listener = (event: Event) => setRequested((event as CustomEvent<OpenPluginViewDetail>).detail);
@@ -181,199 +160,94 @@ export function usePluginViewLifecycle({
     setRequested(null);
   }, [activeView, requested]);
 
-  const hideOrClose = useCallback(async (current: HostedPluginViewState) => {
-    if (!current.retainContextWhenHidden) {
-      await closeView(current.id);
-      return;
-    }
-    const key = resolvePluginRetainedViewKey(current.viewId, current.scopeId);
-    lifecycleRef.current.retain(key, current);
-    try {
-      await setViewVisibility(current.id, false);
-    } catch {
-      lifecycleRef.current.removeRetained(key);
-      await closeView(current.id);
-    }
-  }, [closeView, setViewVisibility]);
+  useEffect(() => {
+    const stop = pluginViewTabStore.onDidClose(({ tab }) => closePluginViewSessionIfLoaded(tab.viewId));
+    return () => { stop(); };
+  }, []);
 
   const close = useCallback(async () => {
-    lifecycleRef.current.markViewClosed(retainedViewKey);
-    const current = lifecycleRef.current.takeCurrent();
-    setInstance(null);
     setRequested(null);
-    if (current) await closeView(current.id);
-  }, [closeView, retainedViewKey]);
-
-  useEffect(() => {
-    const removed = lifecycleRef.current.removeRetainedWhere(
-      (retained) => !canRetainPluginViewInScope(retained.scopeId, viewScopeId),
-    );
-    for (const retained of removed) void closeView(retained.id).catch(() => {});
-  }, [closeView, viewScopeId]);
-
-  useEffect(() => {
-    if (!instance) return;
-    if (effectiveRequested?.viewId === instance.viewId
-      && activeViewId === instance.viewId
-      && instance.scopeId === viewScopeId) return;
-    lifecycleRef.current.takeCurrent();
-    setInstance(null);
-    if (canRetainPluginViewInScope(instance.scopeId, viewScopeId)) {
-      void hideOrClose(instance);
-    } else {
-      void closeView(instance.id).catch(() => {});
+    if (activeView) closePluginViewSessionIfLoaded(activeView.view.id);
+    // An overlay can be requested while a different plugin tab stays active.
+    // Dismissing that overlay must not close the tab underneath it.
+    if (activeView?.view.location === 'tab' && activePluginTab?.viewId === activeView.view.id) {
+      pluginViewTabStore.close(activePluginTab.id);
     }
-  }, [activeViewId, closeView, effectiveRequested?.viewId, hideOrClose, instance, viewScopeId]);
+  }, [activePluginTab, activeView]);
+
+  const runtimeAvailable = contributions.available;
+  const environmentStateRef = useRef({
+    locale,
+    theme,
+    suppliedThemeTokens,
+    setEnvironment,
+  });
+  environmentStateRef.current = {
+    locale,
+    theme,
+    suppliedThemeTokens,
+    setEnvironment,
+  };
+  const environmentPublisherRef = useRef<{ publish: () => void } | null>(null);
 
   useEffect(() => {
-    if (!activeViewId || !retainedViewKey || !mountRef.current || instance) return;
-    let cancelled = false;
-    const openingTabId = activePluginTab?.id;
-    const openingToken = lifecycleRef.current.beginOpen({
-      viewKey: retainedViewKey,
-      tabId: openingTabId,
-      label: activePluginTab?.id ?? activeViewId,
-    });
-    const bounds = mountRef.current.getBoundingClientRect();
-    const nextBounds = {
-      x: Math.round(bounds.x),
-      y: Math.round(bounds.y),
-      width: Math.max(1, Math.round(bounds.width)),
-      height: Math.max(1, Math.round(bounds.height)),
-    };
-    void (async () => {
-      let opened = lifecycleRef.current.takeRetained(retainedViewKey);
-      if (opened) {
-        try {
-          await setViewBounds(opened.id, nextBounds);
-          await setViewVisibility(opened.id, true);
-        } catch {
-          try { await closeView(opened.id); } catch { /* best-effort cleanup after restore failure */ }
-          opened = null;
-        }
-      }
-      if (!opened) {
-        const result = await openView({
-          viewId: activeViewId,
-          scopeId: viewScopeId,
-          bounds: nextBounds,
-          context: effectiveRequested?.context,
-        });
-        opened = {
-          id: result.instanceId,
-          viewId: activeViewId,
-          scopeId: viewScopeId,
-          retainContextWhenHidden: activeView.view.retainContextWhenHidden === true,
-          ...(activePluginTab ? { tabId: activePluginTab.id } : {}),
-        };
-      }
-      if (lifecycleRef.current.consumeHostClose(opened.id)) {
-        throw new Error('Plugin view closed while its open response was in flight');
-      }
-      if (lifecycleRef.current.shouldCloseOpen(openingToken)) {
-        await closeView(opened.id);
-        return;
-      }
-      if (cancelled) {
-        await hideOrClose(opened);
-        return;
-      }
-      lifecycleRef.current.setCurrent(opened);
-      setInstance(opened);
-    })().catch(() => {
-      if (cancelled) return;
-      if (activePluginTab) pluginViewTabStore.close(activePluginTab.id);
-      else setRequested(null);
-    }).finally(() => {
-      lifecycleRef.current.finishOpen({
-        token: openingToken,
-        viewKey: retainedViewKey,
-        tabId: openingTabId,
-      });
-    });
-    return () => { cancelled = true; };
-  }, [
-    activePluginTab,
-    activeView?.view.retainContextWhenHidden,
-    activeViewId,
-    closeView,
-    effectiveRequested?.context,
-    hideOrClose,
-    instance,
-    openView,
-    retainedViewKey,
-    setViewBounds,
-    setViewVisibility,
-    viewScopeId,
-  ]);
-
-  useEffect(() => {
-    if (!instance || !mountRef.current) return;
-    const update = () => {
-      const bounds = mountRef.current?.getBoundingClientRect();
-      if (!bounds) return;
-      void setViewBounds(instance.id, {
-        x: Math.round(bounds.x),
-        y: Math.round(bounds.y),
-        width: Math.max(1, Math.round(bounds.width)),
-        height: Math.max(1, Math.round(bounds.height)),
-      });
-    };
-    const observer = new ResizeObserver(update);
-    observer.observe(mountRef.current);
-    window.addEventListener('resize', update);
-    update();
-    return () => {
-      observer.disconnect();
-      window.removeEventListener('resize', update);
-    };
-  }, [instance, setViewBounds]);
-
-  useEffect(() => {
-    if (!contributions.available) return;
+    if (!runtimeAvailable) {
+      environmentPublisherRef.current = null;
+      return;
+    }
     const reducedMotionQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
     const forcedColorsQuery = window.matchMedia('(forced-colors: active)');
     const contrastQuery = window.matchMedia('(prefers-contrast: more)');
     let frame = 0;
+    const cancelPendingPublish = () => {
+      if (frame) {
+        cancelAnimationFrame(frame);
+        frame = 0;
+      }
+    };
     const publish = () => {
-      frame = 0;
-      const styles = suppliedThemeTokens ? null : getComputedStyle(document.documentElement);
-      const themeTokens = suppliedThemeTokens ?? Object.fromEntries(PLUGIN_THEME_TOKEN_NAMES
+      cancelPendingPublish();
+      const current = environmentStateRef.current;
+      const styles = current.suppliedThemeTokens ? null : getComputedStyle(document.documentElement);
+      const themeTokens = current.suppliedThemeTokens ?? Object.fromEntries(PLUGIN_THEME_TOKEN_NAMES
         .map((name) => [name, styles?.getPropertyValue(name).trim() ?? '']));
-      void setEnvironment({
-        locale,
-        theme,
+      void current.setEnvironment({
+        locale: current.locale,
+        theme: current.theme,
         reducedMotion: reducedMotionQuery.matches,
         highContrast: forcedColorsQuery.matches || contrastQuery.matches,
         themeTokens,
       }).catch(() => {});
     };
     const schedulePublish = () => {
-      if (frame) cancelAnimationFrame(frame);
-      frame = requestAnimationFrame(publish);
+      cancelPendingPublish();
+      frame = requestAnimationFrame(() => {
+        frame = 0;
+        publish();
+      });
     };
+    environmentPublisherRef.current = { publish };
     const queries = [reducedMotionQuery, forcedColorsQuery, contrastQuery];
     for (const query of queries) query.addEventListener?.('change', schedulePublish);
     const observer = new MutationObserver(schedulePublish);
     observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class', 'style'] });
-    publish();
     return () => {
-      if (frame) cancelAnimationFrame(frame);
+      environmentPublisherRef.current = null;
+      cancelPendingPublish();
       observer.disconnect();
       for (const query of queries) query.removeEventListener?.('change', schedulePublish);
     };
-  }, [contributions.available, locale, setEnvironment, suppliedThemeTokens, theme]);
+  }, [runtimeAvailable]);
 
-  useEffect(() => () => {
-    const views = lifecycleRef.current.drain();
-    const ids = new Set(views.map((view) => view.id));
-    for (const id of ids) void closeViewRef.current(id);
-  }, []);
+  useEffect(() => {
+    if (!runtimeAvailable) return;
+    environmentPublisherRef.current?.publish();
+  }, [runtimeAvailable, locale, setEnvironment, suppliedThemeTokens, theme]);
 
   return {
     activeView,
     close,
     effectiveRequested,
-    mountRef,
+    viewQueryContext,
   };
 }

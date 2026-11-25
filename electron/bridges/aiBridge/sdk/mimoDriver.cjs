@@ -18,13 +18,17 @@
  * Instead we run `mimo serve` ourselves and attach the SDK's
  * `createOpencodeClient` to the URL it reports.
  */
-const fs = require("node:fs");
-const net = require("node:net");
 const path = require("node:path");
 const { randomBytes } = require("node:crypto");
 const { spawn, spawnSync } = require("node:child_process");
 const { prepareCommandForSpawn, resolveCliFromPath } = require("../../ai/shellUtils.cjs");
 const { buildSdkAgentEnv } = require("./env.cjs");
+const {
+  createAbortWait,
+  createStopWait,
+  findFirstExistingExecutable,
+  getAvailablePort: getSharedAvailablePort,
+} = require("./sdkDriverUtils.cjs");
 const { filterMimoTrustedSkillPaths } = require("./netcattySkillsOpenCodePermissions.cjs");
 const {
   buildOpenCodeConfig,
@@ -66,18 +70,7 @@ async function importMimoSdk() {
  * `mimo.exe` and are resolved by that shim.
  */
 function resolveUsableMimoBinPath(binPath, env) {
-  const candidates = [];
-  if (binPath) candidates.push(String(binPath));
-  if (env?.MIMOCODE_BIN) candidates.push(String(env.MIMOCODE_BIN));
-  if (env?.MIMOCODE_BIN_PATH) candidates.push(String(env.MIMOCODE_BIN_PATH));
-  for (const candidate of candidates) {
-    try {
-      if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) {
-        return candidate;
-      }
-    } catch {}
-  }
-  return undefined;
+  return findFirstExistingExecutable([binPath, env?.MIMOCODE_BIN, env?.MIMOCODE_BIN_PATH]);
 }
 
 // How long the server's process group gets to exit on SIGTERM before the
@@ -150,19 +143,7 @@ function stopMimoProcess(child, {
 }
 
 function getAvailablePort(host = "127.0.0.1") {
-  return new Promise((resolve, reject) => {
-    const server = net.createServer();
-    server.unref();
-    server.on("error", reject);
-    server.listen(0, host, () => {
-      const address = server.address();
-      const port = typeof address === "object" && address ? address.port : 0;
-      server.close((error) => {
-        if (error) reject(error);
-        else resolve(port === DEFAULT_MIMO_PORT ? getAvailablePort(host) : port);
-      });
-    });
-  });
+  return getSharedAvailablePort(host, DEFAULT_MIMO_PORT);
 }
 
 // Ask the same CLI that starts the server to resolve its configuration. This
@@ -392,21 +373,6 @@ async function spawnMimoServer({
   };
 }
 
-function createAbortWait(signal) {
-  if (!signal) return { promise: new Promise(() => {}), dispose() {} };
-  if (signal.aborted) return { promise: Promise.resolve(), dispose() {} };
-  let resolveAbort;
-  const promise = new Promise((resolve) => { resolveAbort = resolve; });
-  const onAbort = () => resolveAbort();
-  signal.addEventListener("abort", onAbort, { once: true });
-  return {
-    promise,
-    dispose() {
-      signal.removeEventListener("abort", onAbort);
-    },
-  };
-}
-
 function createMimoExitWait(server) {
   return server?.exited
     ? server.exited.then(() => ({ type: "exit" }))
@@ -437,21 +403,6 @@ async function awaitMimoSetup(promise, signal, server, timeoutMs = 10_000) {
 
 function closeMimoEventIterator(iterator) {
   try { void Promise.resolve(iterator?.return?.()).catch(() => {}); } catch {}
-}
-
-function createStopWait() {
-  let stopped = false;
-  let resolveStop;
-  const promise = new Promise((resolve) => { resolveStop = resolve; });
-  return {
-    promise,
-    get stopped() { return stopped; },
-    stop() {
-      if (stopped) return;
-      stopped = true;
-      resolveStop();
-    },
-  };
 }
 
 function extractMimoErrorMessage(error) {

@@ -6,9 +6,11 @@
  * callback reference changes.
  */
 
-import React, { createContext, useContext, useMemo, useSyncExternalStore } from "react";
+import React, { createContext, useCallback, useContext, useMemo, useSyncExternalStore } from "react";
 import type { SftpConnectedHostEntry } from "../../domain/sftpConnectedHosts";
+import type { SftpArchiveCreationOptions, SftpArchiveCreationResult, SftpArchiveCreationTarget } from "../../domain/sftpArchiveCreation";
 import type { SftpConnectOptions } from "../../application/state/sftp/useSftpConnections";
+import { sftpFocusStore } from "../../application/state/sftp/sftpFocusStore";
 import { Host, SftpFileEntry, SftpFilenameEncoding } from "../../types";
 
 export interface SftpTransferSource {
@@ -34,6 +36,8 @@ export interface SftpPaneCallbacks {
     onDisconnect: () => Promise<boolean>;
     onPrepareSelection: () => void;
     onNavigateTo: (path: string) => void;
+    onNavigateBack: () => void;
+    onNavigateForward: () => void;
     onNavigateUp: () => void;
     onRefresh: () => void;
     onRefreshTab: (tabId: string) => void;
@@ -53,6 +57,8 @@ export interface SftpPaneCallbacks {
     onRenameFileAtPath: (oldPath: string, newName: string) => Promise<void>;
     onMoveEntriesToPath: (sourcePaths: string[], targetPath: string) => Promise<void>;
     onCopyToOtherPane: (files: SftpTransferSource[]) => void;
+    /** Create copies next to the selected entries (same pane, same folder). */
+    onDuplicateEntries: (files: SftpTransferSource[]) => void;
     onReceiveFromOtherPane: (files: SftpTransferSource[]) => void;
     onEditPermissions?: (file: SftpFileEntry, fullPath?: string) => void;
     // File operations
@@ -61,8 +67,9 @@ export interface SftpPaneCallbacks {
     onOpenFileWithSystemDefault?: (entry: SftpFileEntry, fullPath?: string) => void;
     onOpenFileWith?: (entry: SftpFileEntry, fullPath?: string) => void;  // Always show opener dialog
     onDownloadFile?: (entry: SftpFileEntry, fullPath?: string) => void;  // Download to local filesystem
-    onDownloadFiles?: (entries: SftpFileEntry[]) => void;  // Batch download — picks one target directory for remote panes
+    onDownloadFiles?: (entries: SftpFileEntry[], fullPaths?: string[]) => void;  // Batch download — picks one target directory for remote panes
     onExtractArchive?: (entry: SftpFileEntry, fullPath?: string) => void | Promise<void>;
+    onCreateArchive?: (options: SftpArchiveCreationOptions, target: SftpArchiveCreationTarget) => Promise<SftpArchiveCreationResult>;
     // External file upload (supports folders via DataTransfer)
     onUploadExternalFiles?: (dataTransfer: DataTransfer, targetPath?: string) => Promise<void>;
     // External file upload from <input type="file" multiple> picker (FileList).
@@ -114,6 +121,67 @@ export const useActiveTabId = (side: "left" | "right"): string | null => {
     );
 };
 
+const noopSubscribe = () => () => {};
+
+// Boolean selector for whether a specific pane is active on its side.
+// Prevents inactive panes from re-rendering when switching between other tabs.
+export const useIsSftpPaneActive = (
+    side: "left" | "right",
+    paneId: string,
+    fallbackWhenNull: boolean,
+    forceActive = false,
+): boolean => {
+    const getSnapshot = useCallback(() => {
+        if (forceActive) return true;
+        const activeTabId =
+            side === "left"
+                ? activeTabStore.getLeftActiveTabId()
+                : activeTabStore.getRightActiveTabId();
+        return activeTabId ? paneId === activeTabId : fallbackWhenNull;
+    }, [forceActive, side, paneId, fallbackWhenNull]);
+
+    return useSyncExternalStore(
+        forceActive ? noopSubscribe : activeTabStore.subscribe,
+        getSnapshot,
+        getSnapshot,
+    );
+};
+
+// Boolean selector for whether a side (left or right) is focused in sftpFocusStore.
+export const useIsSftpSideFocused = (side: "left" | "right"): boolean => {
+    const getSnapshot = useCallback(
+        () => sftpFocusStore.getFocusedSide() === side,
+        [side],
+    );
+    return useSyncExternalStore(
+        sftpFocusStore.subscribe,
+        getSnapshot,
+        getSnapshot,
+    );
+};
+
+// Boolean selector for pane focus gated by active state so inactive panes do not
+// re-render when clicking left <-> right. When `explicitFocused` is provided
+// (e.g. SftpSidePanel's local focus state), it overrides the shared store.
+export const useIsSftpPaneFocused = (
+    side: "left" | "right",
+    isActive: boolean,
+    explicitFocused?: boolean,
+): boolean => {
+    const shouldSubscribe = explicitFocused === undefined && isActive;
+    const getSnapshot = useCallback(() => {
+        if (explicitFocused !== undefined) return explicitFocused;
+        if (!isActive) return false;
+        return sftpFocusStore.getFocusedSide() === side;
+    }, [explicitFocused, isActive, side]);
+
+    return useSyncExternalStore(
+        shouldSubscribe ? sftpFocusStore.subscribe : noopSubscribe,
+        getSnapshot,
+        getSnapshot,
+    );
+};
+
 export interface SftpHostsContextValue {
     // Hosts list for connection picker
     hosts: Host[];
@@ -130,9 +198,6 @@ export interface SftpPaneCallbacksContextValue {
     rightCallbacks: SftpPaneCallbacks;
 }
 
-/** @deprecated Prefer useSftpHosts / useSftpPaneCallbacks to avoid cross-churn. */
-export type SftpContextValue = SftpHostsContextValue & SftpPaneCallbacksContextValue;
-
 export interface SftpDragContextValue {
     draggedFiles: (SftpTransferSource & { side: "left" | "right" })[] | null;
     dragCallbacks: SftpDragCallbacks;
@@ -141,19 +206,6 @@ export interface SftpDragContextValue {
 const SftpHostsContext = createContext<SftpHostsContextValue | null>(null);
 const SftpPaneCallbacksContext = createContext<SftpPaneCallbacksContextValue | null>(null);
 const SftpDragContext = createContext<SftpDragContextValue | null>(null);
-
-/** @deprecated Prefer selective hooks; this re-renders on hosts OR callbacks churn. */
-export const useSftpContext = (): SftpContextValue => {
-    const hosts = useContext(SftpHostsContext);
-    const callbacks = useContext(SftpPaneCallbacksContext);
-    if (!hosts || !callbacks) {
-        throw new Error("useSftpContext must be used within SftpContextProvider");
-    }
-    return useMemo(
-        () => ({ ...hosts, ...callbacks }),
-        [hosts, callbacks],
-    );
-};
 
 // Hook to get callbacks for a specific side
 export const useSftpPaneCallbacks = (side: "left" | "right"): SftpPaneCallbacks => {
@@ -227,9 +279,11 @@ interface SftpContextProviderProps {
     children: React.ReactNode;
 }
 
+const EMPTY_CONNECTED_HOSTS: SftpConnectedHostEntry[] = [];
+
 export const SftpContextProvider: React.FC<SftpContextProviderProps> = ({
     hosts,
-    connectedHosts = [],
+    connectedHosts = EMPTY_CONNECTED_HOSTS,
     writableHosts,
     updateHosts,
     draggedFiles,

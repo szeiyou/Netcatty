@@ -7,13 +7,19 @@ import { PROVIDER_PRESETS, resolveOpenAIApi, resolveProviderStyle } from "../../
 import { normalizeOllamaSdkBaseURL } from "../../../../infrastructure/ai/ollamaCompatBaseUrl";
 import { sanitizeContextWindow } from "../../../../infrastructure/ai/contextCompaction";
 import {
+  isProviderReasoningEffort,
+  PROVIDER_REASONING_EFFORT_OPTIONS,
+} from "../../../../infrastructure/ai/cattyReasoning";
+import {
   probeProviderConnection,
   validateProviderProbeInputs,
   type ProviderProbeHealth,
 } from "../../../../infrastructure/ai/providerConnectionProbe";
 import { encryptField, decryptField } from "../../../../infrastructure/persistence/secureFieldAdapter";
+import { OPENCODE_GO_PROVIDER_ID } from "../../../../infrastructure/ai/opencodeGo";
 import { useI18n } from "../../../../application/i18n/I18nProvider";
 import { Button } from "../../../ui/button";
+import { Tooltip, TooltipContent, TooltipTrigger } from "../../../ui/tooltip";
 import { cn } from "../../../../lib/utils";
 import type { BuiltinProviderIcon } from "./types";
 import { BUILTIN_PROVIDER_ICONS, getFetchBridge } from "./types";
@@ -57,8 +63,17 @@ async function compressIconFileToDataUrl(file: File): Promise<string> {
 
 const STYLE_OPTIONS: ReadonlyArray<ProviderStyle> = ["anthropic", "openai", "google"];
 const OPENAI_API_OPTIONS: ReadonlyArray<OpenAIApiFormat> = ["chat", "responses"];
-/** Selectable thinking-depth levels; empty string means "provider default" (field not sent). */
-const REASONING_EFFORT_OPTIONS = ["low", "medium", "high"] as const;
+/**
+ * How each reasoning level is shown in the select. Raw wire values stay the
+ * option values so a saved config keeps round-tripping unchanged.
+ */
+const REASONING_EFFORT_LABELS: Record<string, string> = {
+  low: "low",
+  medium: "medium",
+  high: "high",
+  xhigh: "xhigh (extra high)",
+  max: "max",
+};
 
 /** Same box as the h-8 fields above. Transparent border keeps primary aligned with outline. */
 const PROVIDER_ACTION_CLASS = "box-border h-8 px-3 gap-1.5 text-sm font-medium leading-none";
@@ -121,7 +136,10 @@ export const ProviderConfigForm: React.FC<{
   const probeRequestIdRef = useRef(0);
 
   const preset = PROVIDER_PRESETS[provider.providerId];
-  const resolvedStyle: ProviderStyle = form.style || resolveProviderStyle({ providerId: provider.providerId });
+  const fixedProtocol = preset?.fixedProtocol === true;
+  const resolvedStyle: ProviderStyle = fixedProtocol
+    ? "openai"
+    : (form.style || resolveProviderStyle({ providerId: provider.providerId }));
   const resolvedBaseURL = provider.providerId === "ollama"
     ? normalizeOllamaSdkBaseURL(form.baseURL || preset?.defaultBaseURL || "")
     : (form.baseURL || preset?.defaultBaseURL || "");
@@ -355,7 +373,7 @@ export const ProviderConfigForm: React.FC<{
   }, [form.apiKey, customHeaders, form.skipTLSVerify, preset?.modelsEndpoint, provider.providerId, resolvedBaseURL, resolvedStyle, t]);
 
   const handleSave = useCallback(async () => {
-    if (isSaving || headersLoading || headersLoadError || !parsedHeaders.valid) return;
+    if (isSaving || (!fixedProtocol && (headersLoading || headersLoadError || !parsedHeaders.valid))) return;
     const cleanedParams: ProviderAdvancedParams = {};
     const ap = form.advancedParams;
     if (ap.maxTokens != null && Number.isFinite(ap.maxTokens) && ap.maxTokens > 0) cleanedParams.maxTokens = Math.max(1, Math.round(ap.maxTokens));
@@ -363,7 +381,7 @@ export const ProviderConfigForm: React.FC<{
     if (ap.topP != null) cleanedParams.topP = Math.min(1, Math.max(0, ap.topP));
     if (ap.frequencyPenalty != null) cleanedParams.frequencyPenalty = Math.min(2, Math.max(-2, ap.frequencyPenalty));
     if (ap.presencePenalty != null) cleanedParams.presencePenalty = Math.min(2, Math.max(-2, ap.presencePenalty));
-    if (ap.reasoningEffort && (REASONING_EFFORT_OPTIONS as readonly string[]).includes(ap.reasoningEffort)) {
+    if (isProviderReasoningEffort(ap.reasoningEffort)) {
       cleanedParams.reasoningEffort = ap.reasoningEffort;
     }
 
@@ -392,8 +410,8 @@ export const ProviderConfigForm: React.FC<{
       modelContextWindows: Object.keys(form.modelContextWindows).length > 0 ? form.modelContextWindows : undefined,
       skipTLSVerify: form.skipTLSVerify || undefined,
       advancedParams: Object.keys(cleanedParams).length > 0 ? cleanedParams : undefined,
-      style: form.style || undefined,
-      openaiApi: resolvedStyle === "openai" && form.openaiApi === "responses" ? "responses" : undefined,
+      style: fixedProtocol ? undefined : (form.style || undefined),
+      openaiApi: !fixedProtocol && resolvedStyle === "openai" && form.openaiApi === "responses" ? "responses" : undefined,
       iconId: form.iconId || undefined,
       iconDataUrl: form.iconDataUrl || undefined,
     };
@@ -401,7 +419,11 @@ export const ProviderConfigForm: React.FC<{
     setIsSaving(true);
     setSaveError(false);
     try {
-      updates.customHeaders = await encryptProviderHeaders(customHeaders);
+      // Fixed-protocol providers hide the header editor; leave any stored
+      // headers untouched instead of overwriting them with the hidden rows.
+      if (!fixedProtocol) {
+        updates.customHeaders = await encryptProviderHeaders(customHeaders);
+      }
       // Encrypt API key before saving
       if (form.apiKey) {
         updates.apiKey = await encryptField(form.apiKey);
@@ -415,7 +437,7 @@ export const ProviderConfigForm: React.FC<{
     } finally {
       setIsSaving(false);
     }
-  }, [form, customHeaders, isSaving, headersLoading, headersLoadError, parsedHeaders.valid, onSave, provider.providerId, resolvedBaseURL, resolvedStyle, t]);
+  }, [form, customHeaders, fixedProtocol, isSaving, headersLoading, headersLoadError, parsedHeaders.valid, onSave, provider.providerId, resolvedBaseURL, resolvedStyle, t]);
 
   return (
     <div className="mt-3 space-y-3 border-t border-border/40 pt-3">
@@ -423,21 +445,25 @@ export const ProviderConfigForm: React.FC<{
       <div className="space-y-1.5">
         <label className="text-xs font-medium text-muted-foreground">{t('ai.providers.name')}</label>
         <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => setShowIconPicker((v) => !v)}
-            className="group relative shrink-0 rounded-md transition-all hover:brightness-110 hover:ring-2 hover:ring-primary/45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
-            aria-label={t('ai.providers.icon.change')}
-            title={t('ai.providers.icon.change')}
-          >
-            <ProviderIconBadge provider={previewProvider} />
-            <span
-              aria-hidden="true"
-              className="pointer-events-none absolute -bottom-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full border border-background bg-primary text-primary-foreground opacity-0 shadow-sm transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100"
-            >
-              <Pencil size={9} strokeWidth={2.5} />
-            </span>
-          </button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                onClick={() => setShowIconPicker((v) => !v)}
+                className="group relative shrink-0 rounded-md transition-all hover:brightness-110 hover:ring-2 hover:ring-primary/45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
+                aria-label={t('ai.providers.icon.change')}
+              >
+                <ProviderIconBadge provider={previewProvider} />
+                <span
+                  aria-hidden="true"
+                  className="pointer-events-none absolute -bottom-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full border border-background bg-primary text-primary-foreground opacity-0 shadow-sm transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100"
+                >
+                  <Pencil size={9} strokeWidth={2.5} />
+                </span>
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>{t('ai.providers.icon.change')}</TooltipContent>
+          </Tooltip>
           <input
             type="text"
             value={form.name}
@@ -500,7 +526,6 @@ export const ProviderConfigForm: React.FC<{
                 size="sm"
                 onClick={() => setShowIconPicker(false)}
                 aria-label={t('ai.providers.icon.close')}
-                title={t('ai.providers.icon.close')}
               >
                 <X size={12} className="mr-1.5" />
                 {t('ai.providers.icon.close')}
@@ -512,37 +537,39 @@ export const ProviderConfigForm: React.FC<{
       </div>
 
       {/* Provider style */}
-      <div className="space-y-1.5">
-        <label className="text-xs font-medium text-muted-foreground">{t('ai.providers.style')}</label>
-        <div className="flex items-center gap-1.5">
-          {STYLE_OPTIONS.map((style) => {
-            const isSelected = resolvedStyle === style;
-            const isInherited = !form.style && isSelected;
-            return (
-              <button
-                key={style}
-                type="button"
-                onClick={() => setForm((prev) => ({ ...prev, style: prev.style === style ? "" : style }))}
-                className={cn(
-                  "h-7 px-2.5 rounded-md text-xs border transition-colors",
-                  isSelected
-                    ? "border-primary/70 bg-primary/15 text-foreground"
-                    : "border-border/50 bg-background text-muted-foreground hover:text-foreground hover:bg-muted/40",
-                )}
-                aria-pressed={isSelected}
-              >
-                {t(`ai.providers.style.${style}`)}
-                {isInherited && (
-                  <span className="ml-1 text-[9px] text-muted-foreground/70">({t('ai.providers.style.inherited')})</span>
-                )}
-              </button>
-            );
-          })}
+      {!fixedProtocol && (
+        <div className="space-y-1.5">
+          <label className="text-xs font-medium text-muted-foreground">{t('ai.providers.style')}</label>
+          <div className="flex items-center gap-1.5">
+            {STYLE_OPTIONS.map((style) => {
+              const isSelected = resolvedStyle === style;
+              const isInherited = !form.style && isSelected;
+              return (
+                <button
+                  key={style}
+                  type="button"
+                  onClick={() => setForm((prev) => ({ ...prev, style: prev.style === style ? "" : style }))}
+                  className={cn(
+                    "h-7 px-2.5 rounded-md text-xs border transition-colors",
+                    isSelected
+                      ? "border-primary/70 bg-primary/15 text-foreground"
+                      : "border-border/50 bg-background text-muted-foreground hover:text-foreground hover:bg-muted/40",
+                  )}
+                  aria-pressed={isSelected}
+                >
+                  {t(`ai.providers.style.${style}`)}
+                  {isInherited && (
+                    <span className="ml-1 text-[9px] text-muted-foreground/70">({t('ai.providers.style.inherited')})</span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+          <p className="text-[11px] text-muted-foreground/70">{t('ai.providers.style.help')}</p>
         </div>
-        <p className="text-[11px] text-muted-foreground/70">{t('ai.providers.style.help')}</p>
-      </div>
+      )}
 
-      {resolvedStyle === "openai" && (
+      {!fixedProtocol && resolvedStyle === "openai" && (
         <div className="space-y-1.5">
           <label className="text-xs font-medium text-muted-foreground">{t('ai.providers.openaiApi')}</label>
           <div className="flex items-center gap-1.5">
@@ -592,17 +619,33 @@ export const ProviderConfigForm: React.FC<{
             </button>
           </div>
         </div>
+        {provider.providerId === OPENCODE_GO_PROVIDER_ID && (
+          <p className="text-[11px] text-muted-foreground/70">
+            {t('ai.providers.opencodeGo.help')}{' '}
+            <a
+              href="https://opencode.ai/console"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-primary hover:underline"
+            >
+              {t('ai.providers.opencodeGo.getKey')}
+            </a>
+          </p>
+        )}
       </div>
 
-      <ProviderHeadersEditor
-        rows={headerRows}
-        onChange={(rows) => { setHeaderRows(rows); setHeadersSourceVersion((version) => version + 1); }}
-        disabled={headersLoading || headersLoadError || isSaving}
-      />
-      {(!parsedHeaders.valid || headersLoadError || saveError) && (
-        <p role="alert" className="text-xs text-destructive">{t(!parsedHeaders.valid
-          ? 'ai.providers.headers.invalid' : headersLoadError
-            ? 'ai.providers.headers.loadError' : 'ai.providers.headers.saveError')}</p>
+      {!fixedProtocol && (
+        <ProviderHeadersEditor
+          rows={headerRows}
+          onChange={(rows) => { setHeaderRows(rows); setHeadersSourceVersion((version) => version + 1); }}
+          disabled={headersLoading || headersLoadError || isSaving}
+        />
+      )}
+      {((!fixedProtocol && (!parsedHeaders.valid || headersLoadError)) || saveError) && (
+        <p role="alert" className="text-xs text-destructive">{t(saveError
+          ? 'ai.providers.headers.saveError'
+          : !parsedHeaders.valid
+            ? 'ai.providers.headers.invalid' : 'ai.providers.headers.loadError')}</p>
       )}
 
       {/* Base URL */}
@@ -612,9 +655,16 @@ export const ProviderConfigForm: React.FC<{
           type="text"
           value={form.baseURL}
           onChange={(e) => setForm((prev) => ({ ...prev, baseURL: e.target.value }))}
+          readOnly={fixedProtocol}
           placeholder={preset?.defaultBaseURL || "https://"}
-          className="w-full h-8 rounded-md border border-input bg-background px-3 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+          className={cn(
+            "w-full h-8 rounded-md border border-input bg-background px-3 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+            fixedProtocol && "cursor-default bg-muted/40 text-muted-foreground",
+          )}
         />
+        {fixedProtocol ? (
+          <p className="text-[11px] text-muted-foreground/70">{t('ai.providers.fixedBaseUrl.help')}</p>
+        ) : null}
         {resolvedStyle === "anthropic" ? (
           <p className="text-[11px] text-muted-foreground/70">{t('ai.providers.baseUrl.anthropicHelp')}</p>
         ) : null}
@@ -774,10 +824,13 @@ export const ProviderConfigForm: React.FC<{
                 className="w-full h-8 rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
               >
                 <option value="">{t('ai.providers.advancedParams.default')}</option>
-                {REASONING_EFFORT_OPTIONS.map((level) => (
-                  <option key={level} value={level}>{level}</option>
+                {PROVIDER_REASONING_EFFORT_OPTIONS.map((level) => (
+                  <option key={level} value={level}>{REASONING_EFFORT_LABELS[level] ?? level}</option>
                 ))}
               </select>
+              <p className="text-[11px] text-muted-foreground/70">
+                {t('ai.providers.advancedParams.reasoningEffort.help')}
+              </p>
             </div>
           </div>
         )}

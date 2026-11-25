@@ -2,10 +2,9 @@
  * Serial Host Details Panel
  * A dedicated editor for serial port hosts (distinct from SSH HostDetailsPanel)
  */
-import { ChevronDown, ChevronRight, ChevronUp, Eye, EyeOff, Save, Tag, Usb, X } from 'lucide-react';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { Eye, EyeOff, Save, Tag, Usb, X } from 'lucide-react';
+import React, { useMemo, useState } from 'react';
 import { useI18n } from '../application/i18n/I18nProvider';
-import { useTerminalBackend } from '../application/state/useTerminalBackend';
 import type { GroupConfig, Host, SerialConfig, SerialFlowControl, SerialParity } from '../domain/models';
 import {
   resolveSerialBackspaceFormValue,
@@ -14,13 +13,16 @@ import {
 
 import { isSerialEndpointPath, isWindowsNamedPipePath } from '../domain/serialEndpoint';
 
+import {
+  SerialAdvancedOptionsSection,
+  SERIAL_BAUD_RATES as BAUD_RATES,
+} from './SerialAdvancedOptions';
+import { useSerialPortDiscovery } from './serial/useSerialPortDiscovery';
 import { Button } from './ui/button';
 import { Combobox, ComboboxOption, MultiCombobox } from './ui/combobox';
 import { Input } from './ui/input';
 import { Textarea } from './ui/textarea';
 import { Label } from './ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from './ui/collapsible';
 import {
   AsidePanel,
   AsidePanelContent,
@@ -30,18 +32,9 @@ import {
 } from './ui/aside-panel';
 import { HostDetailsSection } from './host-details/HostDetailsSection';
 import { HostNotesEditor } from './host/HostNotesEditor';
+import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip';
 import { cn } from '../lib/utils';
 import { HostIconPopover, type HostIconPickerOptions, type HostIconSelection } from './host-details/HostIconPopover';
-
-interface SerialPort {
-  path: string;
-  manufacturer: string;
-  serialNumber: string;
-  vendorId: string;
-  productId: string;
-  pnpId: string;
-  type?: 'hardware' | 'pseudo' | 'custom';
-}
 
 interface SerialHostDetailsPanelProps {
   initialData: Host;
@@ -57,12 +50,6 @@ interface SerialHostDetailsPanelProps {
 }
 
 type SerialHostDetailsPanelPropsWithResize = SerialHostDetailsPanelProps & AsidePanelResizeProps;
-
-const BAUD_RATES = [300, 1200, 2400, 4800, 9600, 19200, 38400, 57600, 115200, 230400, 460800, 921600];
-const DATA_BITS: Array<5 | 6 | 7 | 8> = [5, 6, 7, 8];
-const STOP_BITS: Array<1 | 1.5 | 2> = [1, 1.5, 2];
-const PARITY_OPTIONS: SerialParity[] = ['none', 'even', 'odd', 'mark', 'space'];
-const FLOW_CONTROL_OPTIONS: SerialFlowControl[] = ['none', 'xon/xoff', 'rts/cts'];
 
 export const SerialHostDetailsPanel: React.FC<SerialHostDetailsPanelPropsWithResize> = ({
   initialData,
@@ -80,9 +67,7 @@ export const SerialHostDetailsPanel: React.FC<SerialHostDetailsPanelPropsWithRes
   resizeAriaLabel,
 }) => {
   const { t } = useI18n();
-  const terminalBackend = useTerminalBackend();
-  const [ports, setPorts] = useState<SerialPort[]>([]);
-  const [isLoadingPorts, setIsLoadingPorts] = useState(false);
+  const { portOptions, isLoadingPorts, loadPorts } = useSerialPortDiscovery();
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
@@ -128,22 +113,6 @@ export const SerialHostDetailsPanel: React.FC<SerialHostDetailsPanelPropsWithRes
   const [tags, setTags] = useState<string[]>(initialData.tags || []);
   const [group, setGroup] = useState(initialData.group || '');
   const [notes, setNotes] = useState(initialData.notes ?? '');
-
-  const loadPorts = useCallback(async () => {
-    setIsLoadingPorts(true);
-    try {
-      const result = await terminalBackend.listSerialPorts();
-      setPorts(result);
-    } catch (err) {
-      console.error('[Serial] Failed to list ports:', err);
-    } finally {
-      setIsLoadingPorts(false);
-    }
-  }, [terminalBackend]);
-
-  useEffect(() => {
-    loadPorts();
-  }, [loadPorts]);
 
   const handleSave = () => {
     if (!selectedPort) return;
@@ -193,15 +162,6 @@ export const SerialHostDetailsPanel: React.FC<SerialHostDetailsPanelPropsWithRes
     onSave(updatedHost);
   };
 
-  // Convert ports to Combobox options
-  const portOptions: ComboboxOption[] = useMemo(() => {
-    return ports.map((port) => ({
-      value: port.path,
-      label: port.path,
-      sublabel: port.manufacturer || undefined,
-    }));
-  }, [ports]);
-
   // Tag options for MultiCombobox
   const tagOptions: ComboboxOption[] = useMemo(() => {
     const allUniqueTags = new Set([...allTags, ...tags]);
@@ -230,8 +190,6 @@ export const SerialHostDetailsPanel: React.FC<SerialHostDetailsPanelPropsWithRes
   const isBaudRateValid = Number.isInteger(baudRate) && baudRate > 0;
   const isValid = isPortValid && (isNamedPipe || isBaudRateValid);
 
-  // Check if using 1.5 stop bits (limited Windows support)
-  const isStopBits15 = stopBits === 1.5;
 
   const serialConnectionFields = (<>
         {/* Serial Port */}
@@ -383,19 +341,23 @@ export const SerialHostDetailsPanel: React.FC<SerialHostDetailsPanelPropsWithRes
             />
             <div className="absolute right-2 top-1/2 flex -translate-y-1/2 items-center gap-0.5">
               {(initialData.password !== undefined || password !== '') && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setPassword('');
-                    setPasswordChanged(true);
-                    setPasswordCleared(true);
-                  }}
-                  title={t('serial.field.clearPassword')}
-                  aria-label={t('serial.field.clearPassword')}
-                  className="p-1 text-muted-foreground hover:text-foreground transition-colors"
-                >
-                  <X size={14} />
-                </button>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPassword('');
+                        setPasswordChanged(true);
+                        setPasswordCleared(true);
+                      }}
+                      aria-label={t('serial.field.clearPassword')}
+                      className="p-1 text-muted-foreground hover:text-foreground transition-colors"
+                    >
+                      <X size={14} />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>{t('serial.field.clearPassword')}</TooltipContent>
+                </Tooltip>
               )}
               <button
                 type="button"
@@ -459,212 +421,32 @@ export const SerialHostDetailsPanel: React.FC<SerialHostDetailsPanelPropsWithRes
         ) : null}
 
         {/* Advanced Options */}
-        <Collapsible open={showAdvanced} onOpenChange={setShowAdvanced}>
-          <CollapsibleTrigger asChild>
-            <Button
-              variant="ghost"
-              className={creationProtocolControl ? "flex h-auto w-full justify-start gap-1.5 rounded-none py-1 px-0 text-xs text-muted-foreground hover:bg-transparent hover:text-foreground" : "w-full justify-between h-9 px-0 hover:bg-transparent"}
-            >
-              {creationProtocolControl && <ChevronRight size={14} className={cn("transition-transform duration-150", showAdvanced && "rotate-90")} />}
-              <span className={creationProtocolControl ? "font-normal" : "text-sm font-medium text-muted-foreground"}>
-                {t(creationProtocolControl ? 'hostDetails.create.advanced' : 'common.advanced')}
-              </span>
-              {!creationProtocolControl && (showAdvanced ? (
-                <ChevronUp size={14} className="text-muted-foreground" />
-              ) : (
-                <ChevronDown size={14} className="text-muted-foreground" />
-              ))}
-            </Button>
-          </CollapsibleTrigger>
-          <CollapsibleContent className="space-y-4 pt-2">
-            {creationProtocolControl && <MultiCombobox options={tagOptions} values={tags} onValuesChange={setTags} placeholder={t('hostDetails.addTag')} allowCreate createText={t('hostDetails.createTag')} />}
-            {/* Hardware-only serial framing is not used by named pipes. */}
-            {!isNamedPipe && (
-              <>
-              {/* Data Bits */}
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="data-bits">{t('serial.field.dataBits')}</Label>
-                  <Select
-                    value={String(dataBits)}
-                    onValueChange={(v) => setDataBits(parseInt(v, 10) as 5 | 6 | 7 | 8)}
-                  >
-                    <SelectTrigger id="data-bits">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {DATA_BITS.map((bits) => (
-                        <SelectItem key={bits} value={String(bits)}>
-                          {bits}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                {/* Stop Bits */}
-                <div className="space-y-2">
-                  <Label htmlFor="stop-bits">{t('serial.field.stopBits')}</Label>
-                  <Select
-                    value={String(stopBits)}
-                    onValueChange={(v) => setStopBits(parseFloat(v) as 1 | 1.5 | 2)}
-                  >
-                    <SelectTrigger id="stop-bits">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {STOP_BITS.map((bits) => (
-                        <SelectItem key={bits} value={String(bits)}>
-                          {bits}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  {isStopBits15 && (
-                    <p className="text-xs text-yellow-500">
-                      {t('serial.field.stopBits15Warning')}
-                    </p>
-                  )}
-                </div>
-              </div>
-
-              {/* Parity */}
-              <div className="space-y-2">
-                <Label htmlFor="parity">{t('serial.field.parity')}</Label>
-                <Select
-                  value={parity}
-                  onValueChange={(v) => setParity(v as SerialParity)}
-                >
-                  <SelectTrigger id="parity">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {PARITY_OPTIONS.map((option) => (
-                      <SelectItem key={option} value={option}>
-                        {t(`serial.parity.${option}`)}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              {/* Flow Control */}
-              <div className="space-y-2">
-                <Label htmlFor="flow-control">{t('serial.field.flowControl')}</Label>
-                <Select
-                  value={flowControl}
-                  onValueChange={(v) => setFlowControl(v as SerialFlowControl)}
-                >
-                  <SelectTrigger id="flow-control">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {FLOW_CONTROL_OPTIONS.map((option) => (
-                      <SelectItem key={option} value={option}>
-                        {t(`serial.flowControl.${option}`)}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              </>
-            )}
-
-            {/* Terminal Options */}
-            <div className="space-y-3 pt-2 border-t border-border/60">
-              <div className="space-y-2">
-                <Label htmlFor="serial-backspace">{t('serial.field.backspaceBehavior')}</Label>
-                <Select
-                  value={backspaceBehavior}
-                  onValueChange={(value) => {
-                    setBackspaceBehavior(value === 'ctrl-h' ? 'ctrl-h' : 'default');
-                    setBackspaceBehaviorChanged(true);
-                  }}
-                >
-                  <SelectTrigger id="serial-backspace">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="default">{t('serial.backspace.default')}</SelectItem>
-                    <SelectItem value="ctrl-h">{t('serial.backspace.ctrlH')}</SelectItem>
-                  </SelectContent>
-                </Select>
-                <p className="text-xs text-muted-foreground">
-                  {t('serial.field.backspaceBehaviorDesc')}
-                </p>
-              </div>
-
-              <div className="flex items-center justify-between">
-                <div className="space-y-0.5">
-                  <Label htmlFor="byte-oriented-backspace" className="text-sm font-medium cursor-pointer">
-                    {t('serial.field.byteOrientedBackspace')}
-                  </Label>
-                  <p className="text-xs text-muted-foreground">
-                    {t('serial.field.byteOrientedBackspaceDesc')}
-                  </p>
-                </div>
-                <input
-                  type="checkbox"
-                  id="byte-oriented-backspace"
-                  checked={byteOrientedBackspace}
-                  onChange={(e) => setByteOrientedBackspace(e.target.checked)}
-                  className="h-4 w-4 rounded border-input"
-                />
-              </div>
-
-              <div className="flex items-center justify-between">
-                <div className="space-y-0.5">
-                  <Label htmlFor="local-echo" className="text-sm font-medium cursor-pointer">
-                    {t('serial.field.localEcho')}
-                  </Label>
-                  <p className="text-xs text-muted-foreground">
-                    {t('serial.field.localEchoDesc')}
-                  </p>
-                </div>
-                <input
-                  type="checkbox"
-                  id="local-echo"
-                  checked={localEcho}
-                  onChange={(e) => setLocalEcho(e.target.checked)}
-                  className="h-4 w-4 rounded border-input"
-                />
-              </div>
-
-              <div className="flex items-center justify-between">
-                <div className="space-y-0.5">
-                  <Label htmlFor="line-mode" className="text-sm font-medium cursor-pointer">
-                    {t('serial.field.lineMode')}
-                  </Label>
-                  <p className="text-xs text-muted-foreground">
-                    {t('serial.field.lineModeDesc')}
-                  </p>
-                </div>
-                <input
-                  type="checkbox"
-                  id="line-mode"
-                  checked={lineMode}
-                  onChange={(e) => setLineMode(e.target.checked)}
-                  className="h-4 w-4 rounded border-input"
-                />
-              </div>
-
-              {/* Charset */}
-              <div className="space-y-1">
-                <Label htmlFor="serial-charset" className="text-sm font-medium">
-                  {t('serial.field.charset')}
-                </Label>
-                <Input
-                  id="serial-charset"
-                  placeholder={t("hostDetails.charset.placeholder")}
-                  value={charset}
-                  onChange={(e) => setCharset(e.target.value)}
-                  className="h-9"
-                />
-              </div>
-            </div>
-          </CollapsibleContent>
-        </Collapsible>
+        <SerialAdvancedOptionsSection
+          open={showAdvanced}
+          onOpenChange={setShowAdvanced}
+          isNamedPipe={isNamedPipe}
+          dataBits={dataBits}
+          onDataBitsChange={setDataBits}
+          stopBits={stopBits}
+          onStopBitsChange={setStopBits}
+          parity={parity}
+          onParityChange={setParity}
+          flowControl={flowControl}
+          onFlowControlChange={setFlowControl}
+          backspaceBehavior={backspaceBehavior}
+          onBackspaceBehaviorChange={(value) => {
+            setBackspaceBehavior(value);
+            setBackspaceBehaviorChanged(true);
+          }}
+          byteOrientedBackspace={byteOrientedBackspace}
+          onByteOrientedBackspaceChange={setByteOrientedBackspace}
+          localEcho={localEcho}
+          onLocalEchoChange={setLocalEcho}
+          lineMode={lineMode}
+          onLineModeChange={setLineMode}
+          charset={charset}
+          onCharsetChange={setCharset}
+        />
       </AsidePanelContent>
 
       <AsidePanelFooter>

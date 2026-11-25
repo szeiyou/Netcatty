@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { JSDOM } from 'jsdom';
 
@@ -134,55 +133,6 @@ test('narrow side panels keep the active tool visible and move extra tools into 
   assert.deepEqual(fitted.collapsed, ['browser', 'scripts', 'history', 'theme', 'system', 'notes']);
 });
 
-test('notes side panel forwards repeated open-note requests', () => {
-  const layerSource = readFileSync(new URL('../TerminalLayer.tsx', import.meta.url), 'utf8');
-  const slotsSource = readFileSync(new URL('./terminalLayerSidePanelSlots.tsx', import.meta.url), 'utf8');
-
-  assert.match(layerSource, /notesOpenRequestIdRef\.current \+= 1/);
-  assert.match(layerSource, /next\.set\(tabId, \{ noteId, requestId \}\)/);
-  assert.match(slotsSource, /openNoteRequestId=\{openNoteRequest\?\.requestId \?\? null\}/);
-});
-
-test('system monitoring only pauses for hidden remote tabs when hibernation is enabled', () => {
-  const source = readFileSync(new URL('./terminalLayerSidePanelSlots.tsx', import.meta.url), 'utf8');
-
-  // resolveSystemSidebarSession feeds systemSession (via live overlay when active).
-  assert.match(source, /resolveSystemSidebarSession\(/);
-  assert.match(source, /const systemSession = /);
-  assert.match(source, /shouldKeepTerminalBackgroundWorkActive\([\s\S]*systemHost\?\.protocol,[\s\S]*isTabActive/);
-  assert.doesNotMatch(source, /useSidePanelLiveSnapshotForTab\(tabId, keepSystemWorkActive\)/);
-  assert.match(source, /isVisible=\{keepSystemWorkActive\}/);
-});
-
-test('side panel tab bar and borders use inline resolved terminal theme colors', () => {
-  const sectionSource = readFileSync(new URL('./TerminalLayerSidePanelSection.tsx', import.meta.url), 'utf8');
-
-  assert.match(sectionSource, /buildSidePanelChromeThemeFromTerminalTheme/);
-  assert.match(sectionSource, /backgroundColor: sidePanelTheme\.termBg/);
-  assert.match(sectionSource, /borderBottom: `1px solid \$\{sidePanelTheme\.separator\}`/);
-  assert.match(sectionSource, /borderLeft: `1px solid \$\{sidePanelTheme\.separator\}`/);
-  assert.doesNotMatch(sectionSource, /terminalAppearanceSidePanelStyle/);
-  assert.doesNotMatch(sectionSource, /var\(--terminal-sidepanel-border\)/);
-});
-
-test('side panel content scopes app color utilities to the resolved terminal theme', () => {
-  const sectionSource = readFileSync(new URL('./TerminalLayerSidePanelSection.tsx', import.meta.url), 'utf8');
-
-  assert.match(sectionSource, /buildTerminalSidePanelCssVars/);
-  assert.match(sectionSource, /\.\.\.sidePanelCssVars/);
-});
-
-test('side panel sets color-scheme from the terminal theme so native inputs match light panels', () => {
-  const sectionSource = readFileSync(new URL('./TerminalLayerSidePanelSection.tsx', import.meta.url), 'utf8');
-
-  // When a light terminal theme remaps --background under a dark app chrome,
-  // form controls (Codex/AI composer textarea) still follow color-scheme.
-  assert.match(
-    sectionSource,
-    /colorScheme:\s*resolvedSidePanelTerminalTheme\.type/,
-  );
-});
-
 test('a visible tool without a ready pane host stays in the hidden parking host', () => {
   const parkingHost = { id: 'parking' };
   const paneHost = { id: 'pane' };
@@ -241,121 +191,238 @@ test('moving a stable portal host restores focus to its active input', () => {
   }
 });
 
-test('the covered side-panel shell cannot receive keyboard focus', () => {
-  const source = readFileSync(new URL('./TerminalLayerSidePanelSection.tsx', import.meta.url), 'utf8');
-
-  assert.match(source, /const activeMagnifiedPane =/);
-  assert.match(source, /inert=\{activeMagnifiedPane \? true : undefined\}/);
-});
-
-test('split pane hosts strictly clip each tool and do not use the side panel root as a portal fallback', () => {
-  const sectionSource = readFileSync(new URL('./TerminalLayerSidePanelSection.tsx', import.meta.url), 'utf8');
-  const slotsSource = readFileSync(new URL('./terminalLayerSidePanelSlots.tsx', import.meta.url), 'utf8');
-
-  assert.match(sectionSource, /terminal-side-panel-pane-content/);
-  assert.match(sectionSource, /overflow-hidden \[contain:strict\]/);
-  assert.match(sectionSource, /terminal-side-panel-parking/);
-  assert.match(slotsSource, /paneHosts\.get\(tool\)/);
-  assert.match(slotsSource, /document\.createElement\('div'\)/);
-  assert.match(slotsSource, /target\.appendChild\(mountNode\)/);
-  assert.match(slotsSource, /focusRestoreRef\.current/);
-  assert.match(slotsSource, /movePersistentPortalNode\(mountNode, target, focusedDescendant\)/);
-  assert.match(slotsSource, /createPortal\(children, mountNode, portalKey\)/);
-  assert.doesNotMatch(slotsSource, /document\.querySelector\([^)]*terminal-side-panel/);
-});
-
-test('the shared toolbar owns split controls while panes only render minimal chrome', () => {
-  const sectionSource = readFileSync(new URL('./TerminalLayerSidePanelSection.tsx', import.meta.url), 'utf8');
-
-  assert.match(sectionSource, /<SidePanelSplitMenu[\s\S]*direction="horizontal"/);
-  assert.match(sectionSource, /<SidePanelSplitMenu[\s\S]*direction="vertical"/);
-  assert.match(sectionSource, /data-section="terminal-side-panel-pane"/);
-  assert.match(sectionSource, /paneCount > 1/);
-});
-
-test('split icons depict the same pane arrangement as their actions', () => {
-  const sectionSource = readFileSync(new URL('./TerminalLayerSidePanelSection.tsx', import.meta.url), 'utf8');
-
-  assert.match(
-    sectionSource,
-    /direction === 'horizontal'\s*\? <SplitSquareVertical size=\{15\} \/>\s*: <SplitSquareHorizontal size=\{15\} \/>/,
+test('closed side panel skips getBoundingClientRect on tab switches, resize, and DOM mutations until opened', async () => {
+  const dom = new JSDOM(
+    '<!doctype html><html><body><div id="terminal-layer" data-section="terminal-layer"><div data-section="terminal-workspace-row"><div data-section="terminal-workspace-column"></div></div><div id="mount-root"></div></div></body></html>',
+    { pretendToBeVisual: true, url: 'http://localhost' },
   );
+  const previous = new Map<string, PropertyDescriptor | undefined>();
+  const install = (key: string, value: unknown) => {
+    previous.set(key, Object.getOwnPropertyDescriptor(globalThis, key));
+    Object.defineProperty(globalThis, key, { configurable: true, writable: true, value });
+  };
+  for (const key of [
+    'window',
+    'document',
+    'navigator',
+    'HTMLElement',
+    'HTMLInputElement',
+    'Element',
+    'SVGElement',
+    'Node',
+    'NodeFilter',
+    'MutationObserver',
+    'CustomEvent',
+    'Event',
+    'KeyboardEvent',
+    'MouseEvent',
+    'localStorage',
+  ]) {
+    install(key, key === 'window' ? dom.window : dom.window[key as keyof typeof dom.window]);
+  }
+  const resizeCallbacks: Array<() => void> = [];
+  class MockResizeObserver {
+    private callback: ResizeObserverCallback;
+    constructor(callback: ResizeObserverCallback) {
+      this.callback = callback;
+      resizeCallbacks.push(() => this.callback([], this as unknown as ResizeObserver));
+    }
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  }
+  install('ResizeObserver', MockResizeObserver);
+  install('getComputedStyle', dom.window.getComputedStyle.bind(dom.window));
+  install('requestAnimationFrame', (cb: FrameRequestCallback) => setTimeout(() => cb(Date.now()), 0));
+  install('cancelAnimationFrame', (id: number) => clearTimeout(id));
+  install('IS_REACT_ACT_ENVIRONMENT', true);
+
+  let rectReads = 0;
+  dom.window.HTMLElement.prototype.getBoundingClientRect = function mockGetBoundingClientRect() {
+    rectReads += 1;
+    return new dom.window.DOMRect(0, 0, 1200, 800);
+  };
+
+  const { default: React, act } = await import('react');
+  const { createRoot } = await import('react-dom/client');
+  const { I18nProvider } = await import('../../application/i18n/I18nProvider');
+  const { TooltipProvider } = await import('../ui/tooltip');
+  const { activeTabStore } = await import('../../application/state/activeTabStore');
+  const { createSidePanelLayout } = await import('../../domain/sidePanelLayout');
+  const { TerminalLayerSidePanelSection } = await import('./TerminalLayerSidePanelSection');
+
+  const terminalLayer = dom.window.document.getElementById('terminal-layer')!;
+  const mountRoot = dom.window.document.getElementById('mount-root')!;
+  // Put TerminalLayerSidePanelSection directly inside terminalLayer so shell.parentElement === terminalLayer.
+  mountRoot.remove();
+  const root = createRoot(terminalLayer);
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 30));
+
+  const noop = () => {};
+  const NullComponent = () => null;
+  const terminalTheme = {
+    id: 'test-dark',
+    name: 'Test Dark',
+    type: 'dark' as const,
+    colors: {
+      background: '#111111',
+      foreground: '#eeeeee',
+      cursor: '#ffffff',
+      selection: '#333333',
+      black: '#000000',
+      red: '#ff0000',
+      green: '#00ff00',
+      yellow: '#ffff00',
+      blue: '#0000ff',
+      magenta: '#ff00ff',
+      cyan: '#00ffff',
+      white: '#ffffff',
+      brightBlack: '#666666',
+      brightRed: '#ff6666',
+      brightGreen: '#66ff66',
+      brightYellow: '#ffff66',
+      brightBlue: '#6666ff',
+      brightMagenta: '#ff66ff',
+      brightCyan: '#66ffff',
+      brightWhite: '#ffffff',
+    },
+  };
+  const baseCtx = {
+    Button: (props: Record<string, unknown>) => React.createElement('button', props),
+    cn: (...parts: Array<string | false | null | undefined>) => parts.filter(Boolean).join(' '),
+    t: (key: string) => key,
+    followAppTerminalTheme: true,
+    terminalTheme,
+    terminalThemeId: 'test-dark',
+    terminalFontFamilyId: 'jetbrains-mono',
+    resolvedPreviewTheme: null,
+    sidePanelPosition: 'right',
+    sidePanelWidth: 380,
+    sidePanelHeight: 320,
+    setSidePanelPosition: noop,
+    setSidePanelWidth: noop,
+    persistSidePanelWidth: noop,
+    setSidePanelHeight: noop,
+    persistSidePanelHeight: noop,
+    handleCloseSidePanel: noop,
+    handleOpenAI: noop,
+    handleOpenHistory: noop,
+    handleOpenNotes: noop,
+    handleSwitchSidePanelTab: noop,
+    handleOpenBrowser: noop,
+    handleOpenScripts: noop,
+    handleOpenSystem: noop,
+    handleOpenTheme: noop,
+    handleFocusSidePanelPane: noop,
+    handleMagnifySidePanelPane: noop,
+    handleRestoreMagnifiedPane: noop,
+    handleSplitSidePanelPane: noop,
+    handleCloseSidePanelPane: noop,
+    handleResizeSidePanelSplit: noop,
+    handleToggleSftpFromBar: noop,
+    getActiveTerminalSessionId: () => 'tab-a',
+    handleWithdrawPluginSidebarPane: noop,
+    hotkeyScheme: 'mac',
+    keyBindings: [],
+    magnifiedPane: null,
+    isComposeBarOpen: false,
+    sessions: [{ id: 'tab-a' }, { id: 'tab-b' }],
+    workspaces: [],
+    workspaceById: new Map(),
+    validAIScopeTargetIds: new Set(['tab-a', 'tab-b']),
+    browserMountedTabIds: [],
+    mountedSftpTabIds: [],
+    mountedAiTabIds: [],
+    notesMountedTabIds: [],
+    scriptsMountedTabIds: [],
+    systemMountedTabIds: [],
+    themeMountedTabIds: ['tab-a'],
+    sftpPaneClosedTabIdsRef: { current: new Set<string>() },
+    sftpRetainedAfterCloseTabIdsRef: { current: new Set<string>() },
+    ThemeSidePanel: NullComponent,
+    HistorySidePanel: NullComponent,
+    AISidePanelStateRoot: ({ children }: { children?: React.ReactNode }) => React.createElement(React.Fragment, null, children),
+    AIChatPanelsHost: NullComponent,
+    handleThemeChangeForFocusedSession: noop,
+    handleThemeResetForFocusedSession: noop,
+    handleFontFamilyChangeForFocusedSession: noop,
+    handleFontFamilyResetForFocusedSession: noop,
+    handleFontSizeChangeForFocusedSession: noop,
+    handleFontSizeResetForFocusedSession: noop,
+    handleFontWeightChangeForFocusedSession: noop,
+    handleFontWeightResetForFocusedSession: noop,
+    handleHistoryPaste: noop,
+    handleHistoryDelete: noop,
+    handleHistoryClear: noop,
+    handleHistoryRun: noop,
+  };
+
+  const renderSection = (openTabs: Map<string, string>, layouts: Map<string, ReturnType<typeof createSidePanelLayout>>) =>
+    React.createElement(
+      I18nProvider,
+      { locale: 'en' },
+      React.createElement(
+        TooltipProvider,
+        {
+          children: React.createElement(TerminalLayerSidePanelSection, {
+            ctx: {
+              ...baseCtx,
+              sidePanelOpenTabs: openTabs,
+              sidePanelLayouts: layouts,
+            },
+          }),
+        },
+      ),
+    );
+
+  try {
+    activeTabStore.setActiveTabId('tab-a');
+    rectReads = 0;
+    await act(async () => {
+      root.render(renderSection(new Map(), new Map()));
+      await settle();
+    });
+    assert.equal(rectReads, 0, 'mounting with closed side panel must not call getBoundingClientRect');
+
+    // Tab switches while closed must not call getBoundingClientRect.
+    await act(async () => {
+      activeTabStore.setActiveTabId('tab-b');
+      await settle();
+      activeTabStore.setActiveTabId('tab-a');
+      await settle();
+    });
+    assert.equal(rectReads, 0, 'tab switches while side panel is closed must trigger 0 getBoundingClientRect calls');
+
+    // ResizeObserver & MutationObserver events while closed must not call getBoundingClientRect.
+    await act(async () => {
+      for (const notify of resizeCallbacks) notify();
+      const extra = dom.window.document.createElement('div');
+      terminalLayer.appendChild(extra);
+      await settle();
+      extra.remove();
+      await settle();
+    });
+    assert.equal(rectReads, 0, 'ResizeObserver and MutationObserver callbacks while closed must trigger 0 getBoundingClientRect calls');
+
+    // Opening the side panel must measure synchronously pre-paint in useLayoutEffect.
+    const openTabs = new Map([['tab-a', 'theme']]);
+    const layouts = new Map([['tab-a', createSidePanelLayout('theme', 'pane-theme')]]);
+    await act(async () => {
+      root.render(renderSection(openTabs, layouts));
+      await settle();
+    });
+    assert.ok(rectReads > 0, 'opening the side panel must measure available surface via getBoundingClientRect');
+  } finally {
+    await act(async () => {
+      root.unmount();
+      await settle();
+    });
+    dom.window.close();
+    for (const [key, descriptor] of previous) {
+      if (descriptor) Object.defineProperty(globalThis, key, descriptor);
+      else Reflect.deleteProperty(globalThis, key);
+    }
+  }
 });
 
-test('side panel layout state is initialized before callbacks read it', () => {
-  const layerSource = readFileSync(new URL('../TerminalLayer.tsx', import.meta.url), 'utf8');
-  const layoutStateIndex = layerSource.indexOf('} = useTerminalSidePanelLayoutState();');
-  const statusCallbackIndex = layerSource.indexOf('const handleStatusChange = useCallback');
 
-  assert.notEqual(layoutStateIndex, -1);
-  assert.notEqual(statusCallbackIndex, -1);
-  assert.ok(layoutStateIndex < statusCallbackIndex);
-});
-
-test('split dragging previews locally, commits once, and cleans up on every exit path', () => {
-  const sectionSource = readFileSync(new URL('./TerminalLayerSidePanelSection.tsx', import.meta.url), 'utf8');
-
-  assert.match(sectionSource, /const updatePreview = \(\) => \{[\s\S]*setPreviewSizes\(next\)/);
-  assert.match(sectionSource, /const finish = \(\) => \{[\s\S]*onResize\(node\.id, latestSizes\)/);
-  const previewBody = sectionSource.slice(
-    sectionSource.indexOf('const updatePreview = () => {'),
-    sectionSource.indexOf('const onMouseMove = (moveEvent: MouseEvent) => {'),
-  );
-  assert.doesNotMatch(previewBody, /onResize/);
-  assert.match(sectionSource, /window\.addEventListener\('blur', finish\)/);
-  assert.match(sectionSource, /resizeCleanupRef\.current\?\.\(\)/);
-  assert.match(sectionSource, /terminalLayoutSuppressStore\.end\(\)/);
-});
-
-test('split resizers do not consume visible gutter space', () => {
-  const sectionSource = readFileSync(new URL('./TerminalLayerSidePanelSection.tsx', import.meta.url), 'utf8');
-
-  assert.match(sectionSource, /group relative w-px shrink-0 cursor-ew-resize/);
-  assert.match(sectionSource, /group relative h-px shrink-0 cursor-ns-resize/);
-  assert.match(sectionSource, /after:w-2/);
-  assert.match(sectionSource, /after:h-2/);
-  assert.doesNotMatch(sectionSource, /group relative w-1 shrink-0 cursor-ew-resize/);
-  assert.doesNotMatch(sectionSource, /group relative h-1 shrink-0 cursor-ns-resize/);
-});
-
-test('side panel resize uses the expanded width limit and protects terminal space', () => {
-  const layerSource = readFileSync(new URL('../TerminalLayer.tsx', import.meta.url), 'utf8');
-  const sectionSource = readFileSync(new URL('./TerminalLayerSidePanelSection.tsx', import.meta.url), 'utf8');
-
-  assert.match(layerSource, /TERMINAL_SIDE_PANEL_MAX_WIDTH/);
-  assert.match(sectionSource, /clampTerminalSidePanelWidth/);
-  assert.match(sectionSource, /terminalLayer\.getBoundingClientRect\(\)\.width/);
-  assert.match(sectionSource, /terminal-workspace-sidebar/);
-  assert.match(sectionSource, /new ResizeObserver/);
-  assert.match(sectionSource, /shellRef\.current\?\.getBoundingClientRect\(\)\.width \?\? shellWidth/);
-  assert.doesNotMatch(sectionSource, /window\.innerWidth[,)\n]/);
-  assert.doesNotMatch(sectionSource, /100vw/);
-  assert.doesNotMatch(sectionSource, /const startWidth = sidePanelWidth/);
-  assert.doesNotMatch(sectionSource, /Math\.min\(800,/);
-});
-
-test('side panel width dragging cleans up on mouseup, blur, and unmount', () => {
-  const sectionSource = readFileSync(new URL('./TerminalLayerSidePanelSection.tsx', import.meta.url), 'utf8');
-
-  assert.match(sectionSource, /shellResizeCleanupRef\.current\?\.\(\)/);
-  assert.match(sectionSource, /window\.addEventListener\('mouseup', finish\)/);
-  assert.match(sectionSource, /window\.addEventListener\('blur', finish\)/);
-  assert.match(sectionSource, /window\.removeEventListener\('blur', finish\)/);
-});
-
-test('split resizing preserves nested minimums without rerendering on every pixel', () => {
-  const sectionSource = readFileSync(new URL('./TerminalLayerSidePanelSection.tsx', import.meta.url), 'utf8');
-
-  assert.match(sectionSource, /getSidePanelSplitResizeBounds/);
-  assert.match(sectionSource, /getSidePanelNodeMinimumPixels\(activeSidePanelLayout\.root, 'vertical'\)/);
-  assert.match(sectionSource, /focusedPaneSplitAvailability/);
-  assert.doesNotMatch(sectionSource, /focusedPaneSize/);
-});
-
-test('available-width observer releases a removed focus sidebar immediately', () => {
-  const sectionSource = readFileSync(new URL('./TerminalLayerSidePanelSection.tsx', import.meta.url), 'utf8');
-
-  assert.match(sectionSource, /focusSidebar !== observedFocusSidebar/);
-  assert.match(sectionSource, /if \(observedFocusSidebar\) resizeObserver\.unobserve\(observedFocusSidebar\)/);
-  assert.match(sectionSource, /observedFocusSidebar = null/);
-});

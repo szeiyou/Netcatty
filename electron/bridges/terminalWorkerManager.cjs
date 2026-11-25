@@ -1,6 +1,11 @@
 "use strict";
 
-const { releaseAttachedSessionState } = require("./terminalAttachRestore.cjs");
+const {
+  appendDetachedReplayData,
+  getLifetimeHeirWebContentsId,
+  releaseAttachedSessionState,
+  takeDetachedReplayData,
+} = require("./terminalAttachRestore.cjs");
 
 const path = require("node:path");
 const { randomUUID } = require("node:crypto");
@@ -15,6 +20,10 @@ const {
 const {
   clearTerminalSessionPerformanceState,
 } = require("./emitTerminalSessionData.cjs");
+const {
+  inspectDroppedTerminalState,
+  mergeDroppedOutputMeta,
+} = require("./terminalAltScreenInspector.cjs");
 
 const DEFAULT_CLOSED_SESSION_TOMBSTONE_TTL_MS = 60_000;
 const DEFAULT_MAX_CLOSED_SESSION_TOMBSTONES = 2_048;
@@ -217,135 +226,9 @@ function defaultWorkerScriptPath() {
   return path.join(__dirname, "..", "terminalWorker", "process.cjs");
 }
 
-const ESC = "\x1b";
-const ALT_SCREEN_MODES = new Set([47, 1047, 1049]);
-
-function readCsiSequence(input, startIndex) {
-  if (input[startIndex] !== ESC || input[startIndex + 1] !== "[") return null;
-  for (let index = startIndex + 2; index < input.length; index += 1) {
-    const code = input.charCodeAt(index);
-    if (code >= 0x40 && code <= 0x7e) {
-      return { sequence: input.slice(startIndex, index + 1), end: index + 1 };
-    }
-  }
-  return null;
-}
-
-function getAlternateScreenAction(sequence) {
-  if (!sequence.startsWith("\x1b[") || sequence.length < 3) return null;
-  const final = sequence.at(-1);
-  if (final !== "h" && final !== "l") return null;
-  const params = sequence.slice(2, -1);
-  if (!params.startsWith("?")) return null;
-  const modes = params
-    .slice(1)
-    .split(";")
-    .map((part) => Number.parseInt(part, 10))
-    .filter(Number.isFinite);
-  if (!modes.some((mode) => ALT_SCREEN_MODES.has(mode))) return null;
-  return final === "h" ? "enter" : "leave";
-}
-
-function inspectAlternateScreenWindow(text) {
-  let mayAffectTerminalState = false;
-  let finalAction = null;
-  let hasIncompleteSequence = false;
-  for (let index = 0; index < text.length; index += 1) {
-    if (text[index] !== ESC) continue;
-    const sequence = readCsiSequence(text, index);
-    if (sequence) {
-      const action = getAlternateScreenAction(sequence.sequence);
-      if (action) {
-        mayAffectTerminalState = true;
-        finalAction = action;
-      }
-      index = sequence.end - 1;
-      continue;
-    }
-    if (text.slice(index).startsWith("\x1b[?")) {
-      mayAffectTerminalState = true;
-      hasIncompleteSequence = true;
-      finalAction = null;
-    }
-  }
-  return { mayAffectTerminalState, finalAction, hasIncompleteSequence };
-}
-
-function inspectAlternateScreenSequenceStartedBeforeBoundary(text, boundary) {
-  let mayAffectTerminalState = false;
-  let finalAction = null;
-  for (let index = 0; index < Math.min(boundary, text.length); index += 1) {
-    if (text[index] !== ESC) continue;
-    const sequence = readCsiSequence(text, index);
-    if (!sequence) {
-      if (text.slice(index).startsWith("\x1b[?")) {
-        mayAffectTerminalState = true;
-      }
-      continue;
-    }
-    if (sequence.end > boundary) {
-      const action = getAlternateScreenAction(sequence.sequence);
-      if (action) {
-        mayAffectTerminalState = true;
-        finalAction = action;
-      }
-    }
-    index = sequence.end - 1;
-  }
-  return { mayAffectTerminalState, finalAction };
-}
-
-function inspectDroppedTerminalState({
-  droppedHead,
-  droppedTail,
-  retainedHead,
-  droppedBytes,
-}) {
-  if (droppedBytes <= 0) {
-    return { mayAffectTerminalState: false, finalAlternateScreenAction: undefined };
-  }
-  const headInspection = inspectAlternateScreenWindow(droppedHead);
-  const tailContext = droppedTail === droppedHead ? droppedHead : droppedTail;
-  const tailInspection = inspectAlternateScreenWindow(tailContext);
-  const tailWithRetainedInspection = inspectAlternateScreenWindow(`${tailContext}${retainedHead}`);
-  const splitTailInspection = inspectAlternateScreenSequenceStartedBeforeBoundary(
-    `${tailContext}${retainedHead}`,
-    tailContext.length,
-  );
-  const sampledBytes = droppedHead.length + (droppedTail === droppedHead ? 0 : droppedTail.length);
-  const hasUninspectedMiddle = droppedBytes > sampledBytes;
-  const finalAlternateScreenAction = splitTailInspection.finalAction
-    || tailInspection.finalAction
-    || (!hasUninspectedMiddle ? headInspection.finalAction : undefined)
-    || undefined;
-  return {
-    mayAffectTerminalState: Boolean(
-      headInspection.hasIncompleteSequence
-      || tailWithRetainedInspection.hasIncompleteSequence
-      || hasUninspectedMiddle
-      || headInspection.finalAction
-      || tailInspection.finalAction
-      || splitTailInspection.mayAffectTerminalState
-      || tailWithRetainedInspection.finalAction
-    ),
-    finalAlternateScreenAction,
-  };
-}
-
 function mergeTerminalOutputMeta(previous, next) {
   if (!next) return previous;
-  const nextAction = next.droppedOutputMayAffectTerminalState
-    ? next.droppedOutputAlternateScreenAction
-    : (next.droppedOutputAlternateScreenAction ?? previous?.droppedOutputAlternateScreenAction);
-  const merged = {
-    ...(previous || {}),
-    ...next,
-    droppedOutputMayAffectTerminalState: Boolean(
-      previous?.droppedOutputMayAffectTerminalState
-      || next.droppedOutputMayAffectTerminalState
-    ),
-    droppedOutputAlternateScreenAction: nextAction,
-  };
+  const merged = mergeDroppedOutputMeta(previous, next);
   const pluginPipelineIngressBytes = Number(previous?.pluginPipelineIngressBytes ?? 0)
     + Number(next.pluginPipelineIngressBytes ?? 0);
   if (pluginPipelineIngressBytes > 0) merged.pluginPipelineIngressBytes = pluginPipelineIngressBytes;
@@ -362,9 +245,6 @@ function mergeTerminalOutputMeta(previous, next) {
   }
   if (!merged.droppedOutputMayAffectTerminalState) {
     delete merged.droppedOutputMayAffectTerminalState;
-  }
-  if (!merged.droppedOutputAlternateScreenAction) {
-    delete merged.droppedOutputAlternateScreenAction;
   }
   return merged;
 }
@@ -390,6 +270,7 @@ function createTerminalWorkerManager(options = {}) {
     onRendererEvent = null,
   } = options;
   let child = null;
+  let pluginSessionAuthorityEpoch = 0;
   const pending = new Map();
   const pendingOutput = new Map();
   const pendingOutputBytes = new Map();
@@ -439,6 +320,7 @@ function createTerminalWorkerManager(options = {}) {
     ? Math.max(1, Math.floor(Number(options.maxClosedSessionTombstones)))
     : DEFAULT_MAX_CLOSED_SESSION_TOMBSTONES;
   let transportIdleTtlMs = resolveInitialTransportIdleTtlMs(options);
+  let customTempDir = null;
 
   function rejectAllPending(error) {
     for (const { reject } of pending.values()) {
@@ -642,7 +524,9 @@ function createTerminalWorkerManager(options = {}) {
   }
 
   function notifyOutputTaps(sessionId, data) {
-    if (!sessionId || !data || outputTaps.size === 0) return;
+    if (!sessionId || !data) return;
+    appendDetachedReplayData(sessionId, data);
+    if (outputTaps.size === 0) return;
     for (const tap of outputTaps) {
       try {
         tap(sessionId, data);
@@ -676,6 +560,12 @@ function createTerminalWorkerManager(options = {}) {
     const closeOwnedSessions = () => {
       for (const [ownedId, owner] of [...rendererSessionOwners]) {
         if (owner !== contents || rendererSessionOwners.get(ownedId) !== contents) continue;
+        // A tab moved into its own window outlives the window it came from.
+        const heirId = getLifetimeHeirWebContentsId(ownedId);
+        if (heirId !== contents.id && isLiveWebContentsId(heirId)) {
+          trackRendererSessionOwner(ownedId, { rendererOwned: true, webContentsId: heirId });
+          continue;
+        }
         // Use the normal close path for pending boots, output/mirror cleanup,
         // and reference-counted SSH/SFTP transport release in the worker.
         // Lifetime teardown closes both an active boot and a queued replacement.
@@ -891,6 +781,10 @@ function createTerminalWorkerManager(options = {}) {
     const ok = await openOutputSession(sessionId, homeId);
     if (ok) {
       clearAttachHome(sessionId, homeId);
+      const replay = takeDetachedReplayData(sessionId);
+      if (replay) {
+        deliverOutputToRenderer(sessionId, replay);
+      }
     }
     return {
       success: ok,
@@ -1854,9 +1748,11 @@ function createTerminalWorkerManager(options = {}) {
       env: {
         ...process.env,
         [SSH_TRANSPORT_IDLE_TTL_ENV]: String(transportIdleTtlMs),
+        NETCATTY_CUSTOM_TEMP_DIR: customTempDir || "",
       },
     });
     child = worker;
+    pluginSessionAuthorityEpoch++;
     worker.on?.("message", (message) => {
       if (child === worker) handleMessage(message);
     });
@@ -1864,6 +1760,16 @@ function createTerminalWorkerManager(options = {}) {
       if (child === worker) handleExit(code);
     });
     return worker;
+  }
+
+  function setCustomTempDir(value) {
+    customTempDir = value || null;
+    if (!child) return;
+    try {
+      child.postMessage({ kind: "set-custom-temp-dir", value: customTempDir });
+    } catch (error) {
+      retireWorkerAfterIpcFailure(child, error);
+    }
   }
 
   function setDefaultTransportIdleTtlMs(value) {
@@ -2213,6 +2119,7 @@ function createTerminalWorkerManager(options = {}) {
 
   return {
     ensureStarted,
+    setCustomTempDir,
     /** True when the utilityProcess child is currently alive. */
     isRunning() {
       return Boolean(child);
@@ -2245,6 +2152,14 @@ function createTerminalWorkerManager(options = {}) {
     getSessionWebContentsId(sessionId) {
       if (!sessionId) return null;
       return sessionWebContentsIds.get(sessionId) ?? null;
+    },
+    // Main-process resource authority only; never expose worker objects or endpoints.
+    getPluginSessionBinding(sessionId, webContentsId) {
+      const generation = sessionGenerations.get(sessionId);
+      if (!child || !Number.isSafeInteger(generation) || closedSessions.has(sessionId)
+        || pendingSessionStartSequences.has(sessionId) || outputRoutePending.has(sessionId)
+        || sessionWebContentsIds.get(sessionId) !== webContentsId || !isLiveWebContentsId(webContentsId)) return null;
+      return Object.freeze({ epoch: pluginSessionAuthorityEpoch, generation });
     },
     getSessionHostId(sessionId) {
       if (!sessionId) return null;

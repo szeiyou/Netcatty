@@ -1,3 +1,6 @@
+import { PluginThemePicker } from './PluginThemePicker';
+import { applyPluginThemeSelection, usePluginThemeRevision } from '../../../application/state/usePluginThemeRuntime';
+import { pluginThemeRegistry } from '../../../infrastructure/config/pluginThemeRegistry';
 import React, { memo, useCallback, useMemo, useState } from "react";
 import { applyCustomCssToDocument } from "../../../lib/customCss";
 import { DebouncedTextarea } from "../DebouncedTextarea";
@@ -38,6 +41,7 @@ const CUSTOM_CSS_HELP_PROSE_CLASS =
   "text-xs text-foreground/90 leading-relaxed [&>*:first-child]:mt-0 [&>*:last-child]:mb-0";
 
 function SettingsAppearanceTab(props: {
+  pluginRuntimeAvailable: boolean;
   theme: "dark" | "light" | "system";
   resolvedTheme: "dark" | "light";
   setTheme: (theme: "dark" | "light" | "system") => void;
@@ -73,6 +77,8 @@ function SettingsAppearanceTab(props: {
   setAppIconVariant: (variant: AppIconVariant) => void;
 }) {
   const { t } = useI18n();
+  usePluginThemeRevision();
+  const [pluginThemeError, setPluginThemeError] = useState('');
   const availableUIFonts = useAvailableUIFonts();
   // Note code fonts come from the monospace-only store (fontStore); the note
   // body font follows the UI font setting instead.
@@ -237,8 +243,12 @@ function SettingsAppearanceTab(props: {
   );
 
   const visibleUiThemes = resolvedTheme === "dark" ? DARK_UI_THEMES : LIGHT_UI_THEMES;
-  const visibleUiThemeId = resolvedTheme === "dark" ? darkUiThemeId : lightUiThemeId;
-  const setVisibleUiThemeId = resolvedTheme === "dark" ? setDarkUiThemeId : setLightUiThemeId;
+  const visibleUiThemeId = pluginThemeRegistry.isActive(resolvedTheme) ? "" : resolvedTheme === "dark" ? darkUiThemeId : lightUiThemeId;
+  const setVisibleUiThemeId = (id: string) => {
+    void applyPluginThemeSelection(resolvedTheme, null).then(() => {
+      (resolvedTheme === "dark" ? setDarkUiThemeId : setLightUiThemeId)(id);setPluginThemeError('');
+    }).catch((error: unknown) => setPluginThemeError(error instanceof Error ? error.message : t('settings.plugins.themes.failed')));
+  };
 
   return (
     <SettingsTabContent value="appearance">
@@ -360,6 +370,10 @@ function SettingsAppearanceTab(props: {
             {renderThemeSwatches(visibleUiThemes, visibleUiThemeId, setVisibleUiThemeId)}
           </div>
         </SettingsAnchor>
+        {props.pluginRuntimeAvailable && (
+          <PluginThemePicker mode={resolvedTheme} onRestore={() => (resolvedTheme === "dark" ? setDarkUiThemeId : setLightUiThemeId)(resolvedTheme === "dark" ? "midnight" : "snow")} />
+        )}
+        {pluginThemeError && <p role="alert" className="text-xs text-destructive">{pluginThemeError}</p>}
         <SettingRow
           anchorId="appearance-accent-mode"
           label={t("settings.appearance.accentColor.mode")}
@@ -584,14 +598,19 @@ function SettingsAppearanceTab(props: {
           <h3 className="text-sm font-semibold text-foreground">
             {t("settings.appearance.customCss")}
           </h3>
-          <button
-            type="button"
-            className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-            aria-label={t("settings.appearance.customCss.help.ariaLabel")}
-            onClick={() => setCustomCssHelpOpen(true)}
-          >
-            <HelpCircle size={13} />
-          </button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                aria-label={t("settings.appearance.customCss.help.ariaLabel")}
+                onClick={() => setCustomCssHelpOpen(true)}
+              >
+                <HelpCircle size={13} />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>{t("settings.appearance.customCss.help.ariaLabel")}</TooltipContent>
+          </Tooltip>
         </div>
         <div className="space-y-2">
           <p className="text-xs text-muted-foreground">

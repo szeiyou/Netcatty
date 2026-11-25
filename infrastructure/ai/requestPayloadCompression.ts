@@ -1,4 +1,5 @@
 import type { ModelMessage } from "ai";
+import { sliceHead, sliceTail } from "./textBoundaries";
 
 const RETRY_MAX_TOOL_RESULT_CHARS = 4_000;
 const RETRY_MAX_MESSAGE_TEXT_CHARS = 8_000;
@@ -26,6 +27,12 @@ export interface CompressMessagesForRequestTooLargeRetryOptions {
    * Only the 413 retry drops images as well.
    */
   preserveAttachments?: boolean;
+  /**
+   * Inline character limit for tool results during routine turn/step passes.
+   * When omitted (e.g., HTTP 413 retries or budget-pressure head compression),
+   * falls back to the tight emergency cap (`RETRY_MAX_TOOL_RESULT_CHARS`).
+   */
+  maxToolResultChars?: number;
 }
 
 /**
@@ -81,15 +88,15 @@ function collapseCarriageReturnFrames(value: string): string {
 function shortenVerboseLine(line: string): string {
   if (line.length <= MAX_VERBOSE_LINE_CHARS) return line;
   const edge = Math.floor((MAX_VERBOSE_LINE_CHARS - 80) / 2);
-  return `${line.slice(0, edge)}[... long line shortened: ${line.length} chars ...]${line.slice(-edge)}`;
+  return `${sliceHead(line, edge)}[... long line shortened: ${line.length} chars ...]${sliceTail(line, edge)}`;
 }
 
 export function truncateTextWithHeadAndTail(
   value: string,
   maxChars: number,
   {
-    headChars = HEAD_CHARS,
-    tailChars = TAIL_CHARS,
+    headChars,
+    tailChars,
     marker = TRUNCATION_MARKER,
   }: {
     headChars?: number;
@@ -99,23 +106,33 @@ export function truncateTextWithHeadAndTail(
 ): string {
   if (value.length <= maxChars) return value;
   if (maxChars <= marker.length + 16) {
-    return value.slice(0, maxChars);
+    return sliceHead(value, maxChars);
   }
 
   const budget = maxChars - marker.length;
-  const head = Math.min(headChars, budget);
-  let tail = Math.min(tailChars, Math.max(0, budget - head));
+  let resolvedHeadChars: number;
+  let resolvedTailChars: number;
+  if (headChars === undefined && tailChars === undefined && budget > HEAD_CHARS + TAIL_CHARS) {
+    resolvedHeadChars = Math.max(HEAD_CHARS, Math.floor(budget * 0.2));
+    resolvedTailChars = Math.max(0, budget - resolvedHeadChars);
+  } else {
+    resolvedHeadChars = headChars ?? HEAD_CHARS;
+    resolvedTailChars = tailChars ?? TAIL_CHARS;
+  }
+
+  const head = Math.min(resolvedHeadChars, budget);
+  let tail = Math.min(resolvedTailChars, Math.max(0, budget - head));
   if (head + tail > budget) {
     tail = Math.max(0, budget - head);
   }
   if (head + tail >= value.length) {
-    return value.slice(0, maxChars);
+    return sliceHead(value, maxChars);
   }
   if (head + tail <= 0) {
-    return value.slice(0, maxChars);
+    return sliceHead(value, maxChars);
   }
 
-  return `${value.slice(0, head).trimEnd()}${marker}${value.slice(-tail).trimStart()}`;
+  return `${sliceHead(value, head).trimEnd()}${marker}${sliceTail(value, tail).trimStart()}`;
 }
 
 export function compressMessagesForRequestTooLargeRetry(
@@ -123,9 +140,14 @@ export function compressMessagesForRequestTooLargeRetry(
   options: CompressMessagesForRequestTooLargeRetryOptions = {},
 ): CompressMessagesForRequestTooLargeRetryResult {
   const preserveAttachments = options.preserveAttachments === true;
+  const maxToolResultChars = options.maxToolResultChars;
   let didAdjust = false;
   const compressedMessages = messages.map((message) => {
-    const compressed = compressModelMessageForRequestRetry(message, preserveAttachments);
+    const compressed = compressModelMessageForRequestRetry(
+      message,
+      preserveAttachments,
+      maxToolResultChars,
+    );
     if (compressed !== message) didAdjust = true;
     return compressed;
   });
@@ -139,6 +161,7 @@ export function compressMessagesForRequestTooLargeRetry(
 function compressModelMessageForRequestRetry(
   message: ModelMessage,
   preserveAttachments: boolean,
+  maxToolResultChars?: number,
 ): ModelMessage {
   if (typeof message.content === "string") {
     // User text is an instruction or exact input, not terminal output. Lossy
@@ -153,7 +176,11 @@ function compressModelMessageForRequestRetry(
   let didAdjust = false;
   const content = message.content.map((part) => {
     if (message.role === "user" && part.type === "text") return part;
-    const compressed = compressContentPartForRequestRetry(part, preserveAttachments);
+    const compressed = compressContentPartForRequestRetry(
+      part,
+      preserveAttachments,
+      maxToolResultChars,
+    );
     if (compressed !== part) didAdjust = true;
     return compressed;
   });
@@ -161,7 +188,11 @@ function compressModelMessageForRequestRetry(
   return didAdjust ? ({ ...message, content } as ModelMessage) : message;
 }
 
-function compressContentPartForRequestRetry(part: unknown, preserveAttachments: boolean): unknown {
+function compressContentPartForRequestRetry(
+  part: unknown,
+  preserveAttachments: boolean,
+  maxToolResultChars?: number,
+): unknown {
   if (!part || typeof part !== "object") return part;
   const record = part as Record<string, unknown>;
   const type = record.type;
@@ -179,6 +210,26 @@ function compressContentPartForRequestRetry(part: unknown, preserveAttachments: 
         ? outputRecord.value
         : outputRecord.type === "json" ? JSON.stringify(outputRecord.value) : undefined;
       if (text !== undefined) {
+        if (maxToolResultChars != null && Number.isFinite(maxToolResultChars) && maxToolResultChars > 0) {
+          const routineLimit = Math.floor(maxToolResultChars);
+          // Live SDK tool results arrive as `json`, while persisted history
+          // replays their exact `JSON.stringify` payload as `text`. Use the same
+          // envelope allowance for both so live and replayed tool results stay
+          // byte-for-byte identical (preserving prompt-cache prefixes) and a
+          // result already fitted by capabilityTools is not chopped mid-flight.
+          const effectiveLimit = routineLimit + Math.max(2_048, Math.floor(routineLimit * 0.5));
+          if (text.length <= effectiveLimit) return part;
+          const value = truncateTextWithHeadAndTail(text, effectiveLimit);
+          if (value === text) return part;
+          return {
+            ...record,
+            output: {
+              ...outputRecord,
+              type: "text",
+              value,
+            },
+          };
+        }
         // Live SDK tool results are JSON, while persisted results replay as
         // text. Apply the same reduction before their first model request.
         const value = compressAndTruncateText(text, RETRY_MAX_TOOL_RESULT_CHARS);

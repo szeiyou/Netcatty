@@ -10,6 +10,11 @@ import type {
   TerminalSettings,
 } from "../../../domain/models";
 import { useI18n } from "../../../application/i18n/I18nProvider";
+import {
+  normalizeSshAutoReconnectInterval,
+  SSH_AUTO_RECONNECT_INTERVAL_MIN,
+  SSH_AUTO_RECONNECT_INTERVAL_MAX,
+} from "../../../domain/models/terminal";
 import { localStorageAdapter, LOCAL_STORAGE_ADAPTER_CHANGED_EVENT } from "../../../infrastructure/persistence/localStorageAdapter";
 import { STORAGE_KEY_PROXY_PROFILES } from "../../../infrastructure/config/storageKeys";
 import { MAX_FONT_SIZE, MIN_FONT_SIZE, resolveTerminalFontFamilyId, type TerminalFont } from "../../../infrastructure/config/fonts";
@@ -23,6 +28,7 @@ import { Button } from "../../ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "../../ui/dialog";
 import { Input } from "../../ui/input";
 import { Select as ShadcnSelect, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../ui/select";
+import { Tooltip, TooltipContent, TooltipTrigger } from "../../ui/tooltip";
 import { SectionHeader, Select, SettingsAnchor, SettingsTabContent, SettingRow, Toggle } from "../settings-ui";
 import { ThemeSelectModal } from "../ThemeSelectModal";
 import { TerminalFontSelect } from "../TerminalFontSelect";
@@ -814,6 +820,7 @@ function SettingsTerminalTab(props: {
         </SettingRow>
 
         <SettingRow
+          anchorId="terminal-side-panel-auto-open-pane"
           label={t("settings.terminal.sidePanel.autoOpenPane")}
           description={t("settings.terminal.sidePanel.autoOpenPane.desc")}
         >
@@ -841,6 +848,7 @@ function SettingsTerminalTab(props: {
         </SettingRow>
 
         <SettingRow
+          anchorId="terminal-local-shell-side-panel-auto-open-pane"
           label={t("settings.terminal.localShellSidePanel.autoOpenPane")}
           description={t("settings.terminal.localShellSidePanel.autoOpenPane.desc")}
         >
@@ -923,18 +931,23 @@ function SettingsTerminalTab(props: {
               </SelectContent>
             </ShadcnSelect>
             {showCustomShellInput && (
-              <button
-                type="button"
-                onClick={openCustomShellModal}
-                title={t("common.edit")}
-                className="flex items-center gap-1 text-xs text-muted-foreground max-w-48 hover:text-foreground"
-              >
-                <Pencil size={11} className="shrink-0" />
-                <span className="truncate">
-                  {terminalSettings.localShell}
-                  {terminalSettings.localShellArgs?.length ? ` ${formatShellArgs(terminalSettings.localShellArgs)}` : ""}
-                </span>
-              </button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={openCustomShellModal}
+                    aria-label={t("common.edit")}
+                    className="flex items-center gap-1 text-xs text-muted-foreground max-w-48 hover:text-foreground"
+                  >
+                    <Pencil size={11} className="shrink-0" />
+                    <span className="truncate">
+                      {terminalSettings.localShell}
+                      {terminalSettings.localShellArgs?.length ? ` ${formatShellArgs(terminalSettings.localShellArgs)}` : ""}
+                    </span>
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>{t("common.edit")}</TooltipContent>
+              </Tooltip>
             )}
             {!showCustomShellInput && defaultShell && !terminalSettings.localShell && (
               <span className="text-xs text-muted-foreground">
@@ -945,6 +958,7 @@ function SettingsTerminalTab(props: {
         </SettingRow>
 
         <SettingRow
+          anchorId="terminal-local-shell-start-dir"
           label={t("settings.terminal.localShell.startDir")}
           description={t("settings.terminal.localShell.startDir.desc")}
         >
@@ -1029,6 +1043,31 @@ function SettingsTerminalTab(props: {
           />
         </SettingRow>
         <SettingRow
+          anchorId="terminal-ssh-auto-reconnect-interval"
+          label={t("settings.terminal.connection.sshAutoReconnectInterval")}
+          description={t("settings.terminal.connection.sshAutoReconnectInterval.desc")}
+        >
+          <Input
+            key={terminalSettings.sshAutoReconnectInterval}
+            type="number"
+            min={SSH_AUTO_RECONNECT_INTERVAL_MIN}
+            max={SSH_AUTO_RECONNECT_INTERVAL_MAX}
+            step={1}
+            aria-label={t("settings.terminal.connection.sshAutoReconnectInterval")}
+            disabled={!terminalSettings.sshAutoReconnectEnabled}
+            defaultValue={terminalSettings.sshAutoReconnectInterval}
+            onBlur={(e) => {
+              const seconds = normalizeSshAutoReconnectInterval(e.currentTarget.valueAsNumber);
+              e.currentTarget.value = String(seconds);
+              updateTerminalSetting("sshAutoReconnectInterval", seconds);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") e.currentTarget.blur();
+            }}
+            className="w-24"
+          />
+        </SettingRow>
+        <SettingRow
           anchorId="terminal-keepalive-interval"
           label={t("settings.terminal.connection.keepaliveInterval")}
           description={t("settings.terminal.connection.keepaliveInterval.desc")}
@@ -1048,6 +1087,7 @@ function SettingsTerminalTab(props: {
           />
         </SettingRow>
         <SettingRow
+          anchorId="terminal-keepalive-count-max"
           label={t("settings.terminal.connection.keepaliveCountMax")}
           description={t("settings.terminal.connection.keepaliveCountMax.desc")}
         >
@@ -1082,6 +1122,7 @@ function SettingsTerminalTab(props: {
       <SectionHeader title={t("settings.terminal.section.serverStats")} />
       <div className="space-y-0 divide-y divide-border rounded-lg border bg-card px-4">
         <SettingRow
+          anchorId="terminal-host-info-bar-show"
           label={t("settings.terminal.hostInfoBar.show")}
           description={t("settings.terminal.hostInfoBar.show.desc")}
         >
@@ -1092,6 +1133,7 @@ function SettingsTerminalTab(props: {
         </SettingRow>
         {terminalSettings.showHostInfoBar && (
           <SettingRow
+            anchorId="terminal-host-info-bar-title-mode"
             label={t("settings.terminal.hostInfoBar.titleMode")}
             description={t("settings.terminal.hostInfoBar.titleMode.desc")}
           >
@@ -1119,6 +1161,7 @@ function SettingsTerminalTab(props: {
 
         {terminalSettings.showServerStats && (
           <SettingRow
+            anchorId="terminal-server-stats-refresh-interval"
             label={t("settings.terminal.serverStats.refreshInterval")}
             description={t("settings.terminal.serverStats.refreshInterval.desc")}
           >
@@ -1145,6 +1188,7 @@ function SettingsTerminalTab(props: {
       <SectionHeader title={t("settings.terminal.section.systemManager")} />
       <div className="space-y-0 divide-y divide-border rounded-lg border bg-card px-4">
         <SettingRow
+          anchorId="terminal-system-manager-process-refresh-interval"
           label={t("settings.terminal.systemManager.processRefreshInterval")}
           description={t("settings.terminal.systemManager.processRefreshInterval.desc")}
         >
@@ -1166,6 +1210,7 @@ function SettingsTerminalTab(props: {
           </div>
         </SettingRow>
         <SettingRow
+          anchorId="terminal-system-manager-tmux-refresh-interval"
           label={t("settings.terminal.systemManager.tmuxRefreshInterval")}
           description={t("settings.terminal.systemManager.tmuxRefreshInterval.desc")}
         >
@@ -1187,6 +1232,7 @@ function SettingsTerminalTab(props: {
           </div>
         </SettingRow>
         <SettingRow
+          anchorId="terminal-system-manager-docker-list-refresh-interval"
           label={t("settings.terminal.systemManager.dockerListRefreshInterval")}
           description={t("settings.terminal.systemManager.dockerListRefreshInterval.desc")}
         >
@@ -1208,6 +1254,7 @@ function SettingsTerminalTab(props: {
           </div>
         </SettingRow>
         <SettingRow
+          anchorId="terminal-system-manager-docker-stats-refresh-interval"
           label={t("settings.terminal.systemManager.dockerStatsRefreshInterval")}
           description={t("settings.terminal.systemManager.dockerStatsRefreshInterval.desc")}
         >
@@ -1249,6 +1296,7 @@ function SettingsTerminalTab(props: {
           />
         </SettingRow>
         <SettingRow
+          anchorId="terminal-hibernate-hidden-tabs"
           label={t("settings.terminal.rendering.hibernateHiddenTabs")}
           description={t("settings.terminal.rendering.hibernateHiddenTabs.desc")}
         >
@@ -1260,6 +1308,7 @@ function SettingsTerminalTab(props: {
         {terminalSettings.hibernateHiddenTabs && (
           <>
           <SettingRow
+            anchorId="terminal-hibernate-hidden-tabs-delay"
             label={t("settings.terminal.rendering.hibernateHiddenTabsDelay")}
             description={t("settings.terminal.rendering.hibernateHiddenTabsDelay.desc")}
           >
@@ -1281,6 +1330,7 @@ function SettingsTerminalTab(props: {
             </div>
           </SettingRow>
           <SettingRow
+            anchorId="terminal-hibernate-skip-alt-screen"
             label={t("settings.terminal.rendering.hibernateSkipAltScreen")}
             description={t("settings.terminal.rendering.hibernateSkipAltScreen.desc")}
           >
@@ -1290,6 +1340,7 @@ function SettingsTerminalTab(props: {
             />
           </SettingRow>
           <SettingRow
+            anchorId="terminal-hibernate-keep-renderer-count"
             label={t("settings.terminal.rendering.hibernateKeepRendererCount")}
             description={t("settings.terminal.rendering.hibernateKeepRendererCount.desc")}
           >
@@ -1308,6 +1359,7 @@ function SettingsTerminalTab(props: {
             />
           </SettingRow>
           <SettingRow
+            anchorId="terminal-hibernate-replay-chunk-bytes"
             label={t("settings.terminal.rendering.hibernateReplayChunkBytes")}
             description={t("settings.terminal.rendering.hibernateReplayChunkBytes.desc")}
           >
@@ -1327,6 +1379,7 @@ function SettingsTerminalTab(props: {
             />
           </SettingRow>
           <SettingRow
+            anchorId="terminal-hibernate-prefer-wasm-serialize"
             label={t("settings.terminal.rendering.hibernatePreferWasmSerialize")}
             description={t("settings.terminal.rendering.hibernatePreferWasmSerialize.desc")}
           >
@@ -1354,6 +1407,7 @@ function SettingsTerminalTab(props: {
         {terminalSettings.inlineImagesEnabled && (
           <>
           <SettingRow
+            anchorId="terminal-inline-images-kitty"
             label={t("settings.terminal.inlineImages.kitty")}
             description={t("settings.terminal.inlineImages.kitty.desc")}
           >
@@ -1363,6 +1417,7 @@ function SettingsTerminalTab(props: {
             />
           </SettingRow>
           <SettingRow
+            anchorId="terminal-inline-images-sixel"
             label={t("settings.terminal.inlineImages.sixel")}
             description={t("settings.terminal.inlineImages.sixel.desc")}
           >
@@ -1372,6 +1427,7 @@ function SettingsTerminalTab(props: {
             />
           </SettingRow>
           <SettingRow
+            anchorId="terminal-inline-images-iip"
             label={t("settings.terminal.inlineImages.iip")}
             description={t("settings.terminal.inlineImages.iip.desc")}
           >
@@ -1381,6 +1437,7 @@ function SettingsTerminalTab(props: {
             />
           </SettingRow>
           <SettingRow
+            anchorId="terminal-inline-images-storage-limit"
             label={t("settings.terminal.inlineImages.storageLimit")}
             description={t("settings.terminal.inlineImages.storageLimit.desc")}
           >
@@ -1406,6 +1463,7 @@ function SettingsTerminalTab(props: {
             </div>
           </SettingRow>
           <SettingRow
+            anchorId="terminal-inline-images-max-megapixels"
             label={t("settings.terminal.inlineImages.maxMegapixels")}
             description={t("settings.terminal.inlineImages.maxMegapixels.desc")}
           >
@@ -1431,6 +1489,7 @@ function SettingsTerminalTab(props: {
             </div>
           </SettingRow>
           <SettingRow
+            anchorId="terminal-inline-images-sequence-limit"
             label={t("settings.terminal.inlineImages.sequenceLimit")}
             description={t("settings.terminal.inlineImages.sequenceLimit.desc")}
           >
@@ -1496,6 +1555,7 @@ function SettingsTerminalTab(props: {
           />
         </SettingRow>
         <SettingRow
+          anchorId="terminal-autocomplete-ghost-text"
           label={t("settings.terminal.autocomplete.ghostText")}
           description={t("settings.terminal.autocomplete.ghostText.desc")}
         >
@@ -1506,6 +1566,7 @@ function SettingsTerminalTab(props: {
           />
         </SettingRow>
         <SettingRow
+          anchorId="terminal-autocomplete-popup-menu"
           label={t("settings.terminal.autocomplete.popupMenu")}
           description={t("settings.terminal.autocomplete.popupMenu.desc")}
         >
@@ -1516,6 +1577,7 @@ function SettingsTerminalTab(props: {
           />
         </SettingRow>
         <SettingRow
+          anchorId="terminal-autocomplete-history-scope"
           label={t("settings.terminal.autocomplete.historyScope")}
           description={t("settings.terminal.autocomplete.historyScope.desc")}
         >

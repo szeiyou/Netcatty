@@ -1,7 +1,21 @@
 import type { MutableRefObject } from "react";
-import type { FileConflict, FileConflictAction, SftpFileEntry, SftpFilenameEncoding, TransferStatus, TransferTask } from "../../../domain/models";
+import type { Host, FileConflict, FileConflictAction, SftpFileEntry, SftpFilenameEncoding, TransferStatus, TransferTask } from "../../../domain/models";
 import type { SftpPane } from "./types";
 import type { AcquireTransferSessionFn } from "./transferDirectoryOps";
+
+export interface PackedDownloadRequest {
+  fileName: string;
+  remoteDirectory: string;
+  names: string[];
+  localDirectory: string;
+  sftpId: string;
+  connectionId: string;
+  sourceHostId: string;
+  sourceHostLabel: string;
+  sourceEncoding?: SftpFilenameEncoding;
+}
+
+export type PackedDownloadStatus = "completed" | "regular" | "unsupported" | "conflict" | "cancelled";
 
 export interface UseSftpTransfersParams {
   ownerId: string;
@@ -21,6 +35,14 @@ export interface UseSftpTransfersParams {
   handleSessionError: (side: "left" | "right", error: Error) => void;
   /** FileZilla-style dedicated transfer sessions (1–2 per host). */
   acquireTransferSession?: AcquireTransferSessionFn;
+  resolveConnectedHost?: (tabId: string) => Host | "local" | null;
+  /**
+   * Jump-host chain snapshots captured when the tab connected. Lets retained
+   * transfers keep dialing the connect-time bastion chain after a chain host
+   * is edited (private hostnames can resolve differently per bastion);
+   * undefined = chain must be re-resolved from the live vault.
+   */
+  resolveConnectedChain?: (tabId: string) => Host[] | null;
 }
 
 export interface UseSftpTransfersResult {
@@ -36,9 +58,16 @@ export interface UseSftpTransfersResult {
       sourcePath?: string;
       sourceConnectionId?: string;
       targetPath?: string;
+      /**
+       * Create copies next to the originals instead of prompting for the
+       * same-name conflict. Each source name is resolved to the next free
+       * `name (copy)`, `name (copy 2)`, ... before the transfer starts.
+       */
+      duplicate?: boolean;
       onTransferComplete?: (result: TransferResult) => void | Promise<void>;
     },
   ) => Promise<TransferResult[]>;
+  tryPackedDownload: (request: PackedDownloadRequest) => Promise<PackedDownloadStatus>;
   downloadToLocal: (params: {
     fileName: string;
     sourcePath: string;

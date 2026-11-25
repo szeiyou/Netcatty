@@ -116,6 +116,7 @@ export interface SendToCattyContext {
   commandBlocklist?: string[];
   commandTimeout?: number;
   responseIdleTimeout?: number;
+  toolOutputMaxChars?: number;
   terminalSessions: TerminalSessionInfo[];
   webSearchConfig?: WebSearchConfig | null;
   getExecutorContext?: () => ExecutorContext;
@@ -127,6 +128,8 @@ export interface SendToCattyContext {
 }
 
 export interface SendToExternalContext {
+  scopeType?: 'terminal' | 'workspace' | 'global';
+  scopeTargetId?: string;
   existingSessionId?: string;
   updateExternalSessionId?: (sessionId: string, externalSessionId: string | undefined) => void;
   historyMessages?: Array<{ role: 'user' | 'assistant'; content: string }>;

@@ -31,6 +31,8 @@ export type AIPanelTerminalSessionLike = {
   shellType?: string;
   deviceType?: string;
   connected: boolean;
+  workspaceId?: string;
+  hiddenFromTabs?: boolean;
   hostChain?: AIPanelHostChainHop[];
   activePortForwards?: AIPanelPortForwardLike[];
 };
@@ -97,6 +99,8 @@ function aiTerminalSessionInfoEqual(
     && a.shellType === b.shellType
     && a.deviceType === b.deviceType
     && a.connected === b.connected
+    && a.workspaceId === b.workspaceId
+    && Boolean(a.hiddenFromTabs) === Boolean(b.hiddenFromTabs)
     && hostChainEqual(a.hostChain, b.hostChain)
     && portForwardsEqual(a.activePortForwards, b.activePortForwards);
 }
@@ -153,6 +157,38 @@ export function retainStableAiPanelContexts<T extends AIPanelContextLike>(
   next: Map<string, T>,
 ): Map<string, T> {
   if (previous && aiPanelContextsEqual(previous, next)) {
+    return previous;
+  }
+  return next;
+}
+
+/**
+ * Structural equality for flattened app-wide terminal AI info lists.
+ */
+export function aiTerminalSessionInfosEqual(
+  prev: ReadonlyArray<AIPanelTerminalSessionLike> | null | undefined,
+  next: ReadonlyArray<AIPanelTerminalSessionLike> | null | undefined,
+): boolean {
+  if (prev === next) return true;
+  if (!prev || !next) return false;
+  if (prev.length !== next.length) return false;
+  for (let i = 0; i < prev.length; i += 1) {
+    if (!aiTerminalSessionInfoEqual(prev[i], next[i])) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * Return `next` unless it is structurally equal to `previous`, in which case
+ * keep the previous array identity for React memo consumers.
+ */
+export function retainStableAiTerminalSessionInfos<T extends AIPanelTerminalSessionLike>(
+  previous: T[] | null | undefined,
+  next: T[],
+): T[] {
+  if (previous && aiTerminalSessionInfosEqual(previous, next)) {
     return previous;
   }
   return next;

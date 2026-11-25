@@ -50,12 +50,15 @@ export const SftpPaneTreeView = React.memo<SftpPaneTreeViewProps>(({
   openRenameDialog,
   openDeleteConfirm,
   onCopyToOtherPane,
+  onDuplicateEntries,
   onReceiveFromOtherPane,
   onOpenFileWithSystemDefault,
   onOpenFileWith,
   onEditFile,
   onDownloadFile,
+  onDownloadFiles,
   onExtractArchive,
+  onCreateArchive,
   onEditPermissions,
   draggedFiles,
   openNewFolderDialog,
@@ -63,6 +66,8 @@ export const SftpPaneTreeView = React.memo<SftpPaneTreeViewProps>(({
   onUploadExternalFiles,
   onUploadExternalFileList,
   onUploadExternalFolder,
+  onInsertPathToTerminal,
+  onCdInTerminal,
   sorting,
   reloadRequest,
 }) => {
@@ -203,6 +208,8 @@ export const SftpPaneTreeView = React.memo<SftpPaneTreeViewProps>(({
   onDragEndRef.current = onDragEnd;
   const onCopyToOtherPaneRef = useRef(onCopyToOtherPane);
   onCopyToOtherPaneRef.current = onCopyToOtherPane;
+  const onDuplicateEntriesRef = useRef(onDuplicateEntries);
+  onDuplicateEntriesRef.current = onDuplicateEntries;
   const onReceiveFromOtherPaneRef = useRef(onReceiveFromOtherPane);
   onReceiveFromOtherPaneRef.current = onReceiveFromOtherPane;
   const onOpenFileWithSystemDefaultRef = useRef(onOpenFileWithSystemDefault);
@@ -213,8 +220,12 @@ export const SftpPaneTreeView = React.memo<SftpPaneTreeViewProps>(({
   onEditFileRef.current = onEditFile;
   const onDownloadFileRef = useRef(onDownloadFile);
   onDownloadFileRef.current = onDownloadFile;
+  const onDownloadFilesRef = useRef(onDownloadFiles);
+  onDownloadFilesRef.current = onDownloadFiles;
   const onExtractArchiveRef = useRef(onExtractArchive);
   onExtractArchiveRef.current = onExtractArchive;
+  const onCreateArchiveRef = useRef(onCreateArchive);
+  onCreateArchiveRef.current = onCreateArchive;
   const onEditPermissionsRef = useRef(onEditPermissions);
   onEditPermissionsRef.current = onEditPermissions;
   const openRenameDialogRef = useRef(openRenameDialog);
@@ -927,6 +938,8 @@ export const SftpPaneTreeView = React.memo<SftpPaneTreeViewProps>(({
     executeMoveAction,
     triggerUploadPicker,
     onUploadExternalFolder,
+    onInsertPathToTerminal,
+    onCdInTerminal,
     uploadEnabled,
     folderUploadEnabled,
     setMoveTargetPaths,
@@ -938,12 +951,16 @@ export const SftpPaneTreeView = React.memo<SftpPaneTreeViewProps>(({
     setShowMoveToDialog,
     tRef,
     onCopyToOtherPaneRef,
+    onDuplicateEntriesRef,
     onNavigateToRef,
     onOpenFileWithSystemDefaultRef,
     onOpenFileWithRef,
     onEditFileRef,
     onDownloadFileRef,
+    onDownloadFilesRef,
+    entryByPathRef,
     onExtractArchiveRef,
+    onCreateArchiveRef,
     onEditPermissionsRef,
     openDeleteConfirmRef,
     openRenameDialogRef,

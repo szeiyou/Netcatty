@@ -36,7 +36,7 @@ export const Toggle: React.FC<ToggleProps> = ({ checked, onChange, disabled, ari
 
 interface SelectProps {
   value: string;
-  options: { value: string; label: string; icon?: React.ReactNode }[];
+  options: { value: string; label: string; icon?: React.ReactNode; disabled?: boolean }[];
   onChange: (value: string) => void;
   className?: string;
   disabled?: boolean;
@@ -87,6 +87,7 @@ export const Select: React.FC<SelectProps> = ({
               <SelectPrimitive.Item
                 key={opt.value}
                 value={opt.value}
+                disabled={opt.disabled}
                 className="relative flex w-full min-w-0 cursor-default select-none items-center rounded-sm py-1.5 pl-8 pr-2 text-sm outline-none focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50"
               >
                 <span className="absolute left-2 flex h-3.5 w-3.5 items-center justify-center">
@@ -201,8 +202,10 @@ export const SettingCard: React.FC<SettingCardProps> = ({
 );
 
 interface SettingRowProps {
-  label?: string;
-  description?: string;
+  leading?: React.ReactNode;
+  label?: React.ReactNode;
+  className?: string;
+  description?: React.ReactNode;
   children: React.ReactNode;
   align?: "center" | "start";
   /** Stable catalog id for settings search jump targets. */
@@ -210,7 +213,9 @@ interface SettingRowProps {
 }
 
 export const SettingRow: React.FC<SettingRowProps> = ({
+  leading,
   label,
+  className,
   description,
   children,
   align = "center",
@@ -223,8 +228,10 @@ export const SettingRow: React.FC<SettingRowProps> = ({
       // Keep square corners: rounded rows bend divide-y separators at both ends.
       "flex justify-between py-3 gap-4",
       align === "start" ? "items-start" : "items-center",
+      className,
     )}
   >
+    {leading && <div className="shrink-0">{leading}</div>}
     <div className="flex-1 min-w-0">
       {label && <div className="text-sm font-medium">{label}</div>}
       {description && (

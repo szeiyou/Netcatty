@@ -1,15 +1,14 @@
 import { getHostOsSelection, HOST_OS_SELECTIONS, resolveHostOs } from '../domain/host';
 import { applyGroupDefaults } from "../domain/groupConfig";
 import React from "react";
-import { AlertTriangle, ChevronDown, ChevronUp, Forward, Globe, HeartPulse, KeyRound, Link2, Palette, Plus, Router, ShieldAlert, TerminalSquare, Timer, Wifi, X, Variable } from "lucide-react";
+import { AlertTriangle, ChevronDown, Forward, Globe, HeartPulse, KeyRound, Link2, Palette, Plus, Router, ShieldAlert, TerminalSquare, Timer, Wifi, X, Variable } from "lucide-react";
 import { customThemeStore } from "../application/state/customThemeStore";
 import { clearHostFontSizeOverride, clearHostThemeOverride } from "../domain/terminalAppearance";
 import { resolveSshAgentToggleUpdate } from "../domain/sshAuth";
 import { MAX_FONT_SIZE, MIN_FONT_SIZE } from "../infrastructure/config/fonts";
-import { AlgorithmOverridesPanel } from "./host-details/AlgorithmOverridesPanel";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
-import { HostDetailsSection, HostDetailsSettingRow, HostDetailsOverrideReset } from "./host-details";
+import { HostDetailsSection, HostDetailsSettingRow, HostDetailsOverrideReset, SshAlgorithmOverridesCollapsible } from "./host-details";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "./ui/collapsible";
 import { Input } from "./ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
@@ -49,11 +48,13 @@ export const HostDetailsAdvancedSections: React.FC<HostDetailsAdvancedSectionsPr
   showAlgorithmOverrides,
   setShowAlgorithmOverrides,
   chainedHosts,
+  hostChainInherited = false,
   setActiveSubPanel,
   clearHostChain,
   proxySummaryType,
   proxySummaryLabel,
   proxySummaryTooltip,
+  proxyInherited = false,
   clearProxyConfig,
 }) => {
   const inheritedDeviceType = effectiveGroupDefaults?.deviceType;
@@ -454,42 +455,23 @@ export const HostDetailsAdvancedSections: React.FC<HostDetailsAdvancedSectionsPr
               !(form.skipEcdsaHostKey ?? effectiveGroupDefaults?.skipEcdsaHostKey),
             )}
           />
-          <Collapsible open={showAlgorithmOverrides} onOpenChange={setShowAlgorithmOverrides}>
-            <CollapsibleTrigger asChild>
-              <Button
-                variant="ghost"
-                className="w-full justify-between h-8 px-2 hover:bg-accent/50"
-              >
-                <span className="text-xs font-medium text-muted-foreground">
-                  {t("hostDetails.algorithms.advanced")}
-                  {form.algorithms && Object.keys(form.algorithms).length > 0 && (
-                    <span className="ml-1.5 text-[10px] text-yellow-600 dark:text-yellow-400">
-                      ({t("hostDetails.algorithms.customized")})
-                    </span>
-                  )}
-                </span>
-                {showAlgorithmOverrides
-                  ? <ChevronUp size={14} className="text-muted-foreground" />
-                  : <ChevronDown size={14} className="text-muted-foreground" />}
-              </Button>
-            </CollapsibleTrigger>
-            <CollapsibleContent className="mt-2">
-              <AlgorithmOverridesPanel
-                value={form.algorithms}
-                /* Use the effective legacy flag (host value falling back to
-                   the currently selected group's default) so the seed
-                   reflects what the host would actually advertise. We
-                   read from `effectiveGroupDefaults` (re-resolved on
-                   every form.group change), not the `groupDefaults` prop
-                   — otherwise switching the host into a different group
-                   without saving first would seed from the original
-                   group's flag and silently mis-populate the override. */
-                legacyEnabled={!!(form.legacyAlgorithms ?? effectiveGroupDefaults?.legacyAlgorithms)}
-                inheritedFromGroup={effectiveGroupDefaults?.algorithms}
-                onChange={(next) => update("algorithms", next)}
-              />
-            </CollapsibleContent>
-          </Collapsible>
+          <SshAlgorithmOverridesCollapsible
+            open={showAlgorithmOverrides}
+            onOpenChange={setShowAlgorithmOverrides}
+            value={form.algorithms}
+            /* Use the effective legacy flag (host value falling back to
+               the currently selected group's default) so the seed
+               reflects what the host would actually advertise. We
+               read from `effectiveGroupDefaults` (re-resolved on
+               every form.group change), not the `groupDefaults` prop
+               — otherwise switching the host into a different group
+               without saving first would seed from the original
+               group's flag and silently mis-populate the override. */
+            legacyEnabled={!!(form.legacyAlgorithms ?? effectiveGroupDefaults?.legacyAlgorithms)}
+            inheritedFromGroup={effectiveGroupDefaults?.algorithms}
+            onChange={(next) => update("algorithms", next)}
+            t={t}
+          />
         </HostDetailsSection>
 
         {/* Terminal Behavior — input/output key mappings (backspace, etc.) */}
@@ -641,9 +623,16 @@ export const HostDetailsAdvancedSections: React.FC<HostDetailsAdvancedSectionsPr
           title={t("hostDetails.jumpHosts")}
           action={
             chainedHosts.length > 0 ? (
-              <Badge variant="secondary" className="text-xs">
-                {t("hostDetails.jumpHosts.hops", { count: chainedHosts.length })}
-              </Badge>
+              <div className="flex items-center gap-1">
+                {hostChainInherited && (
+                  <Badge variant="outline" className="text-xs text-muted-foreground">
+                    {t("vault.groups.details.inherited")}
+                  </Badge>
+                )}
+                <Badge variant="secondary" className="text-xs">
+                  {t("hostDetails.jumpHosts.hops", { count: chainedHosts.length })}
+                </Badge>
+              </div>
             ) : (
               <Badge variant="outline" className="text-xs text-muted-foreground">
                 {t("hostDetails.jumpHosts.direct")}
@@ -664,8 +653,10 @@ export const HostDetailsAdvancedSections: React.FC<HostDetailsAdvancedSectionsPr
                   />
                   <span className="text-xs text-muted-foreground">
                     {t("hostDetails.jumpHosts.hops", { count: chainedHosts.length })}
+                    {hostChainInherited ? ` · ${t("vault.groups.details.inherited")}` : ""}
                   </span>
                 </div>
+                {!hostChainInherited && (
                 <X
                   size={14}
                   className="text-muted-foreground hover:text-destructive flex-shrink-0"
@@ -674,6 +665,7 @@ export const HostDetailsAdvancedSections: React.FC<HostDetailsAdvancedSectionsPr
                     clearHostChain();
                   }}
                 />
+                )}
               </div>
               <div className="w-full space-y-1 pl-5">
                 {chainedHosts.slice(0, 5).map((h, idx) => (
@@ -735,7 +727,7 @@ export const HostDetailsAdvancedSections: React.FC<HostDetailsAdvancedSectionsPr
                 <X size={14} />
               </Button>
             </div>
-          ) : form.proxyConfig?.host || form.proxyConfig?.command || form.proxyProfileId ? (
+          ) : form.proxyConfig?.host || form.proxyConfig?.command || form.proxyProfileId || proxyInherited ? (
             <div className="w-full min-w-0 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-1">
               <button
                 type="button"
@@ -750,6 +742,7 @@ export const HostDetailsAdvancedSections: React.FC<HostDetailsAdvancedSectionsPr
                     <TooltipTrigger asChild>
                       <span className="block min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-sm">
                         {proxySummaryLabel}
+                        {proxyInherited ? ` · ${t("vault.groups.details.inherited")}` : ""}
                       </span>
                     </TooltipTrigger>
                     <TooltipContent side="bottom" align="start" className="max-w-xs break-all">
@@ -758,6 +751,7 @@ export const HostDetailsAdvancedSections: React.FC<HostDetailsAdvancedSectionsPr
                   </Tooltip>
                 </TooltipProvider>
               </button>
+              {!proxyInherited && (
               <Button
                 type="button"
                 variant="ghost"
@@ -768,6 +762,7 @@ export const HostDetailsAdvancedSections: React.FC<HostDetailsAdvancedSectionsPr
               >
                 <X size={14} />
               </Button>
+              )}
             </div>
           ) : (
             <Button
