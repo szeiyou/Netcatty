@@ -171,7 +171,7 @@ test('buildVaultHostFromDraft rejects an unsupported protocol instead of using S
 
   assert.equal(built.ok, false);
   if (built.ok) return;
-  assert.match(built.error, /ssh, telnet, or local/i);
+  assert.match(built.error, /ssh, telnet, local, rdp, or vnc/i);
 });
 
 test('buildVaultHostFromDraft rejects hostnames containing internal whitespace', () => {
@@ -643,13 +643,56 @@ test('applyVaultHostUpdate applies and clears advanced connection settings', () 
   assert.equal(cleared.ok, true);
   if (!cleared.ok) return;
   assert.deepEqual(cleared.updatedHost.hostChain, { hostIds: [] });
-  assert.equal(cleared.updatedHost.proxyProfileId, '');
+  assert.equal(cleared.updatedHost.proxyProfileId, undefined);
   assert.equal(cleared.updatedHost.startupCommand, '');
   assert.equal(cleared.updatedHost.startupCommandRunMode, undefined);
   assert.deepEqual(cleared.updatedHost.environmentVariables, []);
   assert.equal(cleared.updatedHost.moshEnabled, false);
   assert.equal(cleared.updatedHost.moshServerPath, undefined);
   assert.equal(cleared.updatedHost.etEnabled, false);
+});
+
+const proxyUpdateProfile: ProxyProfile = {
+  id: 'proxy-1', label: 'proxy', config: { type: 'socks5', host: '127.0.0.1', port: 1080 }, createdAt: 1,
+};
+const proxyUpdateHost = (overrides: Partial<Host> = {}): Host => ({
+  id: 'host-1', label: 'host', hostname: 'host.example.com', username: 'root', tags: [], os: 'linux',
+  ...overrides,
+});
+const updateProxy = (host: Host, patch: VaultHostUpdatePatch) => applyVaultHostUpdate(
+  [host], [], host.id, patch, { proxyProfiles: [proxyUpdateProfile] },
+);
+const proxyOptions = { validProxyProfileIds: new Set([proxyUpdateProfile.id]), globalProxyProfileId: '' };
+
+test('applyVaultHostUpdate selecting a proxy profile replaces an explicit direct choice', () => {
+  const result = updateProxy(
+    proxyUpdateHost({ directProxy: true }),
+    { proxyProfileId: proxyUpdateProfile.id },
+  );
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.updatedHost.proxyProfileId, proxyUpdateProfile.id);
+  assert.equal(result.updatedHost.directProxy, undefined);
+  assert.equal(result.updatedHost.proxyConfig, undefined);
+  assert.equal(applyGroupDefaults(result.updatedHost, {}, proxyOptions).proxyProfileId, proxyUpdateProfile.id);
+});
+
+test('applyVaultHostUpdate clearing the proxy removes every host proxy setting so group proxies apply', () => {
+  const groupProxyConfig = { type: 'http' as const, host: 'group-proxy.example.com', port: 3128 };
+  for (const current of [
+    proxyUpdateHost({ proxyProfileId: proxyUpdateProfile.id }),
+    proxyUpdateHost({ proxyConfig: { type: 'http', host: 'host-proxy.example.com', port: 8080 } }),
+    proxyUpdateHost({ directProxy: true }),
+  ]) {
+    const result = updateProxy(current, { proxyProfileId: '' });
+    assert.equal(result.ok, true, JSON.stringify(current));
+    if (!result.ok) continue;
+    assert.equal(result.updatedHost.proxyProfileId, undefined);
+    assert.equal(result.updatedHost.proxyConfig, undefined);
+    assert.equal(result.updatedHost.directProxy, undefined);
+    const effective = applyGroupDefaults(result.updatedHost, { proxyConfig: groupProxyConfig }, proxyOptions);
+    assert.deepEqual(effective.proxyConfig, groupProxyConfig);
+  }
 });
 
 test('applyVaultHostUpdate rejects malformed advanced connection settings', () => {
@@ -1962,4 +2005,64 @@ test('new SSH hosts explicitly use standard interactive input', () => {
   const created = buildVaultHostFromDraft({ hostname: 'localhost', username: 'user' });
   assert.equal(created.ok, true);
   if (created.ok) assert.equal(created.host.sshInputCompatibility, false);
+});
+
+test('buildVaultHostFromDraft creates standalone RDP and VNC hosts with proper defaults and allows SSH jump chains', () => {
+  const rdpBuilt = buildVaultHostFromDraft({
+    hostname: '10.0.0.50',
+    protocol: 'rdp',
+    password: 'secret',
+  });
+  assert.equal(rdpBuilt.ok, true);
+  if (!rdpBuilt.ok) return;
+  assert.equal(rdpBuilt.host.protocol, 'rdp');
+  assert.equal(rdpBuilt.host.port, 3389);
+  assert.equal(rdpBuilt.host.os, 'windows');
+  assert.equal(rdpBuilt.host.username, '');
+  assert.deepEqual(rdpBuilt.host.tags, []);
+  assert.equal(rdpBuilt.host.authMethod, 'password');
+
+  const vncBuilt = buildVaultHostFromDraft({
+    hostname: '10.0.0.51',
+    protocol: 'vnc',
+    password: 'vnc-secret',
+  });
+  assert.equal(vncBuilt.ok, true);
+  if (!vncBuilt.ok) return;
+  assert.equal(vncBuilt.host.protocol, 'vnc');
+  assert.equal(vncBuilt.host.port, 5900);
+  assert.equal(vncBuilt.host.username, '');
+  assert.equal(vncBuilt.host.authMethod, 'password');
+
+  const jumpHost: Host = {
+    id: 'jump-1',
+    label: 'Bastion',
+    hostname: 'bastion.example.com',
+    port: 22,
+    username: 'ops',
+    protocol: 'ssh',
+    tags: [],
+    os: 'linux',
+  };
+
+  // RDP host can use an SSH jump host in hostChain
+  const rdpWithJump = applyVaultHostUpdate(
+    [jumpHost, rdpBuilt.host],
+    [],
+    rdpBuilt.host.id,
+    { jumpHostIds: [jumpHost.id] },
+  );
+  assert.equal(rdpWithJump.ok, true);
+  if (rdpWithJump.ok) {
+    assert.deepEqual(rdpWithJump.updatedHost.hostChain, { hostIds: [jumpHost.id] });
+  }
+
+  // RDP/VNC hosts cannot serve as jump hosts themselves
+  const sshUsingRdpJump = applyVaultHostUpdate(
+    [jumpHost, rdpBuilt.host],
+    [],
+    jumpHost.id,
+    { jumpHostIds: [rdpBuilt.host.id] },
+  );
+  assert.equal(sshUsingRdpJump.ok, false);
 });

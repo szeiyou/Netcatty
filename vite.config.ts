@@ -26,7 +26,7 @@ const devContentSecurityPolicy = [
   "font-src 'self' data:",
   "connect-src 'self' data: blob: ws: wss: https: http://localhost:5173",
   "img-src 'self' data: https: netcatty-bg:",
-  "media-src 'self' netcatty-bg:",
+  "media-src 'self' blob: netcatty-media: netcatty-bg:",
 ].join("; ");
 
 const devContentSecurityPolicyPlugin = () => ({
@@ -34,7 +34,7 @@ const devContentSecurityPolicyPlugin = () => ({
   apply: 'serve' as const,
   transformIndexHtml(html: string) {
     return html.replace(
-      /content="default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; connect-src 'self' data: blob: ws: wss: https:; img-src 'self' data: https: netcatty-bg:; media-src 'self' netcatty-bg:;"/,
+      /content="default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; connect-src 'self' data: blob: ws: wss: https:; img-src 'self' data: https: netcatty-bg:; media-src 'self' blob: netcatty-media: netcatty-bg:;"/,
       `content="${devContentSecurityPolicy}"`,
     );
   },
@@ -150,6 +150,7 @@ export default defineConfig(() => {
         commonjsOptions: {
           include: [
             /node_modules/,
+            /lib\/localShell\.cjs$/,
             /domain\/(?:sshPublicKey|singleChannelSshBanner|terminalPromptSecurity|totpPrompt)\.shared\.cjs$/,
             /domain\/systemManager\/containerRuntime\.shared\.cjs$/,
             /domain\/plugin(?:RuntimePolicy|PermissionDescriptions|ThemePack|RemoteTreePolicy|ViewStylePolicy|GitHubRepository)\.cjs$/,
@@ -173,6 +174,10 @@ export default defineConfig(() => {
       },
       plugins: [suppressMonacoSourcemapWarning(), devContentSecurityPolicyPlugin(), warnOnOutdatedOptimizeDep(), stripFontsourceWoffPlugin(), tailwindcss(), react()],
       optimizeDeps: {
+        exclude: [
+          '@netcatty/ironrdp-wasm',
+          'ironrdp-wasm',
+        ],
         include: [
           // Keep the renderer alias pre-bundled so dev serves ESM instead of raw CommonJS.
           '@/domain/systemManager/containerRuntime.shared.cjs',

@@ -3,9 +3,10 @@
  * A dedicated editor for serial port hosts (distinct from SSH HostDetailsPanel)
  */
 import { Eye, EyeOff, Save, Tag, Usb, X } from 'lucide-react';
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import { useI18n } from '../application/i18n/I18nProvider';
 import type { GroupConfig, Host, SerialConfig, SerialFlowControl, SerialParity } from '../domain/models';
+import { resolveHostGroupForSave } from '../domain/hostGroupPathMutations';
 import {
   resolveSerialBackspaceFormValue,
   resolveSerialBackspaceOverrideOnSave,
@@ -112,6 +113,7 @@ export const SerialHostDetailsPanel: React.FC<SerialHostDetailsPanelPropsWithRes
   const [charset, setCharset] = useState(initialData.charset || 'UTF-8');
   const [tags, setTags] = useState<string[]>(initialData.tags || []);
   const [group, setGroup] = useState(initialData.group || '');
+  const originalGroupRef = useRef(initialData.group || '');
   const [notes, setNotes] = useState(initialData.notes ?? '');
 
   const handleSave = () => {
@@ -152,7 +154,7 @@ export const SerialHostDetailsPanel: React.FC<SerialHostDetailsPanelPropsWithRes
         ? (passwordCleared ? undefined : password)
         : (initialData.password ?? undefined),
       tags,
-      group,
+      group: resolveHostGroupForSave(group, originalGroupRef.current, group !== originalGroupRef.current),
       charset,
       serialConfig: config,
       backspaceBehavior: undefined,
