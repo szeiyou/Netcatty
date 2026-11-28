@@ -1584,10 +1584,8 @@ function TerminalLayerSidePanelInner({ ctx, pluginSidebar }: { ctx: SidePanelCon
           data-section="pane-magnification-backdrop"
         />
         <div
-          className="absolute inset-3 flex flex-col overflow-hidden rounded-md bg-background shadow-2xl animate-in fade-in zoom-in-95 duration-150"
+          className="absolute inset-3 flex flex-col overflow-hidden rounded-md bg-background shadow-2xl [clip-path:inset(0_round_0.375rem)] animate-in fade-in zoom-in-95 duration-150"
           style={{
-            outline: `1px solid ${sidePanelTheme.accent}`,
-            outlineOffset: -1,
             backgroundColor: sidePanelTheme.termBg,
             color: sidePanelTheme.termFg,
           }}
@@ -1612,6 +1610,16 @@ function TerminalLayerSidePanelInner({ ctx, pluginSidebar }: { ctx: SidePanelCon
             ref={setOverlayHost}
             className="relative flex-1 min-h-0 overflow-hidden [contain:strict]"
             data-section="pane-magnification-content"
+          />
+          <div
+            aria-hidden="true"
+            data-section="pane-magnification-stroke"
+            className="pointer-events-none absolute inset-0 z-50"
+            style={{
+              boxSizing: 'border-box',
+              border: `1px solid ${sidePanelTheme.accent}`,
+              borderRadius: 'inherit',
+            }}
           />
         </div>
         {showMagnificationHint && (

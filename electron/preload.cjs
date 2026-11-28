@@ -1,6 +1,12 @@
 const { ipcRenderer, contextBridge, webUtils } = require("electron");
-const os = require("node:os");
-const { randomUUID } = require("node:crypto");
+const OS_RELEASE_ARG_PREFIX = "--netcatty-os-release=";
+const readOsReleaseFromArgv = () => {
+  const argv = Array.isArray(process?.argv) ? process.argv : [];
+  const arg = argv.find((entry) => typeof entry === "string" && entry.startsWith(OS_RELEASE_ARG_PREFIX));
+  return arg ? arg.slice(OS_RELEASE_ARG_PREFIX.length) : "";
+};
+const os = { release: readOsReleaseFromArgv };
+const randomUUID = () => globalThis.crypto.randomUUID();
 const { SessionTombstones } = require("./preload/sessionTombstones.cjs");
 const { createPreloadApi } = require("./preload/api.cjs");
 const {
@@ -28,6 +34,7 @@ const closedTerminalDataSessions = new SessionTombstones();
 const exitListeners = new Map();
 const globalSftpTransferListeners = new Set();
 const pluginContributionsChangedListeners = new Set();
+const pluginViewBadgesChangedListeners = new Set();
 const chainProgressListeners = new Map();
 const connectionReuseFallbackListeners = new Set();
 const zmodemListeners = new Map();
@@ -87,6 +94,16 @@ function dispatchPluginContributionsChanged(payload) {
       cb(payload);
     } catch (err) {
       console.error("Plugin contributions callback failed", err);
+    }
+  }
+}
+
+function dispatchPluginViewBadgesChanged(payload) {
+  for (const cb of pluginViewBadgesChangedListeners) {
+    try {
+      cb(payload);
+    } catch (err) {
+      console.error("Plugin view badges callback failed", err);
     }
   }
 }
@@ -815,6 +832,10 @@ ipcRenderer.on("netcatty:plugins:contributions-changed", (_event, payload) => {
   dispatchPluginContributionsChanged(payload);
 });
 
+ipcRenderer.on("netcatty:plugins:view-badges-changed", (_event, payload) => {
+  dispatchPluginViewBadgesChanged(payload);
+});
+
 // Port forwarding status listeners
 const portForwardStatusListeners = new Map();
 const portForwardRuntimeListeners = new Set();
@@ -896,6 +917,7 @@ const api = createPreloadApi({
   closedTerminalDataSessions,
   globalSftpTransferListeners,
   pluginContributionsChangedListeners,
+  pluginViewBadgesChangedListeners,
   chainProgressListeners,
   connectionReuseFallbackListeners,
   zmodemListeners,

@@ -8,11 +8,8 @@ const validateManagedPluginId = createDefinitionValidator("PluginId");
 const validatePluginViewResourceRequest = createDefinitionValidator("PluginViewResourceRequest");
 
 const { raceWithAbort } = require("./rpcRouter.cjs");
-const {
-  INLINE_SYNC_OBJECT_SAFE_BYTES,
-  MAX_SYNC_OBJECT_BYTES,
-  STREAM_WINDOW_BYTES,
-} = require("./extensionProviderService.cjs");
+const extensionProviderServiceModule = require("./extensionProviderService.cjs");
+const { STREAM_WINDOW_BYTES } = extensionProviderServiceModule;
 const { assertSecretKey } = require("./secretStore.cjs");
 
 const CHANNELS = Object.freeze({
@@ -29,6 +26,8 @@ const CHANNELS = Object.freeze({
   interactionReady: "netcatty:plugins:interaction-ready",
   hostStreamOpen: "netcatty:plugins:host-stream-open",
   interactionResponse: "netcatty:plugins:interaction-response",
+  vaultDataReady: "netcatty:plugins:vault-data-ready",
+  vaultDataResponse: "netcatty:plugins:vault-data-response",
   list: "netcatty:plugins:list",
   permissions: "netcatty:plugins:permissions",
   setPermissionMode: "netcatty:plugins:set-permission-mode",
@@ -102,8 +101,15 @@ const CHANNELS = Object.freeze({
   importerParseFile: "netcatty:plugins:importer-parse-file",
   importerProgress: "netcatty:plugins:importer-progress",
   hostDrawnOpen: "netcatty:plugins:host-ui-open",
+  hostDrawnPrewarm: "netcatty:plugins:host-ui-prewarm",
   hostDrawnClose: "netcatty:plugins:host-ui-close",
   hostDrawnEvent: "netcatty:plugins:host-ui-event",
+  viewBadges: "netcatty:plugins:view-badges",
+  viewBadgesChanged: "netcatty:plugins:view-badges-changed",
+  aiSidebarState: "netcatty:plugins:ai-sidebar-state",
+  aiSidebarStateChanged: "netcatty:plugins:ai-sidebar-state-changed",
+  aiSidebarCommand: "netcatty:plugins:ai-sidebar-command",
+  aiSidebarInvokeTool: "netcatty:plugins:ai-sidebar-invoke-tool",
   getScopeCatalog: "netcatty:plugins:get-scope-catalog",
   setScopeCatalog: "netcatty:plugins:set-scope-catalog",
   scopeCatalogChanged: "netcatty:plugins:scope-catalog-changed",
@@ -256,6 +262,8 @@ function registerPluginBridge(ipcMain, options) {
   const getTerminalWorkerManager = options.getTerminalWorkerManager ?? (() => null);
   const selectImporterFile = options.selectImporterFile;
   const hostDrawnViewHost = options.hostDrawnViewHost;
+  const viewBadgeService = options.viewBadgeService;
+  const aiSidebarService = options.aiSidebarService;
   const isTrustedSender = options.isTrustedSender;
   const defaultScopeCatalog = normalizePluginScopeCatalog({ device: [{ id: "device", label: "This device" }] });
   const scopeCatalogs = new Map();
@@ -724,6 +732,16 @@ function registerPluginBridge(ipcMain, options) {
     if (!options.interactionService) throw new Error("Host interactions are unavailable");
     return options.interactionService.respond(event.sender, payload);
   });
+  handlePassive(CHANNELS.vaultDataReady, false, async (_manager, payload, event) => {
+    const bridge = options.vaultDataBridge ?? options.interactionService?.vaultService?.vaultDataBridge;
+    if (!bridge) return false;
+    return bridge.setReady(event.sender, payload?.ready === true);
+  });
+  handle(CHANNELS.vaultDataResponse, async (_manager, payload, event) => {
+    const bridge = options.vaultDataBridge ?? options.interactionService?.vaultService?.vaultDataBridge;
+    if (!bridge) throw new Error("Vault data host is unavailable");
+    return bridge.respond(event.sender, payload);
+  });
   handle(CHANNELS.list, async (activeManager) => activeManager.list());
   handle(CHANNELS.sourceBinding, async (activeManager, payload) => activeManager.database.getRetainedPluginSource(assertManagedPluginId(payload)));
   handle(CHANNELS.resetSource, async (activeManager, payload) => activeManager.resetUninstalledSource(assertManagedPluginId(payload), payload?.expectedSourceId));
@@ -980,7 +998,7 @@ function registerPluginBridge(ipcMain, options) {
         ? result.bytes
         : new Uint8Array(result.bytes);
       const preferStream = payload?.preferStream === true;
-      if (!preferStream && bytes.byteLength <= INLINE_SYNC_OBJECT_SAFE_BYTES) {
+      if (!preferStream && bytes.byteLength <= extensionProviderServiceModule.INLINE_SYNC_OBJECT_SAFE_BYTES) {
         extensionRequestMap(event.sender).delete(requestId);
         return {
           found: true,
@@ -1055,10 +1073,10 @@ function registerPluginBridge(ipcMain, options) {
   ipcMain.handle(CHANNELS.syncWriteObject, async (event, payload) => runExtensionRequest(event, payload, async (signal) => {
     if (!extensionProviderService) throw new Error("Plugin sync Providers are unavailable");
     const data = coerceIpcBytes(payload?.data ?? payload?.bytes, "Sync writeObject data");
-    if (data.byteLength > INLINE_SYNC_OBJECT_SAFE_BYTES) {
+    if (data.byteLength > extensionProviderServiceModule.INLINE_SYNC_OBJECT_SAFE_BYTES) {
       throw new Error("Sync writeObject payload requires the streamed write path");
     }
-    if (data.byteLength > MAX_SYNC_OBJECT_BYTES) {
+    if (data.byteLength > extensionProviderServiceModule.MAX_SYNC_OBJECT_BYTES) {
       throw new Error("Sync writeObject payload exceeds the size limit");
     }
     return extensionProviderService.writeSyncObject({
@@ -1079,7 +1097,7 @@ function registerPluginBridge(ipcMain, options) {
       throw error;
     };
     const byteLength = payload?.byteLength;
-    if (!Number.isSafeInteger(byteLength) || byteLength < 1 || byteLength > MAX_SYNC_OBJECT_BYTES) {
+    if (!Number.isSafeInteger(byteLength) || byteLength < 1 || byteLength > extensionProviderServiceModule.MAX_SYNC_OBJECT_BYTES) {
       failBegin(new TypeError("Sync writeObject byteLength is invalid"));
     }
     const providerId = payload?.providerId;
@@ -1711,6 +1729,10 @@ function registerPluginBridge(ipcMain, options) {
     if (!hostDrawnViewHost) throw new Error("Host-drawn plugin views are unavailable");
     return hostDrawnViewHost.open(payload, event.sender);
   });
+  handlePassive(CHANNELS.hostDrawnPrewarm, false, async (_activeManager, payload, event) => {
+    if (!hostDrawnViewHost) return false;
+    return hostDrawnViewHost.prewarm(payload?.viewId, event.sender);
+  });
   handle(CHANNELS.hostDrawnClose, async (_activeManager, payload, event) => {
     if (!hostDrawnViewHost) throw new Error("Host-drawn plugin views are unavailable");
     await hostDrawnViewHost.close(payload?.instanceId, event.sender); return null;
@@ -1724,6 +1746,12 @@ function registerPluginBridge(ipcMain, options) {
     if (!hostDrawnViewHost) throw new Error("Host-drawn plugin views are unavailable");
     await hostDrawnViewHost.event(payload?.instanceId, payload?.event, event.sender); return null;
   });
+  handlePassive(CHANNELS.viewBadges, () => [], async () => viewBadgeService?.listBadges() ?? []);
+  handlePassive(CHANNELS.aiSidebarState, () => ({ contexts: [], tools: [] }), async () => aiSidebarService?.getState() ?? { contexts: [], tools: [] });
+  handle(CHANNELS.aiSidebarInvokeTool, async (_activeManager, payload) => {
+    if (!aiSidebarService) throw new Error("Plugin AI sidebar service is unavailable");
+    return aiSidebarService.invokeTool(payload);
+  });
   handlePassive(CHANNELS.getScopeCatalog, () => currentScopeCatalog(), async () => currentScopeCatalog());
   handlePassive(CHANNELS.setScopeCatalog, null, async (_activeManager, payload, event) => {
     const key = scopeCatalogSenderKey(event);
@@ -1736,6 +1764,9 @@ function registerPluginBridge(ipcMain, options) {
   });
   options.catalogService?.onDidChange?.((event) => options.broadcast?.(CHANNELS.catalogChanged, event));
   contributionService?.onDidChange?.((event) => options.broadcast?.(CHANNELS.contributionsChanged, event));
+  viewBadgeService?.onDidChange?.((badges) => options.broadcast?.(CHANNELS.viewBadgesChanged, badges));
+  aiSidebarService?.onDidChangeState?.((state) => options.broadcast?.(CHANNELS.aiSidebarStateChanged, state));
+  aiSidebarService?.onDidEmitCommand?.((command) => options.broadcast?.(CHANNELS.aiSidebarCommand, command));
 
 }
 

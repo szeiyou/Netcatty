@@ -475,6 +475,8 @@ function createPluginContext(config, client, runtimeApi) {
   const ui = {
     quickPick: (title, items) => interact({ kind: "quickPick", title, items }),
     input: (title, initialValue) => interact({ kind: "input", title, ...(initialValue === undefined ? {} : { initialValue }) }),
+    confirm: (options) => interact({ kind: "confirm", ...options }).then((value) => value === true),
+    openExternalUrl: (options) => interact({ kind: "openExternalUrl", ...options }).then((value) => value === true),
     openFile: async (options = {}) => {
       const result = await client.request("ui.openFile", {
         ...(options?.title === undefined ? {} : { title: options.title }),
@@ -530,11 +532,112 @@ function createPluginContext(config, client, runtimeApi) {
     writeFileHandle: writeFileHandleAll,
     closeFileHandle: (handleId) => client.request("ui.closeFileHandle", { handleId }).then(() => undefined),
   };
+  const vaultSftp = {
+    listDir: (params, cancellationToken) => {
+      if (!config.enabledFeatures?.includes("vault.host-sftp")) return Promise.reject(new PluginError("unsupported", "Host SFTP feature is not enabled"));
+      return client.request("vault.sftp.listDir", params, { cancellationToken, deadlineMs: 35_000 });
+    },
+    stat: (params, cancellationToken) => {
+      if (!config.enabledFeatures?.includes("vault.host-sftp")) return Promise.reject(new PluginError("unsupported", "Host SFTP feature is not enabled"));
+      return client.request("vault.sftp.stat", params, { cancellationToken, deadlineMs: 35_000 });
+    },
+    readFile: (params, cancellationToken) => {
+      if (!config.enabledFeatures?.includes("vault.host-sftp")) return Promise.reject(new PluginError("unsupported", "Host SFTP feature is not enabled"));
+      return client.request("vault.sftp.readFile", params, { cancellationToken, deadlineMs: 35_000 });
+    },
+    writeFile: (params, cancellationToken) => {
+      if (!config.enabledFeatures?.includes("vault.host-sftp")) return Promise.reject(new PluginError("unsupported", "Host SFTP feature is not enabled"));
+      return client.request("vault.sftp.writeFile", params, { cancellationToken, deadlineMs: 35_000 });
+    },
+    mkdir: (params, cancellationToken) => {
+      if (!config.enabledFeatures?.includes("vault.host-sftp")) return Promise.reject(new PluginError("unsupported", "Host SFTP feature is not enabled"));
+      return client.request("vault.sftp.mkdir", params, { cancellationToken, deadlineMs: 35_000 });
+    },
+    delete: (params, cancellationToken) => {
+      if (!config.enabledFeatures?.includes("vault.host-sftp")) return Promise.reject(new PluginError("unsupported", "Host SFTP feature is not enabled"));
+      return client.request("vault.sftp.delete", params, { cancellationToken, deadlineMs: 35_000 });
+    },
+  };
   const vault = {
     ...Object.fromEntries(["selectHosts", "requestHostDraft", "requestConnect"].map((method) => [
       method, (params) => client.request(`vault.${method}`, params, { deadlineMs: PLUGIN_HOST_INTERACTION_LIMITS.timeoutMs }),
     ])),
+    resolveHostBindings: (params) => client.request("vault.resolveHostBindings", params, { deadlineMs: 20_000 }),
+    execHostCommand: (params, cancellationToken) => {
+      if (!config.enabledFeatures?.includes("vault.host-exec")) {
+        return Promise.reject(new PluginError("unsupported", "Host SSH exec feature is not enabled"));
+      }
+      const timeoutMs = Number.isSafeInteger(params?.timeoutMs) ? params.timeoutMs : 10_000;
+      return client.request("vault.execHostCommand", params, {
+        cancellationToken,
+        deadlineMs: Math.min(Math.max(timeoutMs, 1_000) + 20_000, 50_000),
+      });
+    },
+    probeHost: (params, cancellationToken) => {
+      if (!config.enabledFeatures?.includes("vault.host-probe")) {
+        return Promise.reject(new PluginError("unsupported", "Host probe feature is not enabled"));
+      }
+      const timeoutMs = Number.isSafeInteger(params?.timeoutMs) ? params.timeoutMs : 5_000;
+      return client.request("vault.probeHost", params, {
+        cancellationToken,
+        deadlineMs: Math.min(Math.max(timeoutMs, 1_000) + 10_000, 25_000),
+      });
+    },
+    sftp: vaultSftp,
+    listGroups: () => client.request("vault.listGroups", {}),
+    updateHostNotes: (params) => client.request("vault.updateHostNotes", params),
+    updateHostTags: (params) => client.request("vault.updateHostTags", params),
     revokeHostBinding: (hostBindingToken) => client.request("vault.revokeHostBinding", { hostBindingToken }),
+  };
+  const portForward = {
+    list: () => {
+      if (!config.enabledFeatures?.includes("vault.port-forwarding")) return Promise.reject(new PluginError("unsupported", "Port forwarding feature is not enabled"));
+      return client.request("portForward.list", {});
+    },
+    create: (params) => {
+      if (!config.enabledFeatures?.includes("vault.port-forwarding")) return Promise.reject(new PluginError("unsupported", "Port forwarding feature is not enabled"));
+      return client.request("portForward.create", params);
+    },
+    start: (params) => {
+      if (!config.enabledFeatures?.includes("vault.port-forwarding")) return Promise.reject(new PluginError("unsupported", "Port forwarding feature is not enabled"));
+      return client.request("portForward.start", params, { deadlineMs: 30_000 });
+    },
+    stop: (params) => {
+      if (!config.enabledFeatures?.includes("vault.port-forwarding")) return Promise.reject(new PluginError("unsupported", "Port forwarding feature is not enabled"));
+      return client.request("portForward.stop", params);
+    },
+    delete: (params) => {
+      if (!config.enabledFeatures?.includes("vault.port-forwarding")) return Promise.reject(new PluginError("unsupported", "Port forwarding feature is not enabled"));
+      return client.request("portForward.delete", params);
+    },
+  };
+  const snippets = {
+    list: (params) => {
+      if (!config.enabledFeatures?.includes("vault.snippets")) return Promise.reject(new PluginError("unsupported", "Snippets feature is not enabled"));
+      return client.request("snippets.list", params ?? {});
+    },
+    get: (params) => {
+      if (!config.enabledFeatures?.includes("vault.snippets")) return Promise.reject(new PluginError("unsupported", "Snippets feature is not enabled"));
+      return client.request("snippets.get", params);
+    },
+    save: (params) => {
+      if (!config.enabledFeatures?.includes("vault.snippets")) return Promise.reject(new PluginError("unsupported", "Snippets feature is not enabled"));
+      return client.request("snippets.save", params);
+    },
+    delete: (params) => {
+      if (!config.enabledFeatures?.includes("vault.snippets")) return Promise.reject(new PluginError("unsupported", "Snippets feature is not enabled"));
+      return client.request("snippets.delete", params);
+    },
+  };
+  const workspace = {
+    listTabs: () => {
+      if (!config.enabledFeatures?.includes("workspace.tabs")) return Promise.reject(new PluginError("unsupported", "Workspace tabs feature is not enabled"));
+      return client.request("workspace.listTabs", {});
+    },
+    focusTab: (params) => {
+      if (!config.enabledFeatures?.includes("workspace.tabs")) return Promise.reject(new PluginError("unsupported", "Workspace tabs feature is not enabled"));
+      return client.request("workspace.focusTab", params);
+    },
   };
   const clipboard = {
     readText: (title) => interact({ kind: "clipboard.read", title }),
@@ -549,9 +652,119 @@ function createPluginContext(config, client, runtimeApi) {
       deadlineMs: forwardedDeadline(request?.timeoutMs, 300_000),
     }),
   };
-  const ai = Object.fromEntries(["openChat", "startTurn", "readTurn", "stopTurn", "closeChat"].map((operation) => [
+  const aiBase = Object.fromEntries(["openChat", "startTurn", "readTurn", "stopTurn", "closeChat"].map((operation) => [
     operation, (params) => client.request(`ai.${operation}`, params, operation === "readTurn" ? { deadlineMs: 65_000 } : {}),
   ]));
+  const ai = {
+    ...aiBase,
+    async registerTools(tools, executor, options = {}) {
+      if (!config.enabledFeatures?.includes("ai.sidebar-tools")) {
+        throw new PluginError("unsupported", "AI sidebar tools feature is not enabled");
+      }
+      if (!Array.isArray(tools)) {
+        throw new PluginError("invalid_argument", "Plugin AI tools must be an array");
+      }
+      if (typeof executor !== "function") {
+        throw new PluginError("invalid_argument", "Plugin AI tool executor must be a function");
+      }
+      const viewId = options?.viewId !== undefined
+        ? assertOwnedContributionId(config.pluginId, options.viewId, "Plugin view")
+        : undefined;
+      const scopeKey = viewId ?? "*";
+      const normalizedTools = tools.map((toolDef) => {
+        if (!toolDef || typeof toolDef !== "object" || Array.isArray(toolDef)) {
+          throw new PluginError("invalid_argument", "Plugin AI tool definition must be an object");
+        }
+        const toolViewId = toolDef.viewId !== undefined
+          ? assertOwnedContributionId(config.pluginId, toolDef.viewId, "Plugin view")
+          : undefined;
+        return {
+          ...toolDef,
+          ...(toolViewId ? { viewId: toolViewId } : {}),
+        };
+      });
+      await client.request("ai.registerTools", {
+        ...(viewId ? { viewId } : {}),
+        tools: normalizedTools,
+      });
+      const prevBucket = runtimeApi.aiToolBuckets.get(scopeKey);
+      if (prevBucket) {
+        for (const name of prevBucket.names) {
+          if (runtimeApi.aiToolExecutors.get(name)?.scopeKey === scopeKey) {
+            runtimeApi.aiToolExecutors.delete(name);
+          }
+        }
+      }
+      const names = normalizedTools.map((toolDef) => toolDef.name);
+      const token = Symbol("aiToolRegistration");
+      runtimeApi.aiToolBuckets.set(scopeKey, { token, names });
+      for (const name of names) {
+        runtimeApi.aiToolExecutors.set(name, { scopeKey, token, executor });
+      }
+      let disposed = false;
+      return Object.freeze({
+        dispose() {
+          if (disposed) return;
+          disposed = true;
+          const current = runtimeApi.aiToolBuckets.get(scopeKey);
+          if (current?.token !== token) return;
+          runtimeApi.aiToolBuckets.delete(scopeKey);
+          for (const name of names) {
+            if (runtimeApi.aiToolExecutors.get(name)?.token === token) {
+              runtimeApi.aiToolExecutors.delete(name);
+            }
+          }
+          void client.request("ai.registerTools", {
+            ...(viewId ? { viewId } : {}),
+            tools: [],
+          }).catch(() => {});
+        },
+      });
+    },
+    setContext(params) {
+      if (!config.enabledFeatures?.includes("ai.sidebar-tools")) {
+        return Promise.reject(new PluginError("unsupported", "AI sidebar tools feature is not enabled"));
+      }
+      if (!params || typeof params !== "object" || Array.isArray(params)) {
+        return Promise.reject(new PluginError("invalid_argument", "Plugin AI context must be an object"));
+      }
+      const viewId = assertOwnedContributionId(config.pluginId, params.viewId, "Plugin view");
+      return client.request("ai.setContext", { ...params, viewId }).then(() => undefined);
+    },
+    clearContext(viewId) {
+      if (!config.enabledFeatures?.includes("ai.sidebar-tools")) {
+        return Promise.reject(new PluginError("unsupported", "AI sidebar tools feature is not enabled"));
+      }
+      const ownedViewId = assertOwnedContributionId(config.pluginId, viewId, "Plugin view");
+      return client.request("ai.setContext", { viewId: ownedViewId }).then(() => undefined);
+    },
+    openSidebar(params = {}) {
+      if (!config.enabledFeatures?.includes("ai.sidebar-tools")) {
+        return Promise.reject(new PluginError("unsupported", "AI sidebar tools feature is not enabled"));
+      }
+      const normalized = params && typeof params === "object" && !Array.isArray(params) ? params : {};
+      const viewId = normalized.viewId !== undefined
+        ? assertOwnedContributionId(config.pluginId, normalized.viewId, "Plugin view")
+        : undefined;
+      return client.request("ai.openSidebar", {
+        ...normalized,
+        ...(viewId ? { viewId } : {}),
+      }).then(() => undefined);
+    },
+    closeSidebar(params = {}) {
+      if (!config.enabledFeatures?.includes("ai.sidebar-tools")) {
+        return Promise.reject(new PluginError("unsupported", "AI sidebar tools feature is not enabled"));
+      }
+      const normalized = params && typeof params === "object" && !Array.isArray(params) ? params : {};
+      const viewId = normalized.viewId !== undefined
+        ? assertOwnedContributionId(config.pluginId, normalized.viewId, "Plugin view")
+        : undefined;
+      return client.request("ai.closeSidebar", {
+        ...normalized,
+        ...(viewId ? { viewId } : {}),
+      }).then(() => undefined);
+    },
+  };
   const selectedContext = {
     list: (params) => client.request("context.selected.list", params),
     read: (params) => client.request("context.selected.read", params),
@@ -680,6 +893,25 @@ function createPluginContext(config, client, runtimeApi) {
       scopeId,
       state,
     }).then(() => undefined),
+    setBadge(viewOrBadge, maybeBadge) {
+      let params;
+      if (typeof viewOrBadge === "string") {
+        const viewId = assertOwnedContributionId(config.pluginId, viewOrBadge, "Plugin view");
+        if (maybeBadge === null || maybeBadge === undefined) {
+          params = { viewId, count: null, text: null, dot: false, tooltip: null };
+        } else if (typeof maybeBadge === "object" && !Array.isArray(maybeBadge)) {
+          params = { ...maybeBadge, viewId };
+        } else {
+          return Promise.reject(new PluginError("invalid_argument", "Plugin view badge must be an object or null"));
+        }
+      } else if (viewOrBadge && typeof viewOrBadge === "object" && !Array.isArray(viewOrBadge)) {
+        const viewId = assertOwnedContributionId(config.pluginId, viewOrBadge.viewId, "Plugin view");
+        params = { ...viewOrBadge, viewId };
+      } else {
+        return Promise.reject(new PluginError("invalid_argument", "Plugin view badge must be an object"));
+      }
+      return client.request("views.setBadge", params).then(() => undefined);
+    },
   };
   const providers = {
     register(providerId, kind, handler) {
@@ -708,6 +940,22 @@ function createPluginContext(config, client, runtimeApi) {
     proposeInput: (handle, text, title) => {
       if (!config.enabledFeatures?.includes("terminal.input-drafts")) return Promise.reject(new Error("Terminal input drafts are unsupported"));
       return interact({ kind: "terminal.input.propose", handle, text, title }).then((value) => value === true);
+    },
+    listSessions: () => {
+      if (!config.enabledFeatures?.includes("terminal.session-control")) return Promise.reject(new PluginError("unsupported", "Terminal session control is not enabled"));
+      return client.request("terminals.listSessions", {});
+    },
+    readScreen: (params) => {
+      if (!config.enabledFeatures?.includes("terminal.session-control")) return Promise.reject(new PluginError("unsupported", "Terminal session control is not enabled"));
+      return client.request("terminals.readScreen", params);
+    },
+    sendInput: (params) => {
+      if (!config.enabledFeatures?.includes("terminal.session-control")) return Promise.reject(new PluginError("unsupported", "Terminal session control is not enabled"));
+      return client.request("terminals.sendInput", params);
+    },
+    openLocal: () => {
+      if (!config.enabledFeatures?.includes("terminal.session-control")) return Promise.reject(new PluginError("unsupported", "Terminal session control is not enabled"));
+      return client.request("terminals.openLocal", {});
     },
     onDidChange: runtimeApi.terminalEvents.event,
   };
@@ -749,6 +997,9 @@ function createPluginContext(config, client, runtimeApi) {
     selectedContext,
     ui,
     vault,
+    portForward,
+    snippets,
+    workspace,
     clipboard,
     filesystem,
     companions,
@@ -774,6 +1025,8 @@ export async function startPluginRuntime({
   const runtimeApi = {
     commandHandlers: new Map(),
     providerHandlers: new Map(),
+    aiToolBuckets: new Map(),
+    aiToolExecutors: new Map(),
     settingsChanged: createEmitter(),
     environmentChanged: createEmitter(),
     terminalEvents: createEmitter(),
@@ -842,6 +1095,27 @@ export async function startPluginRuntime({
       const handler = runtimeApi.commandHandlers.get(command);
       if (!handler) throw new PluginError("failed_precondition", `Plugin command has no registered handler: ${command}`);
       return await handler(message.params?.args, message.params?.invocation);
+    }
+    if (message.method === "plugin.ai.invokeTool") {
+      if (!activated || !context) throw new PluginError("failed_precondition", "Plugin is not activated");
+      const toolName = message.params?.toolName;
+      if (typeof toolName !== "string" || !/^[a-z][a-z0-9_]{0,47}$/u.test(toolName)) {
+        throw new PluginError("invalid_argument", "Plugin AI tool name is invalid");
+      }
+      const entry = runtimeApi.aiToolExecutors.get(toolName);
+      if (!entry || typeof entry.executor !== "function") {
+        throw new PluginError("not_found", `Plugin AI tool has no registered executor: ${toolName}`);
+      }
+      const rawArgs = message.params?.args;
+      const args = rawArgs && typeof rawArgs === "object" && !Array.isArray(rawArgs)
+        ? freezeRuntimeJson(rawArgs)
+        : Object.freeze({});
+      const meta = Object.freeze({
+        ...(typeof message.params?.viewId === "string" ? { viewId: message.params.viewId } : {}),
+        ...(typeof message.params?.chatSessionId === "string" ? { chatSessionId: message.params.chatSessionId } : {}),
+        cancellationToken,
+      });
+      return await entry.executor(toolName, args, meta);
     }
     if (message.method === "provider.invoke") {
       if (!activated || !context) throw new PluginError("failed_precondition", "Plugin is not activated");

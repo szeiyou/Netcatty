@@ -162,6 +162,10 @@ export interface PluginHostUI {
   quickPick(title: string, items: readonly import("@netcatty/plugin-contract").HostQuickPickItem[]): Promise<string | undefined>;
   /** Single-line text. The host rejects CR/LF in initial values and submitted responses. */
   input(title: string, initialValue?: string): Promise<string | undefined>;
+  /** Shows a native host confirmation dialog and returns true only if confirmed. */
+  confirm(options: Omit<import("@netcatty/plugin-contract").HostConfirmRequest, "kind">): Promise<boolean>;
+  /** Opens an HTTPS URL in the OS browser after explicit host confirmation. */
+  openExternalUrl(options: Omit<import("@netcatty/plugin-contract").HostOpenExternalUrlRequest, "kind">): Promise<boolean>;
   /** Opens a native OS file picker and returns contents + a revocable per-runtime file handle. */
   openFile(options?: PluginOpenFileOptions & Readonly<{ readAs: "utf8" }>): Promise<PluginOpenFileResult<string>>;
   openFile(options?: PluginOpenFileOptions & Readonly<{ readAs?: "bytes" }>): Promise<PluginOpenFileResult<Uint8Array>>;
@@ -178,6 +182,35 @@ export interface PluginHostUI {
   closeFileHandle(handleId: string): Promise<void>;
 }
 
+export interface PluginVaultSftp {
+  listDir(params: import("@netcatty/plugin-contract").VaultHostSftpPathParams, cancellationToken?: CancellationToken): Promise<import("@netcatty/plugin-contract").VaultHostSftpListResult>;
+  stat(params: import("@netcatty/plugin-contract").VaultHostSftpPathParams, cancellationToken?: CancellationToken): Promise<import("@netcatty/plugin-contract").VaultHostSftpStatResult>;
+  readFile(params: import("@netcatty/plugin-contract").VaultHostSftpReadParams, cancellationToken?: CancellationToken): Promise<import("@netcatty/plugin-contract").VaultHostSftpReadResult>;
+  writeFile(params: import("@netcatty/plugin-contract").VaultHostSftpWriteParams, cancellationToken?: CancellationToken): Promise<import("@netcatty/plugin-contract").VaultHostSftpWriteResult>;
+  mkdir(params: import("@netcatty/plugin-contract").VaultHostSftpPathParams, cancellationToken?: CancellationToken): Promise<Readonly<{ created: boolean }>>;
+  delete(params: import("@netcatty/plugin-contract").VaultHostSftpDeleteParams, cancellationToken?: CancellationToken): Promise<Readonly<{ deleted: boolean }>>;
+}
+
+export interface PluginPortForwarding {
+  list(): Promise<import("@netcatty/plugin-contract").PortForwardListResult>;
+  create(params: import("@netcatty/plugin-contract").PortForwardCreateParams): Promise<import("@netcatty/plugin-contract").PortForwardActionResult>;
+  start(params: import("@netcatty/plugin-contract").PortForwardRuleIdParams): Promise<import("@netcatty/plugin-contract").PortForwardActionResult>;
+  stop(params: import("@netcatty/plugin-contract").PortForwardRuleIdParams): Promise<import("@netcatty/plugin-contract").PortForwardActionResult>;
+  delete(params: import("@netcatty/plugin-contract").PortForwardRuleIdParams): Promise<import("@netcatty/plugin-contract").PortForwardActionResult>;
+}
+
+export interface PluginSnippets {
+  list(params?: import("@netcatty/plugin-contract").SnippetListParams): Promise<import("@netcatty/plugin-contract").SnippetListResult>;
+  get(params: import("@netcatty/plugin-contract").SnippetGetParams): Promise<Readonly<{ found: boolean; snippet?: import("@netcatty/plugin-contract").SnippetSummary }>>;
+  save(params: import("@netcatty/plugin-contract").SnippetSaveParams): Promise<Readonly<{ snippet: import("@netcatty/plugin-contract").SnippetSummary }>>;
+  delete(params: import("@netcatty/plugin-contract").SnippetDeleteParams): Promise<Readonly<{ deleted: boolean }>>;
+}
+
+export interface PluginWorkspace {
+  listTabs(): Promise<import("@netcatty/plugin-contract").WorkspaceListTabsResult>;
+  focusTab(params: import("@netcatty/plugin-contract").WorkspaceFocusTabParams): Promise<Readonly<{ focused: boolean }>>;
+}
+
 /** Saved-host selection does not grant editing, connecting or session access.
  * Later actions follow the plugin's permission settings. Host drafts retain
  * the host editor; connections retain normal authentication. */
@@ -186,7 +219,21 @@ export interface PluginVault {
   /** Managed SSH-config drafts require the full Vault host editor. */
   requestHostDraft(params: import("@netcatty/plugin-contract").VaultHostDraftParams): Promise<import("@netcatty/plugin-contract").VaultHostActionResult>;
   requestConnect(params: import("@netcatty/plugin-contract").VaultHostConnectParams): Promise<import("@netcatty/plugin-contract").VaultHostActionResult>;
-  /** Revokes a previously remembered durable SSH tunnel binding token. */
+  /** Refresh host metadata for previously bound durable host tokens without showing a prompt. */
+  resolveHostBindings(params: import("@netcatty/plugin-contract").VaultResolveHostBindingsParams): Promise<import("@netcatty/plugin-contract").VaultResolveHostBindingsResult>;
+  /** Execute a bounded SSH command on a durably bound Vault SSH server in the host process. */
+  execHostCommand(params: import("@netcatty/plugin-contract").VaultHostExecParams, cancellationToken?: CancellationToken): Promise<import("@netcatty/plugin-contract").VaultHostExecResult>;
+  /** Run a zero-credential reachability and RDP/VNC/SSH banner probe on a durably bound host. */
+  probeHost(params: import("@netcatty/plugin-contract").VaultHostProbeParams, cancellationToken?: CancellationToken): Promise<import("@netcatty/plugin-contract").VaultHostProbeResult>;
+  /** Bounded SFTP file operations over pooled SSH transports for durably bound hosts. */
+  readonly sftp: PluginVaultSftp;
+  /** List Vault groups and their host counts (non-secret metadata). */
+  listGroups(): Promise<import("@netcatty/plugin-contract").VaultListGroupsResult>;
+  /** Update non-secret notes on a durably bound Vault host. */
+  updateHostNotes(params: import("@netcatty/plugin-contract").VaultUpdateHostNotesParams): Promise<Readonly<{ updated: boolean }>>;
+  /** Update non-secret tags on a durably bound Vault host. */
+  updateHostTags(params: import("@netcatty/plugin-contract").VaultUpdateHostTagsParams): Promise<Readonly<{ updated: boolean }>>;
+  /** Revokes a previously remembered durable SSH host or tunnel binding token. */
   revokeHostBinding(hostBindingToken: string): Promise<Readonly<{ revoked: boolean }>>;
 }
 
@@ -206,6 +253,9 @@ export interface PluginViews {
   postMessage(viewId: string, message: JsonValue): void;
   getState<T extends JsonValue = JsonValue>(viewId: string, scopeId: string): Promise<T | undefined>;
   setState(viewId: string, scopeId: string, state: JsonValue): Promise<void>;
+  /** Sets or clears a notification badge on one of this plugin's declared vault-page or terminal-sidebar views. */
+  setBadge(badge: import("@netcatty/plugin-contract").ViewBadgeParams): Promise<void>;
+  setBadge(viewId: string, badge: Omit<import("@netcatty/plugin-contract").ViewBadgeParams, "viewId"> | null): Promise<void>;
 }
 
 export interface PluginProviderInvocation<TPayload extends JsonValue = JsonValue> {
@@ -705,6 +755,14 @@ export interface PluginTerminalSessions {
   shareSelection(title: string): Promise<Readonly<SharedTerminalSelection> | undefined>;
   /** Opens a host-owned editable review only. Never writes to a terminal or sends Enter. */
   proposeInput(handle: string, text: string, title: string): Promise<boolean>;
+  /** List open terminal sessions (requires terminal.session-control + terminal.metadata). */
+  listSessions(): Promise<import("@netcatty/plugin-contract").TerminalListSessionsResult>;
+  /** Read bounded visible/scrollback lines from a terminal session (requires terminal.session-control + terminal.output). */
+  readScreen(params: import("@netcatty/plugin-contract").TerminalReadScreenParams): Promise<import("@netcatty/plugin-contract").TerminalReadScreenResult>;
+  /** Send bounded input to an open terminal session (requires terminal.session-control + terminal.input). */
+  sendInput(params: import("@netcatty/plugin-contract").TerminalSendInputParams): Promise<Readonly<{ sent: boolean }>>;
+  /** Open a new local terminal tab (requires terminal.session-control + ui.interact). */
+  openLocal(): Promise<import("@netcatty/plugin-contract").TerminalOpenResult>;
   onDidChange(listener: (event: TerminalSessionEvent) => void): Disposable;
 }
 
@@ -739,12 +797,78 @@ export interface PluginNetworkClient {
   connect(request: import("@netcatty/plugin-contract").ByteStreamConnectRequest, cancellationToken?: CancellationToken): Promise<PluginByteConnection>;
 }
 
+export interface PluginAIToolArtifactAction {
+  readonly toolName: string;
+  readonly label?: string;
+  readonly args: Readonly<Record<string, JsonValue>>;
+}
+
+export interface PluginBiChartToolArtifactKpi {
+  readonly label: string;
+  readonly value: string;
+  readonly delta?: string;
+  readonly tone?: "default" | "positive" | "negative" | "warning";
+}
+
+export interface PluginBiChartToolArtifact {
+  readonly kind: "bi-chart";
+  readonly title?: string;
+  readonly subtitle?: string;
+  readonly chartSpec: Readonly<Record<string, JsonValue>>;
+  readonly kpis?: readonly PluginBiChartToolArtifactKpi[];
+  readonly sql?: string;
+  readonly pinAction?: PluginAIToolArtifactAction;
+  readonly openAction?: PluginAIToolArtifactAction;
+}
+
+export interface PluginSqlResultToolArtifact {
+  readonly kind: "sql-result";
+  readonly title?: string;
+  readonly sql: string;
+  readonly columns: readonly string[];
+  readonly rows: readonly (readonly JsonValue[])[];
+  readonly rowCount: number;
+  readonly totalRows?: number;
+  readonly durationMs?: number;
+  readonly truncated?: boolean;
+  readonly openAction?: PluginAIToolArtifactAction;
+  readonly chartAction?: PluginAIToolArtifactAction;
+}
+
+export type PluginAIToolArtifact = PluginBiChartToolArtifact | PluginSqlResultToolArtifact;
+
+export interface PluginAIToolExecutionContext {
+  readonly viewId?: string;
+  readonly chatSessionId?: string;
+  readonly cancellationToken: CancellationToken;
+}
+
+export type PluginAIToolExecutor = (
+  toolName: string,
+  args: Readonly<Record<string, JsonValue>>,
+  meta: PluginAIToolExecutionContext,
+) => JsonValue | Promise<JsonValue>;
+
 export interface PluginAIClient {
   openChat(params: import("@netcatty/plugin-contract").PluginAIEmptyParams): Promise<import("@netcatty/plugin-contract").PluginAIChatResult>;
   startTurn(params: import("@netcatty/plugin-contract").PluginAIStartTurnParams): Promise<import("@netcatty/plugin-contract").PluginAITurnResult>;
   readTurn(params: import("@netcatty/plugin-contract").PluginAITurnRef): Promise<import("@netcatty/plugin-contract").PluginAIStreamEvent>;
   stopTurn(params: import("@netcatty/plugin-contract").PluginAITurnRef): Promise<import("@netcatty/plugin-contract").PluginAIBooleanResult>;
   closeChat(params: import("@netcatty/plugin-contract").PluginAIChatRef): Promise<import("@netcatty/plugin-contract").PluginAIBooleanResult>;
+  /** Register contextual tools for the native Catty Agent sidebar (requires feature "ai.sidebar-tools" + permission "ai.invoke"). */
+  registerTools(
+    tools: readonly import("@netcatty/plugin-contract").PluginAIToolDefinition[],
+    executor: PluginAIToolExecutor,
+    options?: Readonly<{ viewId?: string }>,
+  ): Promise<Disposable>;
+  /** Publish live contextual summary and starter prompts for the active plugin view in the Catty Agent sidebar. */
+  setContext(params: import("@netcatty/plugin-contract").PluginAISetContextParams): Promise<void>;
+  /** Clear contextual summary and starter prompts for a plugin view. */
+  clearContext(viewId: string): Promise<void>;
+  /** Open or focus the native Catty Agent contextual sidebar for this plugin view. */
+  openSidebar(params?: import("@netcatty/plugin-contract").PluginAIOpenSidebarParams): Promise<void>;
+  /** Close the native Catty Agent contextual sidebar for this plugin view. */
+  closeSidebar(params?: import("@netcatty/plugin-contract").PluginAICloseSidebarParams): Promise<void>;
 }
 
 export interface PluginSelectedContextClient {
@@ -865,6 +989,9 @@ export interface PluginContext {
   readonly commands: PluginCommands;
   readonly ui: PluginHostUI;
   readonly vault: PluginVault;
+  readonly portForward: PluginPortForwarding;
+  readonly snippets: PluginSnippets;
+  readonly workspace: PluginWorkspace;
   readonly clipboard: PluginClipboard;
   readonly contextKeys: PluginContextKeys;
   readonly views: PluginViews;
@@ -1060,7 +1187,7 @@ export function throwIfCancellationRequested(token: CancellationToken): void {
 
 export { PLUGIN_NETWORK_CREDENTIAL_LEASE_FEATURE } from "@netcatty/plugin-contract";
 export { PLUGIN_BYTE_STREAM_FEATURE, PLUGIN_HOST_BYTE_STREAM_FEATURE, PLUGIN_BYTE_STREAM_LIMITS } from "@netcatty/plugin-contract";
-export { PLUGIN_AI_MODEL_INVOCATION_FEATURE, PLUGIN_SELECTED_CONTEXT_FEATURE } from "@netcatty/plugin-contract";
+export { PLUGIN_AI_MODEL_INVOCATION_FEATURE, PLUGIN_AI_SIDEBAR_TOOLS_FEATURE, PLUGIN_SELECTED_CONTEXT_FEATURE } from "@netcatty/plugin-contract";
 
 export { PLUGIN_HOST_INTERACTION_FEATURE } from "@netcatty/plugin-contract";
 export { PLUGIN_HOST_VAULT_FEATURE } from "@netcatty/plugin-contract";

@@ -11,7 +11,6 @@ import '@fontsource/space-grotesk/700.css';
 import '@fontsource/jetbrains-mono/400.css';
 import '@fontsource/jetbrains-mono/500.css';
 import '@fontsource/jetbrains-mono/600.css';
-import App from './App';
 import { AppLockGate } from './components/AppLockGate';
 import { AppBackgroundLayer } from './components/AppBackgroundLayer';
 import { loadLocaleMessages } from './application/i18n/messages';
@@ -22,6 +21,7 @@ import { localStorageAdapter } from './infrastructure/persistence/localStorageAd
 // Startup timeline marks (see electron/perfTrace.cjs); visible in DevTools too.
 performance.mark('netcatty:renderer:entry-evaluated');
 
+const LazyApp = lazy(() => import('./App'));
 const LazySettingsPage = lazy(() => import('./components/SettingsPage'));
 const LazyTrayPanel = lazy(() => import('./components/TrayPanel'));
 const LazyTerminalPopupPage = lazy(() => import('./components/TerminalPopupPage'));
@@ -261,7 +261,11 @@ const renderApp = () => {
       <StrictMode>
         <AppBackgroundLayer />
         <AppLockGate settingsOptions={settingsOptions}>
-          {({ settings, appLock }) => <App settings={settings} appLock={appLock} />}
+          {({ settings, appLock }) => (
+            <Suspense fallback={null}>
+              <LazyApp settings={settings} appLock={appLock} />
+            </Suspense>
+          )}
         </AppLockGate>
       </StrictMode>
     );

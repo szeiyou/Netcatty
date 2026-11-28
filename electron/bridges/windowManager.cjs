@@ -9,7 +9,7 @@ const fs = require("node:fs");
 const { safeSend } = require("./ipcUtils.cjs");
 const perfTrace = require("../perfTrace.cjs");
 
-const V8_CACHE_OPTIONS = "bypassHeatCheck";
+const V8_CACHE_OPTIONS = "code";
 
 function getGlobalShortcutBridge() {
   return require("./globalShortcutBridge.cjs");
@@ -806,7 +806,12 @@ function setupDeferredShow(win, { timeoutMs = 3000, waitForRendererReady = true,
   win.on("closed", () => {
     if (timer) clearTimeout(timer);
     timer = null;
-    if (webContentsId) rendererReadyCallbacksByWebContentsId.delete(webContentsId);
+    if (webContentsId) {
+      rendererReadyCallbacksByWebContentsId.delete(webContentsId);
+      rendererReadySeenByWebContentsId.delete(webContentsId);
+      unhealthyWebContentsIds.delete(webContentsId);
+      rendererReadyWaitersByWebContentsId.delete(webContentsId);
+    }
   });
 
   return { showOnce, markRendererReady };
@@ -1120,6 +1125,7 @@ const { createTerminalPopupWindowApi } = require("./windowManager/terminalPopupW
 const terminalPopupWindowApi = createTerminalPopupWindowApi({
   get mainWindow() { return mainWindow; },
   get currentTheme() { return currentTheme; },
+  get isQuitting() { return isQuitting; },
   V8_CACHE_OPTIONS,
   __dirname,
   resolveFrontendBackgroundColor,

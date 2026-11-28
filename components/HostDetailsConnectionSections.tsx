@@ -134,6 +134,8 @@ export const HostDetailsConnectionSections: React.FC<HostDetailsConnectionSectio
   onCreateIdentity,
   companionCredentialDrafts,
   onCompanionCredentialDraftChange,
+  resolutionDraft,
+  onResolutionDraftChange,
   effectiveTelnetPort,
   effectiveTelnetUsername,
   effectiveTelnetPassword,
@@ -192,14 +194,36 @@ export const HostDetailsConnectionSections: React.FC<HostDetailsConnectionSectio
     );
 
   const [vncPortText, setVncPortText] = useState<string>(() =>
-    String(form.port ?? DEFAULT_VNC_PORT),
+    form.port !== undefined
+      ? String(form.port)
+      : groupDefaults?.vncConfig?.port !== undefined
+        ? ""
+        : String(DEFAULT_VNC_PORT),
   );
 
   useEffect(() => {
     if (isVncPrimary) {
-      setVncPortText(String(form.port ?? DEFAULT_VNC_PORT));
+      setVncPortText(
+        form.port !== undefined
+          ? String(form.port)
+          : groupDefaults?.vncConfig?.port !== undefined
+            ? ""
+            : String(DEFAULT_VNC_PORT),
+      );
     }
-  }, [form.id, form.port, isVncPrimary]);
+  }, [form.id, form.port, isVncPrimary, groupDefaults?.vncConfig?.port]);
+
+  const updateStandaloneDesktopPort = (nextPort: number | undefined) => {
+    setForm((prev: Host) => ({
+      ...prev,
+      port: nextPort,
+      ...(isRdpPrimary && prev.rdpConfig
+        ? { rdpConfig: { ...prev.rdpConfig, port: nextPort } }
+        : isVncPrimary && prev.vncConfig
+          ? { vncConfig: { ...prev.vncConfig, port: nextPort } }
+          : {}),
+    }));
+  };
 
   const handleTabClick = (next: "ssh" | "rdp" | "vnc" | "telnet") => {
     if (onSelectProtocolTab) {
@@ -215,7 +239,7 @@ export const HostDetailsConnectionSections: React.FC<HostDetailsConnectionSectio
     (identity: Identity) => identity.authMethod === "password" || Boolean(identity.password),
   );
   const vncDisplayLabel = isVncPrimary
-    ? formatVncDisplayNumber(form.port ?? DEFAULT_VNC_PORT)
+    ? formatVncDisplayNumber(form.port ?? groupDefaults?.vncConfig?.port ?? DEFAULT_VNC_PORT)
     : null;
 
   const selectAuthMethod = (authMethod: "auto" | "password" | "key" | "certificate") => {
@@ -894,6 +918,7 @@ export const HostDetailsConnectionSections: React.FC<HostDetailsConnectionSectio
               protocol="vnc"
               form={form}
               setForm={setForm}
+              groupDefaults={groupDefaults}
               identities={identities}
               availableKeys={availableKeys}
               onCreateIdentity={onCreateIdentity}
@@ -906,9 +931,12 @@ export const HostDetailsConnectionSections: React.FC<HostDetailsConnectionSectio
               protocol="rdp"
               form={form}
               setForm={setForm}
+              groupDefaults={groupDefaults}
               identities={identities}
               availableKeys={availableKeys}
               onCreateIdentity={onCreateIdentity}
+              resolutionDraft={resolutionDraft}
+              onResolutionDraftChange={onResolutionDraftChange}
               credentialDraft={companionCredentialDrafts?.rdp}
               onCredentialDraftChange={(draft) => onCompanionCredentialDraftChange?.("rdp", draft)}
               t={t}
@@ -926,18 +954,30 @@ export const HostDetailsConnectionSections: React.FC<HostDetailsConnectionSectio
                       onChange={(e) => {
                         const raw = e.target.value;
                         setVncPortText(raw);
+                        if (!raw.trim()) {
+                          updateStandaloneDesktopPort(undefined);
+                          return;
+                        }
                         const parsed = parseVncPortOrDisplay(raw);
                         if (parsed !== null) {
-                          update("port", parsed);
+                          updateStandaloneDesktopPort(parsed);
                         }
                       }}
                       onBlur={() => {
+                        if (!vncPortText.trim() && groupDefaults?.vncConfig?.port !== undefined) {
+                          updateStandaloneDesktopPort(undefined);
+                          return;
+                        }
                         const parsed = parseVncPortOrDisplay(vncPortText);
-                        const resolved = parsed ?? DEFAULT_VNC_PORT;
-                        setVncPortText(String(resolved));
-                        update("port", resolved);
+                        const resolved = parsed ?? (groupDefaults?.vncConfig?.port !== undefined ? undefined : DEFAULT_VNC_PORT);
+                        setVncPortText(resolved !== undefined ? String(resolved) : "");
+                        updateStandaloneDesktopPort(resolved);
                       }}
-                      placeholder={t("hostDetails.vnc.displayPlaceholder")}
+                      placeholder={
+                        groupDefaults?.vncConfig?.port
+                          ? String(groupDefaults.vncConfig.port)
+                          : t("hostDetails.vnc.displayPlaceholder")
+                      }
                       className="h-8 flex-1 min-w-0 text-center font-mono text-sm"
                     />
                     {vncDisplayLabel ? (
@@ -951,9 +991,9 @@ export const HostDetailsConnectionSections: React.FC<HostDetailsConnectionSectio
                     type="number"
                     value={form.port ?? ""}
                     onChange={(e) =>
-                      update("port", e.target.value ? Number(e.target.value) : undefined)
+                      updateStandaloneDesktopPort(e.target.value ? Number(e.target.value) : undefined)
                     }
-                    placeholder={String(DEFAULT_RDP_PORT)}
+                    placeholder={String(groupDefaults?.rdpConfig?.port ?? DEFAULT_RDP_PORT)}
                     className="h-8 w-44 text-center font-mono text-sm"
                   />
                 )}
@@ -1011,8 +1051,8 @@ export const HostDetailsConnectionSections: React.FC<HostDetailsConnectionSectio
                       onChange={(next) => update("username", next)}
                       placeholder={
                         isRdpPrimary
-                          ? t("hostDetails.rdp.usernamePlaceholder")
-                          : t("hostDetails.vnc.usernamePlaceholder")
+                          ? (groupDefaults?.rdpConfig?.username || t("hostDetails.rdp.usernamePlaceholder"))
+                          : (groupDefaults?.vncConfig?.username || t("hostDetails.vnc.usernamePlaceholder"))
                       }
                       identities={passwordCompatibleIdentities}
                       availableKeys={availableKeys}
@@ -1073,7 +1113,7 @@ export const HostDetailsConnectionSections: React.FC<HostDetailsConnectionSectio
                         label={t("hostDetails.rdp.domainLabel")}
                       >
                         <Input
-                          placeholder={t("hostDetails.rdp.domainPlaceholder")}
+                          placeholder={groupDefaults?.rdpConfig?.domain || t("hostDetails.rdp.domainPlaceholder")}
                           value={form.rdpConfig?.domain ?? ""}
                           onChange={(e) =>
                             setForm((prev: Host) => ({

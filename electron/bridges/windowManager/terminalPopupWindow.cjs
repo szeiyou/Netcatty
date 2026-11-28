@@ -14,10 +14,14 @@ const {
 const {
   windowsFramelessContentChromeOptions,
 } = require("./windowsWindowChrome.cjs");
+const {
+  resolvePreloadWebPreferences,
+} = require("../../preloadPath.cjs");
 const { placeTerminalPopup } = require("./terminalPopupPlacement.cjs");
 const {
   attachRemoteDesktopKeyboardGrab,
 } = require("./remoteDesktopKeyboardGrab.cjs");
+const { finalizeSessionLogs } = require("../sessionLogShutdown.cjs");
 
 const ATTACH_CLOSE_PREPARE_TIMEOUT_MS = 2000;
 
@@ -166,7 +170,7 @@ function createTerminalPopupWindowApi(ctx) {
           preload,
           contextIsolation: true,
           nodeIntegration: false,
-          sandbox: false,
+          ...resolvePreloadWebPreferences(preload),
           spellcheck: false,
           backgroundThrottling: false,
           v8CacheOptions: V8_CACHE_OPTIONS,
@@ -312,8 +316,27 @@ function createTerminalPopupWindowApi(ctx) {
         // ignore
       }
 
+      let standaloneCloseFinalized = false;
+      let standaloneCloseFinalizing = false;
       win.on("close", (event) => {
-        if (!attachSessionId || isAttachPopupClosePrepared(attachAuthorization) || isHomeGone()) return;
+        if (!attachSessionId) {
+          if (ctx.isQuitting || standaloneCloseFinalized) return;
+          event?.preventDefault?.();
+          if (standaloneCloseFinalizing) return;
+          standaloneCloseFinalizing = true;
+          void finalizeSessionLogs(win.webContents, { ipcMain: electronModule.ipcMain })
+            .catch(() => {})
+            .finally(() => {
+              standaloneCloseFinalized = true;
+              try {
+                if (isLiveWindow(win)) win.close();
+              } catch {
+                releaseLifecycle();
+              }
+            });
+          return;
+        }
+        if (isAttachPopupClosePrepared(attachAuthorization) || isHomeGone()) return;
         event?.preventDefault?.();
         if (closePreparationRequested) return;
         closePreparationRequested = true;

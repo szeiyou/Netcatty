@@ -2,9 +2,11 @@ const {
   clearTerminalDataSession,
   hasPluginPipelineIngressMarker,
 } = require("./terminalDataBacklog.cjs");
-const { randomUUID } = require("node:crypto");
-const fs = require("node:fs");
-const { stageRendererFileToTemp } = require("./stageUploadFile.cjs");
+const {
+  stageRendererFileToTemp,
+  stageRendererFileViaIpc,
+} = require("./stageUploadFile.cjs");
+const randomUUID = () => globalThis.crypto.randomUUID();
 
 function createPreloadApi(ctx) {
   const sessionLogFinalizers = new Set();
@@ -25,6 +27,7 @@ function createPreloadApi(ctx) {
   const closedTerminalDataSessions = ctx.closedTerminalDataSessions || null;
   const globalSftpTransferListeners = ctx.globalSftpTransferListeners || new Set();
   const pluginContributionsChangedListeners = ctx.pluginContributionsChangedListeners || new Set();
+  const pluginViewBadgesChangedListeners = ctx.pluginViewBadgesChangedListeners || new Set();
   const uploadStageControllers = new Map();
   const hostBrowserPanelListeners = new Set();
   const pendingHostBrowserPanels = [];
@@ -149,6 +152,13 @@ function createPreloadApi(ctx) {
     const listener = (_event, payload) => callback(payload);
     ipcRenderer.on("netcatty:plugins:host-interaction", listener);
     return () => ipcRenderer.removeListener("netcatty:plugins:host-interaction", listener);
+  },
+  setPluginVaultDataReady: (ready) => ipcRenderer.invoke("netcatty:plugins:vault-data-ready", { ready }),
+  respondPluginVaultData: (response) => ipcRenderer.invoke("netcatty:plugins:vault-data-response", response),
+  onPluginVaultDataRequest: (callback) => {
+    const listener = (_event, payload) => callback(payload);
+    ipcRenderer.on("netcatty:plugins:vault-data-request", listener);
+    return () => ipcRenderer.removeListener("netcatty:plugins:vault-data-request", listener);
   },
   listPlugins: () => ipcRenderer.invoke("netcatty:plugins:list"),
   setPluginPermissionMode: (pluginId, permission, mode, policyRevision) => ipcRenderer.invoke("netcatty:plugins:set-permission-mode", { pluginId, permission, mode, policyRevision }),
@@ -342,6 +352,7 @@ function createPreloadApi(ctx) {
   },
   getPluginViewResource: (payload) => ipcRenderer.invoke("netcatty:plugins:host-ui-resource", payload),
   openHostDrawnPluginView: (payload) => ipcRenderer.invoke("netcatty:plugins:host-ui-open", payload),
+  prewarmHostDrawnPluginView: (viewId) => ipcRenderer.invoke("netcatty:plugins:host-ui-prewarm", { viewId }),
   closeHostDrawnPluginView: (instanceId) => ipcRenderer.invoke("netcatty:plugins:host-ui-close", { instanceId }),
   sendHostDrawnPluginViewEvent: (instanceId, event) => ipcRenderer.invoke("netcatty:plugins:host-ui-event", { instanceId, event }),
   onHostDrawnPluginViewUpdate: (callback) => {
@@ -353,6 +364,23 @@ function createPreloadApi(ctx) {
     pluginContributionsChangedListeners.add(callback);
     return () => pluginContributionsChangedListeners.delete(callback);
   },
+  listPluginViewBadges: () => ipcRenderer.invoke("netcatty:plugins:view-badges"),
+  onPluginViewBadgesChanged: (callback) => {
+    pluginViewBadgesChangedListeners.add(callback);
+    return () => pluginViewBadgesChangedListeners.delete(callback);
+  },
+  getPluginAiSidebarState: () => ipcRenderer.invoke("netcatty:plugins:ai-sidebar-state"),
+  onPluginAiSidebarStateChanged: (callback) => {
+    const listener = (_event, payload) => callback(payload);
+    ipcRenderer.on("netcatty:plugins:ai-sidebar-state-changed", listener);
+    return () => ipcRenderer.removeListener("netcatty:plugins:ai-sidebar-state-changed", listener);
+  },
+  onPluginAiSidebarCommand: (callback) => {
+    const listener = (_event, payload) => callback(payload);
+    ipcRenderer.on("netcatty:plugins:ai-sidebar-command", listener);
+    return () => ipcRenderer.removeListener("netcatty:plugins:ai-sidebar-command", listener);
+  },
+  invokePluginAiTool: (payload) => ipcRenderer.invoke("netcatty:plugins:ai-sidebar-invoke-tool", payload),
   onPluginViewClosed: (callback) => {
     const listener = (_event, payload) => callback(payload);
     ipcRenderer.on("netcatty:plugins:view-closed", listener);
@@ -490,6 +518,8 @@ function createPreloadApi(ctx) {
       timeoutMs: options?.timeoutMs,
     });
   },
+  readWslSessionDirectory: (sessionId, operation, path) =>
+    ipcRenderer.invoke('netcatty:local:wslDirectory', { sessionId, operation, path }),
   getSessionRemoteInfo: async (sessionId) => {
     return ipcRenderer.invoke("netcatty:ssh:remoteInfo", { sessionId });
   },
@@ -1969,11 +1999,21 @@ function createPreloadApi(ctx) {
     uploadStageControllers.set(transferId, controller);
     let localPath = null;
     try {
-      localPath = await ipcRenderer.invoke("netcatty:tempdir:createUploadPath", {
-        transferId: `${transferId}-${randomUUID()}`,
-        fileName: file?.name || "upload.bin",
-      });
-      return await stageRendererFileToTemp(file, localPath, fs, controller.signal);
+      const stagedTransferId = `${transferId}-${randomUUID()}`;
+      const fileName = file?.name || "upload.bin";
+      if (ctx.fs) {
+        localPath = await ipcRenderer.invoke("netcatty:tempdir:createUploadPath", {
+          transferId: stagedTransferId,
+          fileName,
+        });
+        return await stageRendererFileToTemp(file, localPath, ctx.fs, controller.signal);
+      }
+      return await stageRendererFileViaIpc(
+        file,
+        ipcRenderer,
+        { transferId: stagedTransferId, fileName },
+        controller.signal,
+      );
     } catch (error) {
       if (localPath) {
         await ipcRenderer.invoke("netcatty:deleteTempFile", { filePath: localPath }).catch(() => {});
@@ -2500,6 +2540,10 @@ function createPreloadApi(ctx) {
     abort: (options) => ipcRenderer.invoke("netcatty:remote-desktop-recording:abort", options),
     getPlaybackUrl: (options) =>
       ipcRenderer.invoke("netcatty:remote-desktop-recording:get-playback-url", options),
+    saveThumbnail: (options) =>
+      ipcRenderer.invoke("netcatty:remote-desktop-recording:save-thumbnail", options),
+    getThumbnailUrl: (options) =>
+      ipcRenderer.invoke("netcatty:remote-desktop-recording:get-thumbnail-url", options),
     export: (options) => ipcRenderer.invoke("netcatty:remote-desktop-recording:export", options),
     delete: (options) => ipcRenderer.invoke("netcatty:remote-desktop-recording:delete", options),
     deleteMany: (options) =>

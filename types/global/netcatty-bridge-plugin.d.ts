@@ -186,6 +186,9 @@ declare global {
     openPluginHostStream?(payload: { response: import("@netcatty/plugin-contract").HostInteractionResponse; connectionOptions: PortForwardOptions }): Promise<import("@netcatty/plugin-contract").HostInteractionReceipt>;
     respondPluginInteraction?(response: import("@netcatty/plugin-contract").HostInteractionResponse): Promise<import("@netcatty/plugin-contract").HostInteractionReceipt>;
     onPluginInteraction?(callback: (event: import("@netcatty/plugin-contract").HostInteractionEvent) => void): () => void;
+    setPluginVaultDataReady?(ready: boolean): Promise<boolean>;
+    respondPluginVaultData?(response: { requestId: string; actionToken: string; ok: boolean; data?: unknown; error?: string }): Promise<boolean>;
+    onPluginVaultDataRequest?(callback: (request: { requestId: string; actionToken: string; kind: string; payload: Record<string, unknown> }) => void): () => void;
     listPlugins?(): Promise<NetcattyInstalledPlugin[]>;
     setPluginPermissionMode?(pluginId: string, permission: string, mode: PluginPermissionMode, policyRevision: string): Promise<boolean>;
     setPluginPermissionReady?(ready: boolean): Promise<boolean>;
@@ -329,10 +332,17 @@ declare global {
     onPluginConnectionClosed?(callback: (event: { sessionId: string; reason: string }) => void): () => void;
     getPluginViewResource?(payload: import('@netcatty/plugin-contract').PluginViewResourceRequest): Promise<import('@netcatty/plugin-contract').PluginViewResourceResult>;
     openHostDrawnPluginView?(payload: NetcattyPluginViewOpenRequest): Promise<{ instanceId: string }>;
+    prewarmHostDrawnPluginView?(viewId: string): Promise<boolean>;
     closeHostDrawnPluginView?(instanceId: string): Promise<void>;
     sendHostDrawnPluginViewEvent?(instanceId: string, event: import('@netcatty/plugin-contract').HostDrawnViewEvent): Promise<void>;
-    onHostDrawnPluginViewUpdate?(callback: (event: import('@netcatty/plugin-contract').HostDrawnViewMessage & { viewId: string }) => void): () => void;
+    onHostDrawnPluginViewUpdate?(callback: (event: import('@netcatty/plugin-contract').HostDrawnViewMessage & { viewId: string; cssUnchanged?: boolean }) => void): () => void;
     onPluginContributionsChanged?(callback: (event: { reason: string; pluginId: string | null; revision: number }) => void): () => void;
+    listPluginViewBadges?(): Promise<ReadonlyArray<NetcattyPluginViewBadge>>;
+    onPluginViewBadgesChanged?(callback: (badges: ReadonlyArray<NetcattyPluginViewBadge>) => void): () => void;
+    getPluginAiSidebarState?(): Promise<NetcattyPluginAiSidebarState>;
+    onPluginAiSidebarStateChanged?(callback: (state: NetcattyPluginAiSidebarState) => void): () => void;
+    onPluginAiSidebarCommand?(callback: (command: NetcattyPluginAiSidebarCommand) => void): () => void;
+    invokePluginAiTool?(payload: NetcattyPluginAiToolInvokeRequest): Promise<unknown>;
     onPluginViewClosed?(callback: (event: NetcattyPluginViewClosedEvent) => void): () => void;
     getPluginScopeCatalog?(): Promise<NetcattyPluginScopeCatalog>;
     setPluginScopeCatalog?(catalog: NetcattyPluginScopeCatalog): Promise<void>;
@@ -513,6 +523,57 @@ declare global {
   };
 
   type NetcattyPluginViewOpenRequest = import('@netcatty/plugin-contract').HostDrawnViewOpenRequest;
+
+  type NetcattyPluginViewBadge = import('@netcatty/plugin-contract').PluginViewBadge;
+
+  interface NetcattyPluginAiSidebarPrompt {
+    readonly label: string;
+    readonly prompt: string;
+  }
+
+  interface NetcattyPluginAiSidebarContext {
+    readonly pluginId: string;
+    readonly pluginName: string;
+    readonly viewId: string;
+    readonly title?: string;
+    readonly subtitle?: string;
+    readonly summary?: string;
+    readonly suggestedPrompts?: ReadonlyArray<NetcattyPluginAiSidebarPrompt>;
+    readonly updatedAt: number;
+  }
+
+  interface NetcattyPluginAiSidebarTool {
+    readonly pluginId: string;
+    readonly pluginName: string;
+    readonly name: string;
+    readonly qualifiedName: string;
+    readonly description: string;
+    readonly inputSchema: Readonly<Record<string, unknown>>;
+    readonly risk: 'read' | 'write';
+    readonly viewId?: string;
+  }
+
+  interface NetcattyPluginAiSidebarState {
+    readonly contexts: ReadonlyArray<NetcattyPluginAiSidebarContext>;
+    readonly tools: ReadonlyArray<NetcattyPluginAiSidebarTool>;
+  }
+
+  interface NetcattyPluginAiSidebarCommand {
+    readonly action: 'open' | 'close';
+    readonly pluginId: string;
+    readonly viewId: string;
+    readonly prompt?: string;
+    readonly autoSend?: boolean;
+    readonly timestamp: number;
+  }
+
+  interface NetcattyPluginAiToolInvokeRequest {
+    readonly pluginId: string;
+    readonly toolName: string;
+    readonly args: Readonly<Record<string, unknown>>;
+    readonly viewId?: string;
+    readonly chatSessionId?: string;
+  }
 
   interface NetcattyPluginViewClosedEvent {
     instanceId: string;

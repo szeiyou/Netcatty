@@ -214,6 +214,7 @@ test("runtime peer exposes contribution APIs and routes host UI events", async (
         return null;
       },
       "views.postMessage": async ({ viewId, message }) => { calls.push(["view-message", viewId, message]); },
+      "views.setBadge": async (params) => { calls.push(["view-badge", params]); return null; },
     },
   });
   port1.on("message", (message) => host.accept(message));
@@ -271,6 +272,12 @@ test("runtime peer exposes contribution APIs and routes host UI events", async (
             });
             await context.views.setState("com.example.ui.view", "window-1", { selected: 2 });
             context.views.postMessage("com.example.ui.view", { ready: true });
+            await context.views.setBadge({ viewId: "com.example.ui.view", count: 3, tone: "warning", tooltip: "3 alerts" });
+            await context.views.setBadge("com.example.ui.view", null);
+            assert.throws(
+              () => context.views.setBadge({ viewId: "com.other.ui.view", count: 1 }),
+              (error) => error?.code === "invalid_argument",
+            );
           },
         },
       };
@@ -330,6 +337,8 @@ test("runtime peer exposes contribution APIs and routes host UI events", async (
     ["context", "com.example.ui.ready", true],
     ["view-state", "com.example.ui.view", "window-1", { selected: 2 }],
     ["view-message", "com.example.ui.view", { ready: true }],
+    ["view-badge", { viewId: "com.example.ui.view", count: 3, tone: "warning", tooltip: "3 alerts" }],
+    ["view-badge", { viewId: "com.example.ui.view", count: null, text: null, dot: false, tooltip: null }],
   ]);
   await peer.dispose();
   host.close();

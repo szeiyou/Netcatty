@@ -50,6 +50,19 @@ function assertInteractionRequest(params) {
   if (params.kind === "quickPick" && new Set(params.items.map((item) => item.id)).size !== params.items.length) {
     throw fail("invalidArgument", "Host interaction choice IDs must be unique");
   }
+  if (params.kind === "openExternalUrl") {
+    if (typeof params.url !== "string" || /[\u0000-\u001f\u007f]/u.test(params.url)) {
+      throw fail("invalidArgument", "External URL is invalid");
+    }
+    let parsed;
+    try { parsed = new URL(params.url); } catch { throw fail("invalidArgument", "External URL is invalid"); }
+    if (parsed.protocol !== "https:" || parsed.username || parsed.password || !parsed.hostname) {
+      throw fail("invalidArgument", "Only HTTPS URLs without credentials may be opened");
+    }
+    const normalized = structuredClone(params);
+    normalized.url = parsed.href;
+    return Object.freeze(normalized);
+  }
   return Object.freeze(structuredClone(params));
 }
 function interactionAuthorization(params, terminalTarget) {
@@ -88,6 +101,7 @@ class PluginHostInteractionService {
     this.quotaManager = options.quotaManager;
     this.clipboard = options.clipboard;
     this.dialog = options.dialog ?? tryLoadElectronDialog();
+    this.shell = options.shell ?? null;
     this.getWindow = options.getWindow ?? (() => null);
     this.isLocked = options.isLocked ?? (() => true);
     this.clock = options.clock ?? Date.now;
@@ -631,8 +645,8 @@ class PluginHostInteractionService {
       await context.assertActive(); this.#assertWindow(sender);
       const entry = { context, params };
       this.#audit(entry, "completed");
-      if (params.kind === "clipboard.write") { this.clipboard.writeText(params.text); return { cancelled: false, value: true }; }
-      const text = assertTextBytes(this.clipboard.readText(), LIMITS.clipboardBytes);
+      if (params.kind === "clipboard.write") { await this.clipboard.writeText(params.text); return { cancelled: false, value: true }; }
+      const text = assertTextBytes(await this.clipboard.readText(), LIMITS.clipboardBytes);
       this.quotaManager.chargeBytes(context.runtimeId, "clipboard", Buffer.byteLength(text));
       await context.assertActive();
       return { cancelled: false, value: text };
@@ -653,14 +667,36 @@ class PluginHostInteractionService {
       if (terminalTarget) entry.terminalWatch = this.terminalSelection.watch();
       context.signal?.addEventListener("abort", entry.onAbort, { once: true });
       if (context.signal?.aborted) { entry.onAbort(); return; }
-      try {
-        if (params.kind === "clipboard.read") {
-          entry.previewText = assertTextBytes(this.clipboard.readText(), LIMITS.clipboardBytes);
-          this.quotaManager.chargeBytes(context.runtimeId, "clipboard", Buffer.byteLength(entry.previewText));
-          entry.phase = "preview";
+      const finishPresent = (rawClipboardText) => {
+        if (this.pending.get(entry.id) !== entry) return;
+        try {
+          if (params.kind === "clipboard.read") {
+            entry.previewText = assertTextBytes(rawClipboardText, LIMITS.clipboardBytes);
+            this.quotaManager.chargeBytes(context.runtimeId, "clipboard", Buffer.byteLength(entry.previewText));
+            entry.phase = "preview";
+          }
+          this.#present(entry);
+        } catch { this.#finish(entry, null, fail("unavailable", "Host interaction window is unavailable")); }
+      };
+      if (params.kind === "clipboard.read") {
+        let readResult;
+        try { readResult = this.clipboard.readText(); }
+        catch { this.#finish(entry, null, fail("unavailable", "Host interaction window is unavailable")); return; }
+        if (readResult && typeof readResult.then === "function") {
+          readResult.then(
+            (text) => {
+              if (this.pending.get(entry.id) !== entry) return;
+              if (context.signal?.aborted) { entry.onAbort(); return; }
+              finishPresent(text);
+            },
+            () => { this.#finish(entry, null, fail("unavailable", "Host interaction window is unavailable")); },
+          );
+          return;
         }
-        this.#present(entry);
-      } catch { this.#finish(entry, null, fail("unavailable", "Host interaction window is unavailable")); }
+        finishPresent(readResult);
+        return;
+      }
+      finishPresent(null);
     });
   }
 
@@ -730,7 +766,7 @@ class PluginHostInteractionService {
         if (response.action !== "preview") throw fail("invalidArgument", "Clipboard sharing requires a preview action");
         this.#audit(entry, "preview-confirmed");
         let rawText;
-        try { rawText = this.clipboard.readText(); }
+        try { rawText = await this.clipboard.readText(); }
         catch { throw fail("unavailable", "Host clipboard text is unavailable"); }
         const text = assertTextBytes(rawText, LIMITS.clipboardBytes);
         this.quotaManager.chargeBytes(entry.context.runtimeId, "clipboard", Buffer.byteLength(text));
@@ -752,13 +788,19 @@ class PluginHostInteractionService {
       } else if (entry.params.kind === "terminal.selection.read") {
         if (entry.phase !== "preview" || typeof entry.previewText !== "string") throw fail("failedPrecondition", "Terminal selection was not previewed");
       } else if (entry.params.kind === "clipboard.read") value = entry.previewText;
-      else value = true;
+      else if (entry.params.kind === "openExternalUrl") {
+        if (typeof this.shell?.openExternal !== "function") {
+          throw fail("unavailable", "External URL opener is unavailable");
+        }
+        await this.shell.openExternal(entry.params.url);
+        value = true;
+      } else value = true;
       this.#audit(entry, entry.params.kind === "terminal.input.propose" ? "draft-reviewed" : entry.params.kind === "clipboard.write" ? "copy-confirmed" : "share-confirmed");
       if (entry.params.kind === "terminal.selection.read") {
         value = Object.freeze({ text: entry.previewText, ...this.terminalSelection.issue(entry.terminalTarget, entry.context) });
       }
       if (entry.params.kind === "clipboard.write") {
-        try { this.clipboard.writeText(entry.params.text); }
+        try { await this.clipboard.writeText(entry.params.text); }
         catch { throw fail("unavailable", "Host clipboard write failed"); }
       }
       return this.#finish(entry, { cancelled: false, value });

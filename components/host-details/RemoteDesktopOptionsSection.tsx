@@ -24,6 +24,7 @@ import {
   normalizeVncConfig,
 } from "../../domain/remoteDesktop";
 import type {
+  GroupConfig,
   Host,
   RdpColorDepth,
   RdpConfig,
@@ -38,30 +39,41 @@ import { Input } from "../ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
 import { Switch } from "../ui/switch";
 import { HostDetailsSection, HostDetailsSettingRow } from "./HostDetailsSection";
+import { RdpResolutionFields, type RdpResolutionDraftProps } from "./RdpResolutionFields";
 
 type Translate = (key: string, params?: Record<string, unknown>) => string;
 
-interface RemoteDesktopOptionsSectionProps {
+interface RemoteDesktopOptionsSectionProps extends RdpResolutionDraftProps {
   form: Host;
   setForm: React.Dispatch<React.SetStateAction<Host>>;
+  groupDefaults?: Partial<GroupConfig>;
   t: Translate;
 }
 
 export const RemoteDesktopOptionsSection: React.FC<RemoteDesktopOptionsSectionProps> = ({
   form,
   setForm,
+  groupDefaults,
   t,
+  resolutionDraft,
+  onResolutionDraftChange,
 }) => {
   const [advancedOpen, setAdvancedOpen] = useState(() =>
     Boolean(
       form.rdpConfig?.loadBalanceInfo ||
         form.rdpConfig?.alternateShell ||
-        form.rdpConfig?.shellWorkingDir,
+        form.rdpConfig?.shellWorkingDir ||
+        groupDefaults?.rdpConfig?.loadBalanceInfo ||
+        groupDefaults?.rdpConfig?.alternateShell ||
+        groupDefaults?.rdpConfig?.shellWorkingDir,
     ),
   );
 
   if (form.protocol === "rdp") {
-    const rdp = normalizeRdpConfig(form.rdpConfig);
+    const rdp = normalizeRdpConfig({
+      ...(groupDefaults?.rdpConfig ?? {}),
+      ...(form.rdpConfig ?? {}),
+    });
     const updateRdp = <K extends keyof RdpConfig>(key: K, value: RdpConfig[K]) => {
       setForm((prev) => ({
         ...prev,
@@ -99,36 +111,14 @@ export const RemoteDesktopOptionsSection: React.FC<RemoteDesktopOptionsSectionPr
         </HostDetailsSettingRow>
 
         {rdp.resolutionMode === "fixed" && (
-          <div className="grid grid-cols-2 gap-2">
-            <div className="flex items-center justify-between gap-2 bg-transparent px-1 h-10">
-              <span className="text-sm font-medium text-foreground shrink-0">{t("hostDetails.rdp.width")}</span>
-              <Input
-                type="number"
-                min={200}
-                max={8192}
-                value={rdp.width}
-                onChange={(e) => {
-                  const n = Number.parseInt(e.target.value, 10);
-                  if (Number.isFinite(n)) updateRdp("width", n);
-                }}
-                className="h-8 w-20 text-sm text-center font-mono"
-              />
-            </div>
-            <div className="flex items-center justify-between gap-2 bg-transparent px-1 h-10">
-              <span className="text-sm font-medium text-foreground shrink-0">{t("hostDetails.rdp.height")}</span>
-              <Input
-                type="number"
-                min={200}
-                max={8192}
-                value={rdp.height}
-                onChange={(e) => {
-                  const n = Number.parseInt(e.target.value, 10);
-                  if (Number.isFinite(n)) updateRdp("height", n);
-                }}
-                className="h-8 w-20 text-sm text-center font-mono"
-              />
-            </div>
-          </div>
+          <RdpResolutionFields
+            form={form}
+            setForm={setForm}
+            inheritedRdpConfig={groupDefaults?.rdpConfig}
+            t={t}
+            resolutionDraft={resolutionDraft}
+            onResolutionDraftChange={onResolutionDraftChange}
+          />
         )}
 
         <HostDetailsSettingRow
@@ -244,7 +234,7 @@ export const RemoteDesktopOptionsSection: React.FC<RemoteDesktopOptionsSectionPr
                 onChange={(e) =>
                   updateRdp("loadBalanceInfo", e.target.value || undefined)
                 }
-                placeholder={t("hostDetails.rdp.loadBalanceInfoPlaceholder")}
+                placeholder={groupDefaults?.rdpConfig?.loadBalanceInfo || t("hostDetails.rdp.loadBalanceInfoPlaceholder")}
                 className="h-10 rounded-lg text-sm font-mono"
               />
             </div>
@@ -257,7 +247,7 @@ export const RemoteDesktopOptionsSection: React.FC<RemoteDesktopOptionsSectionPr
                 onChange={(e) =>
                   updateRdp("alternateShell", e.target.value || undefined)
                 }
-                placeholder={t("hostDetails.rdp.alternateShellPlaceholder")}
+                placeholder={groupDefaults?.rdpConfig?.alternateShell || t("hostDetails.rdp.alternateShellPlaceholder")}
                 className="h-10 rounded-lg text-sm font-mono"
               />
             </div>
@@ -270,7 +260,7 @@ export const RemoteDesktopOptionsSection: React.FC<RemoteDesktopOptionsSectionPr
                 onChange={(e) =>
                   updateRdp("shellWorkingDir", e.target.value || undefined)
                 }
-                placeholder={t("hostDetails.rdp.shellWorkingDirPlaceholder")}
+                placeholder={groupDefaults?.rdpConfig?.shellWorkingDir || t("hostDetails.rdp.shellWorkingDirPlaceholder")}
                 className="h-10 rounded-lg text-sm font-mono"
               />
             </div>
@@ -281,7 +271,10 @@ export const RemoteDesktopOptionsSection: React.FC<RemoteDesktopOptionsSectionPr
   }
 
   if (form.protocol === "vnc") {
-    const vnc = normalizeVncConfig(form.vncConfig);
+    const vnc = normalizeVncConfig({
+      ...(groupDefaults?.vncConfig ?? {}),
+      ...(form.vncConfig ?? {}),
+    });
     const updateVnc = <K extends keyof VncConfig>(key: K, value: VncConfig[K]) => {
       setForm((prev) => ({
         ...prev,

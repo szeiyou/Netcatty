@@ -24,6 +24,7 @@ import {
   History,
   Keyboard,
   Layers,
+  Loader2,
   Lock,
   Maximize,
   Maximize2,
@@ -100,6 +101,7 @@ export interface RemoteDesktopToolbarProps {
   statusDetail?: string;
   tunneled?: boolean;
   encrypted?: boolean;
+  legacySecurityBadge?: string | null;
   resolution?: { width: number; height: number } | null;
   fps?: number;
   isFullscreen: boolean;
@@ -160,6 +162,7 @@ export interface RemoteDesktopToolbarProps {
   onOpenAiAuditLog?: () => void;
   // Session Recording
   isRecording?: boolean;
+  isStoppingRecording?: boolean;
   recordingElapsedLabel?: string;
   recordingSupported?: boolean;
   onToggleRecording?: () => void;
@@ -449,6 +452,7 @@ const RemoteDesktopNetworkTelemetryPill = React.memo(({
   fpsProp,
   resolutionLabel,
   encrypted,
+  legacySecurityBadge,
   tunneled,
   narrowMode,
 }: {
@@ -458,6 +462,7 @@ const RemoteDesktopNetworkTelemetryPill = React.memo(({
   fpsProp?: number;
   resolutionLabel: string;
   encrypted?: boolean;
+  legacySecurityBadge?: string | null;
   tunneled?: boolean;
   narrowMode: boolean;
 }) => {
@@ -601,6 +606,12 @@ const RemoteDesktopNetworkTelemetryPill = React.memo(({
                 <span>{tr(t, 'remoteDesktop.network.tlsEncrypted', 'TLS')}</span>
               </span>
             )}
+            {!encrypted && legacySecurityBadge && (
+              <span className="inline-flex items-center gap-0.5 text-amber-600 dark:text-amber-400">
+                <ShieldAlert size={10} />
+                <span>{legacySecurityBadge}</span>
+              </span>
+            )}
             {tunneled && (
               <span className="inline-flex items-center gap-0.5 text-emerald-600 dark:text-emerald-400">
                 <SshTunnelIcon size={10} />
@@ -623,6 +634,7 @@ export const RemoteDesktopToolbar: React.FC<RemoteDesktopToolbarProps> = React.m
   statusDetail,
   tunneled,
   encrypted,
+  legacySecurityBadge,
   resolution,
   fps,
   isFullscreen,
@@ -672,6 +684,7 @@ export const RemoteDesktopToolbar: React.FC<RemoteDesktopToolbarProps> = React.m
   aiAuditCount = 0,
   onOpenAiAuditLog,
   isRecording = false,
+  isStoppingRecording = false,
   recordingElapsedLabel = '00:00',
   recordingSupported = true,
   onToggleRecording,
@@ -700,6 +713,7 @@ export const RemoteDesktopToolbar: React.FC<RemoteDesktopToolbarProps> = React.m
   const [customHeightInput, setCustomHeightInput] = useState(() => String(fixedResolution?.height || resolution?.height || 1080));
   const barRef = useRef<HTMLDivElement | null>(null);
   const localFileInputRef = useRef<HTMLInputElement | null>(null);
+  const hoverHideTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const isRdp = protocol === 'rdp';
 
   const canPickResolution = Boolean(onSelectResolutionPreset && (isRdp || supportsDynamicResize));
@@ -715,6 +729,8 @@ export const RemoteDesktopToolbar: React.FC<RemoteDesktopToolbarProps> = React.m
     setCustomHeightInput(String(clampedH));
     onSelectResolutionPreset(clampedW, clampedH);
   };
+
+  useEffect(() => () => clearTimeout(hoverHideTimerRef.current), [isFullscreen]);
 
   useEffect(() => {
     const el = barRef.current;
@@ -791,6 +807,20 @@ export const RemoteDesktopToolbar: React.FC<RemoteDesktopToolbarProps> = React.m
                 className="shrink-0 text-emerald-500/80"
                 aria-label={tr(t, 'remoteDesktop.toolbar.encrypted', 'Encrypted TLS connection')}
               />
+            )}
+            {!narrowMode && !encrypted && legacySecurityBadge && (
+              <span
+                className="inline-flex items-center gap-0.5 rounded bg-amber-500/12 px-1.5 py-0.5 text-[10px] font-medium text-amber-600 dark:text-amber-400 shrink-0"
+                title={tr(
+                  t,
+                  'remoteDesktop.toolbar.standardRdpSecurity',
+                  'Standard RDP Security ({{cipher}})',
+                  { cipher: legacySecurityBadge },
+                )}
+              >
+                <ShieldAlert size={10} />
+                <span>{legacySecurityBadge}</span>
+              </span>
             )}
             {viewOnly && (
               <span className="inline-flex items-center gap-1 rounded bg-amber-500/12 px-1.5 py-0.5 text-[10px] font-medium text-amber-600 dark:text-amber-400 shrink-0">
@@ -1329,6 +1359,7 @@ export const RemoteDesktopToolbar: React.FC<RemoteDesktopToolbarProps> = React.m
             fpsProp={fps}
             resolutionLabel={resolutionLabel}
             encrypted={encrypted}
+            legacySecurityBadge={legacySecurityBadge}
             tunneled={tunneled}
             narrowMode={narrowMode}
           />
@@ -1946,23 +1977,34 @@ export const RemoteDesktopToolbar: React.FC<RemoteDesktopToolbarProps> = React.m
         )}
 
         {/* Session Recording Button / Active Pill (P2-B, visible in fullscreen too) */}
-        {onToggleRecording && (!narrowMode || isRecording) && (
+        {onToggleRecording && (!narrowMode || isRecording || isStoppingRecording) && (
           <Tooltip>
             <TooltipTrigger asChild>
-              {isRecording ? (
+              {isRecording || isStoppingRecording ? (
                 <Button
                   type="button"
                   variant="ghost"
                   size="sm"
                   data-testid="remote-desktop-record-btn"
-                  data-recording="true"
-                  className="h-7 shrink-0 gap-1.5 rounded-md bg-rose-500/12 px-2 text-xs font-medium text-rose-500 hover:bg-rose-500/20"
+                  data-recording={isStoppingRecording ? 'stopping' : 'true'}
+                  disabled={isStoppingRecording}
+                  className="h-7 shrink-0 gap-1.5 rounded-md bg-rose-500/12 px-2 text-xs font-medium text-rose-500 hover:bg-rose-500/20 disabled:opacity-70"
                   onClick={onToggleRecording}
                   aria-label={tr(t, 'remoteDesktop.toolbar.stopRecording', 'Stop recording')}
                 >
-                  <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-rose-500 animate-pulse" />
-                  <Square size={9} className="fill-current" />
-                  <span className="font-mono text-[11px] font-medium">{recordingElapsedLabel}</span>
+                  {isStoppingRecording ? (
+                    <Loader2 size={11} className="shrink-0 animate-spin" />
+                  ) : (
+                    <>
+                      <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-rose-500 animate-pulse" />
+                      <Square size={9} className="fill-current" />
+                    </>
+                  )}
+                  <span className="font-mono text-[11px] font-medium">
+                    {isStoppingRecording
+                      ? tr(t, 'remoteDesktop.toolbar.savingRecording', 'Saving...')
+                      : recordingElapsedLabel}
+                  </span>
                 </Button>
               ) : (
                 <Button
@@ -1982,9 +2024,11 @@ export const RemoteDesktopToolbar: React.FC<RemoteDesktopToolbarProps> = React.m
               )}
             </TooltipTrigger>
             <TooltipContent side="bottom" className="text-xs">
-              {isRecording
-                ? tr(t, 'remoteDesktop.toolbar.stopRecording', 'Stop recording')
-                : tr(t, 'remoteDesktop.toolbar.record', 'Record session')}
+              {isStoppingRecording
+                ? tr(t, 'remoteDesktop.toolbar.savingRecording', 'Saving...')
+                : isRecording
+                  ? tr(t, 'remoteDesktop.toolbar.stopRecording', 'Stop recording')
+                  : tr(t, 'remoteDesktop.toolbar.record', 'Record session')}
             </TooltipContent>
           </Tooltip>
         )}
@@ -2165,15 +2209,17 @@ export const RemoteDesktopToolbar: React.FC<RemoteDesktopToolbarProps> = React.m
                 <PopoverClose asChild>
                   <button
                     type="button"
-                    disabled={status !== 'connected' || !recordingSupported}
+                    disabled={status !== 'connected' || !recordingSupported || isStoppingRecording}
                     onClick={onToggleRecording}
                     className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-accent disabled:opacity-45"
                   >
                     <Circle size={12} className={isRecording ? 'fill-rose-500 text-rose-500' : 'text-muted-foreground'} />
                     <span>
-                      {isRecording
-                        ? tr(t, 'remoteDesktop.toolbar.stopRecording', 'Stop recording')
-                        : tr(t, 'remoteDesktop.toolbar.record', 'Record session')}
+                      {isStoppingRecording
+                        ? tr(t, 'remoteDesktop.toolbar.savingRecording', 'Saving...')
+                        : isRecording
+                          ? tr(t, 'remoteDesktop.toolbar.stopRecording', 'Stop recording')
+                          : tr(t, 'remoteDesktop.toolbar.record', 'Record session')}
                     </span>
                   </button>
                 </PopoverClose>
@@ -2298,17 +2344,23 @@ export const RemoteDesktopToolbar: React.FC<RemoteDesktopToolbarProps> = React.m
 
   return (
     <div
-      className="pointer-events-auto absolute left-0 right-0 top-0 z-30 flex justify-center pt-1.5"
-      onMouseEnter={() => setHoverReveal(true)}
-      onMouseLeave={() => setHoverReveal(false)}
+      className="pointer-events-none absolute left-0 right-0 top-0 z-30 flex justify-center pt-1.5"
+      onMouseEnter={() => {
+        clearTimeout(hoverHideTimerRef.current);
+        setHoverReveal(true);
+      }}
+      onMouseLeave={() => {
+        // Allow travel from the trigger strip onto the animating pill.
+        hoverHideTimerRef.current = setTimeout(() => setHoverReveal(false), 150);
+      }}
     >
       {/* Top-edge hover trigger strip */}
-      <div className="absolute inset-x-0 top-0 h-3" />
+      <div className="pointer-events-auto absolute inset-x-0 top-0 h-3" />
       <div
         className={cn(
           'transition-all duration-150',
           pinnedFullscreen || hoverReveal
-            ? 'translate-y-0 opacity-100'
+            ? 'translate-y-0 opacity-100 pointer-events-auto'
             : '-translate-y-full opacity-0 pointer-events-none',
         )}
       >

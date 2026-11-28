@@ -1,11 +1,10 @@
-import { MonitorPanels } from './MonitorPanels';
-import { MonitorNavButton } from './MonitorNavButton';
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { Combobox } from "../ui/combobox";
-import React, { useCallback } from "react";
+import React, { useCallback, useRef } from "react";
 import { deleteVaultKey } from "../../application/defaultKeyPassphrases";
 import { VaultGroupDeletionConfirmationChangedError } from "../../application/state/useVaultGroupDeletion";
 import { usePluginImporterCommit } from "../../application/state/usePluginImporterCommit";
+import { usePluginViewBadges } from "../../application/state/usePluginViewBadges";
 import { preserveConcurrentHostLineTimestampUpdate } from "../../domain/host";
 import {
   collectVaultGroupPathsForSelectAll,
@@ -16,8 +15,12 @@ import {
 import { STORAGE_KEY_VAULT_HOST_PANEL_WIDTH } from "@/infrastructure/config/storageKeys.ts";
 import { VaultHostListSection } from "./VaultHostListSection";
 import { VAULT_HOST_GRID_MIN_CARD_WIDTH } from "./vaultHostGridLayout";
-import { LocalShellHostDetailsPanel } from "../LocalShellHostDetailsPanel";
-import { VaultImportProgressPanel } from "./ImportVaultDialog";
+const LocalShellHostDetailsPanel = React.lazy(() =>
+  import("../LocalShellHostDetailsPanel").then((mod) => ({ default: mod.LocalShellHostDetailsPanel })),
+);
+const VaultImportProgressPanel = React.lazy(() =>
+  import("./ImportVaultDialog").then((mod) => ({ default: mod.VaultImportProgressPanel })),
+);
 import {
   VaultHeaderSearch,
   VaultPageHeader,
@@ -30,7 +33,17 @@ import { LazyLoadBoundary } from "../ui/lazy-load-boundary";
 import { toast } from "../ui/toast";
 import { AppWordmark } from "../AppWordmark";
 import { openHostBrowser } from "../../application/hostBrowser";
-import { PluginVaultNavigation, PluginVaultPage } from '../plugins/PluginVaultPages';
+import { PluginContributionIcon } from '../plugins/PluginContributionIcon';
+import { PluginVaultPage } from '../plugins/PluginVaultPages';
+import { isLockedVaultNavId, type VaultNavItemId } from '../../domain/vaultNavConfig';
+import {
+  VaultNavCustomizePopover,
+  type VaultNavCustomizeItem,
+} from './VaultNavCustomizePopover';
+import {
+  VaultNavSidebarList,
+  type VaultNavItemDescriptor,
+} from './VaultNavSidebar';
 import { RdpProtocolIcon, VncProtocolIcon } from "../icons/RemoteDesktopIcons";
 
 type VaultViewLayoutContext = Record<string, any>;
@@ -260,6 +273,10 @@ export function VaultViewLayout({ ctx }: { ctx: VaultViewLayoutContext }) {
     Copy,
     currentSection,
     pluginVault,
+    vaultNavConfig,
+    handleSelectVaultNavItem,
+    handleHideVaultNavItem,
+    handleToggleVaultNavItemVisible,
     customGroups,
     deleteGroupPaths,
     deleteGroupWithHosts,
@@ -358,7 +375,6 @@ export function VaultViewLayout({ ctx }: { ctx: VaultViewLayoutContext }) {
     newFolderName,
     newHostGroupPath,
     newHostProtocol,
-    onConnect,
     onConnectRemoteDesktop,
     onConnectSerial,
     onCreateLocalTerminal,
@@ -394,7 +410,6 @@ export function VaultViewLayout({ ctx }: { ctx: VaultViewLayoutContext }) {
     renameTargetPath,
     reorderGroup,
     reorderHost,
-    RippleButton,
     rootRef,
     sanitizeHost,
     search,
@@ -407,7 +422,6 @@ export function VaultViewLayout({ ctx }: { ctx: VaultViewLayoutContext }) {
     sessionCount,
     Set,
     setBulkDeleteGroupPaths,
-    setCurrentSection,
     setDeleteGroupWithHosts,
     setDeleteTargetPath,
     setDragOverDropTarget,
@@ -501,6 +515,16 @@ export function VaultViewLayout({ ctx }: { ctx: VaultViewLayoutContext }) {
   } = ctx;
   const { importProgress, onCommitPluginImporterData, resetImportProgress } =
     ctx;
+  const latestIdentitiesRef = useRef(identities);
+  latestIdentitiesRef.current = identities;
+  const handleCreateIdentity = useCallback(
+    (identity: any) => {
+      const next = [...latestIdentitiesRef.current, identity];
+      latestIdentitiesRef.current = next;
+      onUpdateIdentities(next);
+    },
+    [onUpdateIdentities],
+  );
   // Host aside panel (SSH/new host) or the local-shell host panel occupies the
   // aside area — both collapse the header action buttons the same way.
   const isHostAsideOpen = isHostPanelOpen || isLocalShellHostPanelOpen;
@@ -563,8 +587,158 @@ export function VaultViewLayout({ ctx }: { ctx: VaultViewLayoutContext }) {
   const [isMoveHostsOpen, setIsMoveHostsOpen] = React.useState(false);
   const [moveTargetGroup, setMoveTargetGroup] = React.useState("");
   const [isSidebarResizing, setIsSidebarResizing] = React.useState(false);
+  const [isNavCustomizeOpen, setIsNavCustomizeOpen] = React.useState(false);
+  const pluginViewBadges = usePluginViewBadges((pluginVault?.pages?.length ?? 0) > 0);
+  const navDescriptorById = React.useMemo(() => {
+    const map = new Map<VaultNavItemId, VaultNavItemDescriptor>([
+      [
+        "hosts",
+        {
+          id: "hosts",
+          label: t("vault.nav.hosts"),
+          icon: <LayoutGrid size={16} className="flex-shrink-0" />,
+          locked: isLockedVaultNavId("hosts"),
+          isPluginFallback: true,
+        },
+      ],
+      [
+        "keys",
+        {
+          id: "keys",
+          label: t("vault.nav.keychain"),
+          icon: <Key size={16} className="flex-shrink-0" />,
+          locked: isLockedVaultNavId("keys"),
+        },
+      ],
+      [
+        "proxies",
+        {
+          id: "proxies",
+          label: t("vault.nav.proxies"),
+          icon: <Globe size={16} className="flex-shrink-0" />,
+          locked: isLockedVaultNavId("proxies"),
+        },
+      ],
+      [
+        "port",
+        {
+          id: "port",
+          label: t("vault.nav.portForwarding"),
+          icon: <Plug size={16} className="flex-shrink-0" />,
+          locked: isLockedVaultNavId("port"),
+        },
+      ],
+      [
+        "snippets",
+        {
+          id: "snippets",
+          label: t("vault.nav.scripts"),
+          icon: <FileCode size={16} className="flex-shrink-0" />,
+          locked: isLockedVaultNavId("snippets"),
+        },
+      ],
+      [
+        "notes",
+        {
+          id: "notes",
+          label: t("vault.nav.notes"),
+          icon: <NotebookText size={16} className="flex-shrink-0" />,
+          locked: isLockedVaultNavId("notes"),
+        },
+      ],
+      [
+        "knownhosts",
+        {
+          id: "knownhosts",
+          label: t("vault.nav.knownHosts"),
+          icon: <BookMarked size={16} className="flex-shrink-0" />,
+          locked: isLockedVaultNavId("knownhosts"),
+        },
+      ],
+      [
+        "logs",
+        {
+          id: "logs",
+          label: t("vault.nav.logs"),
+          icon: <Activity size={16} className="flex-shrink-0" />,
+          locked: isLockedVaultNavId("logs"),
+        },
+      ],
+    ]);
+    for (const page of pluginVault?.pages ?? []) {
+      const fullLabel = `${page.title} — ${page.pluginName}`;
+      map.set(page.key, {
+        id: page.key,
+        label: page.title,
+        ariaLabel: fullLabel,
+        tooltip: fullLabel,
+        icon: (
+          <PluginContributionIcon
+            pluginId={page.pluginId}
+            icon={page.icon}
+            size={16}
+            className="shrink-0"
+          />
+        ),
+        locked: false,
+        pluginViewId: page.viewId,
+        pluginName: page.pluginName,
+        badge: pluginViewBadges.get(page.viewId) ?? null,
+      });
+    }
+    return map;
+  }, [
+    Activity,
+    BookMarked,
+    FileCode,
+    Globe,
+    Key,
+    LayoutGrid,
+    NotebookText,
+    Plug,
+    pluginVault?.pages,
+    pluginViewBadges,
+    t,
+  ]);
+  const visibleNavItems = React.useMemo<VaultNavItemDescriptor[]>(
+    () =>
+      (vaultNavConfig?.visibleIds ?? [])
+        .map((id: VaultNavItemId) => navDescriptorById.get(id))
+        .filter((item: VaultNavItemDescriptor | undefined): item is VaultNavItemDescriptor =>
+          item !== undefined,
+        ),
+    [navDescriptorById, vaultNavConfig?.visibleIds],
+  );
+  const customizeNavItems = React.useMemo<VaultNavCustomizeItem[]>(
+    () =>
+      (vaultNavConfig?.manageableIds ?? [])
+        .map((id: VaultNavItemId): VaultNavCustomizeItem | null => {
+          const item = navDescriptorById.get(id);
+          if (!item) return null;
+          return {
+            id: item.id,
+            label: item.label,
+            icon: item.icon,
+            pluginName: item.pluginName,
+            visible: !vaultNavConfig.isHidden(id),
+            locked: item.locked,
+            canHide: vaultNavConfig.canHide(id),
+          };
+        })
+        .filter((item: VaultNavCustomizeItem | null): item is VaultNavCustomizeItem =>
+          item !== null,
+        ),
+    [navDescriptorById, vaultNavConfig],
+  );
+  const [hasMountedKnownHosts, setHasMountedKnownHosts] = React.useState(
+    currentSection === "knownhosts",
+  );
+  if (currentSection === "knownhosts" && !hasMountedKnownHosts) {
+    setHasMountedKnownHosts(true);
+  }
   const keyListRef = React.useRef(keys);
   keyListRef.current = keys;
+  const hostSearchInputRef = React.useRef<HTMLInputElement>(null);
   const newHostActionsRef = React.useRef<HTMLDivElement>(null);
   const sessionActionsRef = React.useRef<HTMLDivElement>(null);
   const { handlePluginPreviewCommit, getPluginPreviewAnalysis } =
@@ -673,227 +847,47 @@ export function VaultViewLayout({ ctx }: { ctx: VaultViewLayoutContext }) {
             </Tooltip>
           </div>
 
-          <div
-            className={cn("min-h-0 flex-1 overflow-y-auto space-y-1", sidebarCollapsed ? "px-1.5" : "px-2.5")}
-          >
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <RippleButton
-                  variant={currentSection === "hosts" ? "secondary" : "ghost"}
-                  data-plugin-vault-fallback
-                  className={cn(
-                    "w-full h-10",
-                    sidebarCollapsed
-                      ? "justify-center p-0"
-                      : "justify-start gap-3",
-                    currentSection === "hosts" &&
-                      "bg-foreground/10 text-foreground hover:bg-foreground/15 border-border/40",
-                  )}
-                  onClick={() => {
-                    setCurrentSection("hosts");
-                    setSelectedGroupPath(null);
-                  }}
-                >
-                  <LayoutGrid size={16} className="flex-shrink-0" />
-                  {!sidebarCollapsed && t("vault.nav.hosts")}
-                </RippleButton>
-              </TooltipTrigger>
-              {sidebarCollapsed && (
-                <TooltipContent side="right">
-                  {t("vault.nav.hosts")}
-                </TooltipContent>
-              )}
-            </Tooltip>
-            <MonitorNavButton active={currentSection === "monitor"} collapsed={sidebarCollapsed} onClick={() => setCurrentSection("monitor")} />
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <RippleButton
-                  variant={currentSection === "keys" ? "secondary" : "ghost"}
-                  className={cn(
-                    "w-full h-10",
-                    sidebarCollapsed
-                      ? "justify-center p-0"
-                      : "justify-start gap-3",
-                    currentSection === "keys" &&
-                      "bg-foreground/10 text-foreground hover:bg-foreground/15 border-border/40",
-                  )}
-                  onClick={() => {
-                    setCurrentSection("keys");
-                  }}
-                >
-                  <Key size={16} className="flex-shrink-0" />
-                  {!sidebarCollapsed && t("vault.nav.keychain")}
-                </RippleButton>
-              </TooltipTrigger>
-              {sidebarCollapsed && (
-                <TooltipContent side="right">
-                  {t("vault.nav.keychain")}
-                </TooltipContent>
-              )}
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <RippleButton
-                  variant={currentSection === "proxies" ? "secondary" : "ghost"}
-                  className={cn(
-                    "w-full h-10",
-                    sidebarCollapsed
-                      ? "justify-center p-0"
-                      : "justify-start gap-3",
-                    currentSection === "proxies" &&
-                      "bg-foreground/10 text-foreground hover:bg-foreground/15 border-border/40",
-                  )}
-                  onClick={() => {
-                    setCurrentSection("proxies");
-                  }}
-                >
-                  <Globe size={16} className="flex-shrink-0" />
-                  {!sidebarCollapsed && t("vault.nav.proxies")}
-                </RippleButton>
-              </TooltipTrigger>
-              {sidebarCollapsed && (
-                <TooltipContent side="right">
-                  {t("vault.nav.proxies")}
-                </TooltipContent>
-              )}
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <RippleButton
-                  variant={currentSection === "port" ? "secondary" : "ghost"}
-                  className={cn(
-                    "w-full h-10",
-                    sidebarCollapsed
-                      ? "justify-center p-0"
-                      : "justify-start gap-3",
-                    currentSection === "port" &&
-                      "bg-foreground/10 text-foreground hover:bg-foreground/15 border-border/40",
-                  )}
-                  onClick={() => setCurrentSection("port")}
-                >
-                  <Plug size={16} className="flex-shrink-0" />
-                  {!sidebarCollapsed && t("vault.nav.portForwarding")}
-                </RippleButton>
-              </TooltipTrigger>
-              {sidebarCollapsed && (
-                <TooltipContent side="right">
-                  {t("vault.nav.portForwarding")}
-                </TooltipContent>
-              )}
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <RippleButton
-                  variant={
-                    currentSection === "snippets" ? "secondary" : "ghost"
-                  }
-                  className={cn(
-                    "w-full h-10",
-                    sidebarCollapsed
-                      ? "justify-center p-0"
-                      : "justify-start gap-3",
-                    currentSection === "snippets" &&
-                      "bg-foreground/10 text-foreground hover:bg-foreground/15 border-border/40",
-                  )}
-                  onClick={() => {
-                    setCurrentSection("snippets");
-                  }}
-                >
-                  <FileCode size={16} className="flex-shrink-0" />
-                  {!sidebarCollapsed && t("vault.nav.scripts")}
-                </RippleButton>
-              </TooltipTrigger>
-              {sidebarCollapsed && (
-                <TooltipContent side="right">
-                  {t("vault.nav.scripts")}
-                </TooltipContent>
-              )}
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <RippleButton
-                  variant={currentSection === "notes" ? "secondary" : "ghost"}
-                  className={cn(
-                    "w-full h-10",
-                    sidebarCollapsed
-                      ? "justify-center p-0"
-                      : "justify-start gap-3",
-                    currentSection === "notes" &&
-                      "bg-foreground/10 text-foreground hover:bg-foreground/15 border-border/40",
-                  )}
-                  onClick={() => {
-                    setCurrentSection("notes");
-                  }}
-                >
-                  <NotebookText size={16} className="flex-shrink-0" />
-                  {!sidebarCollapsed && t("vault.nav.notes")}
-                </RippleButton>
-              </TooltipTrigger>
-              {sidebarCollapsed && (
-                <TooltipContent side="right">
-                  {t("vault.nav.notes")}
-                </TooltipContent>
-              )}
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <RippleButton
-                  variant={
-                    currentSection === "knownhosts" ? "secondary" : "ghost"
-                  }
-                  className={cn(
-                    "w-full h-10",
-                    sidebarCollapsed
-                      ? "justify-center p-0"
-                      : "justify-start gap-3",
-                    currentSection === "knownhosts" &&
-                      "bg-foreground/10 text-foreground hover:bg-foreground/15 border-border/40",
-                  )}
-                  onClick={() => setCurrentSection("knownhosts")}
-                >
-                  <BookMarked size={16} className="flex-shrink-0" />
-                  {!sidebarCollapsed && t("vault.nav.knownHosts")}
-                </RippleButton>
-              </TooltipTrigger>
-              {sidebarCollapsed && (
-                <TooltipContent side="right">
-                  {t("vault.nav.knownHosts")}
-                </TooltipContent>
-              )}
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <RippleButton
-                  variant={currentSection === "logs" ? "secondary" : "ghost"}
-                  className={cn(
-                    "w-full h-10",
-                    sidebarCollapsed
-                      ? "justify-center p-0"
-                      : "justify-start gap-3",
-                    currentSection === "logs" &&
-                      "bg-foreground/10 text-foreground hover:bg-foreground/15 border-border/40",
-                  )}
-                  onClick={() => setCurrentSection("logs")}
-                >
-                  <Activity size={16} className="flex-shrink-0" />
-                  {!sidebarCollapsed && t("vault.nav.logs")}
-                </RippleButton>
-              </TooltipTrigger>
-              {sidebarCollapsed && (
-                <TooltipContent side="right">
-                  {t("vault.nav.logs")}
-                </TooltipContent>
-              )}
-            </Tooltip>
-            {pluginVault && <PluginVaultNavigation model={pluginVault} collapsed={sidebarCollapsed} />}
-          </div>
+          <VaultNavSidebarList
+            items={visibleNavItems}
+            activeSection={currentSection}
+            collapsed={sidebarCollapsed}
+            isCustomized={Boolean(vaultNavConfig?.isCustomized)}
+            canHide={(id) => Boolean(vaultNavConfig?.canHide(id))}
+            onSelect={handleSelectVaultNavItem}
+            onHide={handleHideVaultNavItem}
+            onReorder={(draggedId, targetId, position) =>
+              vaultNavConfig?.reorder(draggedId, targetId, position)
+            }
+            onMove={(id, direction) =>
+              vaultNavConfig?.move(id, direction, vaultNavConfig.visibleIds)
+            }
+            onOpenCustomize={() => setIsNavCustomizeOpen(true)}
+            onReset={() => vaultNavConfig?.reset()}
+            t={t}
+          />
 
           <div
             className={cn(
-              "mt-auto shrink-0 pb-4 space-y-2",
+              "mt-auto shrink-0 pb-4 space-y-1",
               sidebarCollapsed ? "px-1.5" : "px-2.5",
             )}
           >
+            <VaultNavCustomizePopover
+              open={isNavCustomizeOpen}
+              onOpenChange={setIsNavCustomizeOpen}
+              collapsed={sidebarCollapsed}
+              items={customizeNavItems}
+              isCustomized={Boolean(vaultNavConfig?.isCustomized)}
+              onToggleVisible={handleToggleVaultNavItemVisible}
+              onReorder={(draggedId, targetId, position) =>
+                vaultNavConfig?.reorder(draggedId, targetId, position)
+              }
+              onMove={(id, direction) =>
+                vaultNavConfig?.move(id, direction, vaultNavConfig.manageableIds)
+              }
+              onReset={() => vaultNavConfig?.reset()}
+              t={t}
+            />
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
@@ -957,19 +951,34 @@ export function VaultViewLayout({ ctx }: { ctx: VaultViewLayoutContext }) {
               dataSection="vault-hosts-header"
             >
               <VaultHeaderSearch
+                ref={hostSearchInputRef}
                 placeholder={t("vault.hosts.search.placeholder")}
                 className="flex-1"
                 inputClassName={cn(
+                  search && "pr-12",
                   isSearchQuickConnect &&
-                    "border-primary/50 ring-1 ring-primary/20",
+                    "pr-16 border-primary/50 ring-1 ring-primary/20",
                 )}
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 onKeyDown={handleSearchKeyDown}
                 rightAdornment={
-                  isSearchQuickConnect ? (
-                    <Zap size={14} className="text-primary" />
-                  ) : null
+                  search && (
+                    <div className="flex items-center gap-1">
+                      {isSearchQuickConnect && <Zap size={14} className="text-primary" />}
+                      <button
+                        type="button"
+                        aria-label={t("common.clear")}
+                        className="grid size-6 cursor-pointer place-items-center rounded text-muted-foreground hover:bg-foreground/10 hover:text-foreground"
+                        onClick={() => {
+                          setSearch("");
+                          hostSearchInputRef.current?.focus();
+                        }}
+                      >
+                        <X size={14} />
+                      </button>
+                    </div>
+                  )
                 }
               />
               <Button
@@ -1537,7 +1546,6 @@ export function VaultViewLayout({ ctx }: { ctx: VaultViewLayoutContext }) {
                 </Suspense>
               </LazyLoadBoundary>
             )}
-            {currentSection === "monitor" && <MonitorPanels hosts={hosts} customGroups={customGroups} onConnect={onConnect} />}
             {currentSection === "port" && (
               <LazyLoadBoundary
                 name="Port forwarding"
@@ -1564,14 +1572,14 @@ export function VaultViewLayout({ ctx }: { ctx: VaultViewLayoutContext }) {
                 </Suspense>
               </LazyLoadBoundary>
             )}
-            {/* Always render KnownHostsManager but hide with CSS to prevent unmounting */}
-            <div
-              style={{
-                display: currentSection === "knownhosts" ? "contents" : "none",
-              }}
-            >
-              {knownHostsManagerElement}
-            </div>
+            {/* Mount KnownHostsManager lazily on first visit, then keep hidden with CSS */}
+            {hasMountedKnownHosts ? (
+              <div style={{ display: currentSection === "knownhosts" ? "contents" : "none" }}>
+                <Suspense fallback={<VaultSectionLoading />}>
+                  {knownHostsManagerElement}
+                </Suspense>
+              </div>
+            ) : null}
             {/* Connection Logs */}
             {currentSection === "logs" && (
               <LazyLoadBoundary
@@ -1593,134 +1601,141 @@ export function VaultViewLayout({ ctx }: { ctx: VaultViewLayoutContext }) {
           {currentSection === "hosts" &&
             isGroupPanelOpen &&
             editingGroupPath && (
-              <GroupDetailsPanel
-                key={editingGroupPath}
-                groupPath={editingGroupPath}
-                config={groupConfigs.find((c) => c.path === editingGroupPath)}
-                availableKeys={keys}
-                identities={identities}
-                proxyProfiles={proxyProfiles}
-                allHosts={hosts}
-                groups={allGroupPaths}
-                terminalThemeId={terminalThemeId}
-                groupConfigs={groupConfigs}
-                terminalFontSize={terminalFontSize}
-                onSave={handleSaveGroupConfig}
-                onCancel={() => {
-                  setIsGroupPanelOpen(false);
-                  setEditingGroupPath(null);
-                }}
-                layout="inline"
-                {...vaultHostPanelResizeProps}
-              />
+              <Suspense fallback={null}>
+                <GroupDetailsPanel
+                  key={editingGroupPath}
+                  groupPath={editingGroupPath}
+                  config={groupConfigs.find((c) => c.path === editingGroupPath)}
+                  availableKeys={keys}
+                  identities={identities}
+                  onCreateIdentity={handleCreateIdentity}
+                  proxyProfiles={proxyProfiles}
+                  allHosts={hosts}
+                  groups={allGroupPaths}
+                  terminalThemeId={terminalThemeId}
+                  groupConfigs={groupConfigs}
+                  terminalFontSize={terminalFontSize}
+                  onSave={handleSaveGroupConfig}
+                  onCancel={() => {
+                    setIsGroupPanelOpen(false);
+                    setEditingGroupPath(null);
+                  }}
+                  layout="inline"
+                  {...vaultHostPanelResizeProps}
+                />
+              </Suspense>
             )}
 
           {/* Host Details Panel */}
           {currentSection === "hosts" &&
             isHostPanelOpen &&
             editingHost?.protocol !== "serial" && (
-              <HostDetailsPanel
-                key={editingHost?.id ?? `new-${newHostProtocol || "ssh"}`}
-                initialData={editingHost}
-                initialProtocol={editingHost ? undefined : newHostProtocol}
-                availableKeys={keys}
-                identities={identities}
-                onCreateIdentity={(identity) =>
-                  onUpdateIdentities([...identities, identity])
-                }
-                proxyProfiles={proxyProfiles}
-                groups={allGroupPaths}
-                managedSources={managedSources}
-                allTags={allTags}
-                allHosts={hosts}
-                defaultGroup={
-                  editingHost
-                    ? undefined
-                    : newHostGroupPath || selectedGroupPath
-                }
-                terminalThemeId={terminalThemeId}
-                terminalFontSize={terminalFontSize}
-                groupDefaults={editingHostGroupDefaults}
-                groupConfigs={groupConfigs}
-                snippets={snippets}
-                onSnippetsChange={onUpdateSnippets}
-                onHostsChange={onUpdateHosts}
-                onImportKey={onImportOrReuseKey}
-                knownHosts={knownHosts}
-                onAddKnownHost={onAddKnownHost}
-                terminalSettings={terminalSettings}
-                onSave={(host) => {
-                  const latestHost = hosts.find(
-                    (entry: { id: string }) => entry.id === host.id,
-                  );
-                  const nextHost = preserveConcurrentHostLineTimestampUpdate({
-                    draft: host,
-                    openedHost: editingHost,
-                    latestHost,
-                  });
-                  onUpdateHosts((prevHosts) => upsertHostById(prevHosts, nextHost));
-                  setIsHostPanelOpen(false);
-                  setEditingHost(null);
-                  setNewHostGroupPath(null);
-                }}
-                onCancel={() => {
-                  setIsHostPanelOpen(false);
-                  setEditingHost(null);
-                  setNewHostGroupPath(null);
-                }}
-                onCreateGroup={(groupPath) => {
-                  onUpdateCustomGroups(
-                    Array.from(new Set([...customGroups, groupPath])),
-                  );
-                }}
-                layout="inline"
-                {...vaultHostPanelResizeProps}
-              />
+              <Suspense fallback={null}>
+                <HostDetailsPanel
+                  key={editingHost?.id ?? `new-${newHostProtocol || "ssh"}`}
+                  initialData={editingHost}
+                  initialProtocol={editingHost ? undefined : newHostProtocol}
+                  availableKeys={keys}
+                  identities={identities}
+                  onCreateIdentity={handleCreateIdentity}
+                  proxyProfiles={proxyProfiles}
+                  groups={allGroupPaths}
+                  managedSources={managedSources}
+                  allTags={allTags}
+                  allHosts={hosts}
+                  defaultGroup={
+                    editingHost
+                      ? undefined
+                      : newHostGroupPath || selectedGroupPath
+                  }
+                  terminalThemeId={terminalThemeId}
+                  terminalFontSize={terminalFontSize}
+                  groupDefaults={editingHostGroupDefaults}
+                  groupConfigs={groupConfigs}
+                  snippets={snippets}
+                  onSnippetsChange={onUpdateSnippets}
+                  onHostsChange={onUpdateHosts}
+                  onImportKey={onImportOrReuseKey}
+                  knownHosts={knownHosts}
+                  onAddKnownHost={onAddKnownHost}
+                  terminalSettings={terminalSettings}
+                  onSave={(host) => {
+                    const latestHost = hosts.find(
+                      (entry: { id: string }) => entry.id === host.id,
+                    );
+                    const nextHost = preserveConcurrentHostLineTimestampUpdate({
+                      draft: host,
+                      openedHost: editingHost,
+                      latestHost,
+                    });
+                    onUpdateHosts((prevHosts) => upsertHostById(prevHosts, nextHost));
+                    setIsHostPanelOpen(false);
+                    setEditingHost(null);
+                    setNewHostGroupPath(null);
+                  }}
+                  onCancel={() => {
+                    setIsHostPanelOpen(false);
+                    setEditingHost(null);
+                    setNewHostGroupPath(null);
+                  }}
+                  onCreateGroup={(groupPath) => {
+                    onUpdateCustomGroups(
+                      Array.from(new Set([...customGroups, groupPath])),
+                    );
+                  }}
+                  layout="inline"
+                  {...vaultHostPanelResizeProps}
+                />
+              </Suspense>
             )}
 
           {/* Serial Host Details Panel - for editing serial port hosts */}
           {currentSection === "hosts" &&
             isHostPanelOpen &&
             editingHost?.protocol === "serial" && (
-              <SerialHostDetailsPanel
-                initialData={editingHost}
-                allTags={allTags}
-                groups={allGroupPaths}
-                groupDefaults={editingHostGroupDefaults}
-                onSave={(host) => {
-                  onUpdateHosts(upsertHostById(hosts, host));
-                  setIsHostPanelOpen(false);
-                  setEditingHost(null);
-                  setNewHostGroupPath(null);
-                }}
-                onCancel={() => {
-                  setIsHostPanelOpen(false);
-                  setEditingHost(null);
-                  setNewHostGroupPath(null);
-                }}
-                layout="inline"
-                {...vaultHostPanelResizeProps}
-              />
+              <Suspense fallback={null}>
+                <SerialHostDetailsPanel
+                  initialData={editingHost}
+                  allTags={allTags}
+                  groups={allGroupPaths}
+                  groupDefaults={editingHostGroupDefaults}
+                  onSave={(host) => {
+                    onUpdateHosts(upsertHostById(hosts, host));
+                    setIsHostPanelOpen(false);
+                    setEditingHost(null);
+                    setNewHostGroupPath(null);
+                  }}
+                  onCancel={() => {
+                    setIsHostPanelOpen(false);
+                    setEditingHost(null);
+                    setNewHostGroupPath(null);
+                  }}
+                  layout="inline"
+                  {...vaultHostPanelResizeProps}
+                />
+              </Suspense>
             )}
 
           {/* Local Shell Host Details Panel - for editing/saving local shell (CMD) hosts */}
           {currentSection === "hosts" &&
             isLocalShellHostPanelOpen && (
-              <LocalShellHostDetailsPanel
-                key={editingLocalShellHost?.id ?? "local-shell-new"}
-                initialData={editingLocalShellHost}
-                groups={allGroupPaths}
-                defaultGroup={
-                  editingLocalShellHost
-                    ? undefined
-                    : newHostGroupPath || selectedGroupPath
-                }
-                onSave={(host) => handleSaveLocalShellHost(host)}
-                onSaveAndConnect={(host) => handleSaveLocalShellHost(host, true)}
-                onCancel={handleCancelLocalShellHost}
-                layout="inline"
-                {...vaultHostPanelResizeProps}
-              />
+              <Suspense fallback={null}>
+                <LocalShellHostDetailsPanel
+                  key={editingLocalShellHost?.id ?? "local-shell-new"}
+                  initialData={editingLocalShellHost}
+                  groups={allGroupPaths}
+                  defaultGroup={
+                    editingLocalShellHost
+                      ? undefined
+                      : newHostGroupPath || selectedGroupPath
+                  }
+                  onSave={(host) => handleSaveLocalShellHost(host)}
+                  onSaveAndConnect={(host) => handleSaveLocalShellHost(host, true)}
+                  onCancel={handleCancelLocalShellHost}
+                  layout="inline"
+                  {...vaultHostPanelResizeProps}
+                />
+              </Suspense>
             )}
         </div>
       </div>
@@ -1990,39 +2005,47 @@ export function VaultViewLayout({ ctx }: { ctx: VaultViewLayoutContext }) {
         </DialogContent>
       </Dialog>
 
-      <ImportVaultDialog
-        open={isImportOpen}
-        onOpenChange={setIsImportOpen}
-        onFileSelected={handleImportFileSelected}
-        onPluginPreviewCommit={handlePluginPreviewCommit}
-        getPluginPreviewAnalysis={getPluginPreviewAnalysis}
-        groups={allGroupPaths}
-      />
+      {isImportOpen && (
+        <Suspense fallback={null}>
+          <ImportVaultDialog
+            open={isImportOpen}
+            onOpenChange={setIsImportOpen}
+            onFileSelected={handleImportFileSelected}
+            onPluginPreviewCommit={handlePluginPreviewCommit}
+            getPluginPreviewAnalysis={getPluginPreviewAnalysis}
+            groups={allGroupPaths}
+          />
+        </Suspense>
+      )}
       {importProgress && (
-        <VaultImportProgressPanel
-          progress={importProgress}
-          onCancel={cancelImport}
-          onClose={resetImportProgress}
-          t={t}
-        />
+        <Suspense fallback={null}>
+          <VaultImportProgressPanel
+            progress={importProgress}
+            onCancel={cancelImport}
+            onClose={resetImportProgress}
+            t={t}
+          />
+        </Suspense>
       )}
 
       {/* Quick Connect Wizard */}
       {isQuickConnectOpen && quickConnectTarget && (
-        <QuickConnectWizard
-          open={isQuickConnectOpen}
-          target={quickConnectTarget}
-          keys={keys}
-          identities={identities}
-          onConnect={handleQuickConnect}
-          onSaveHost={handleQuickConnectSaveHost}
-          onClose={() => {
-            setIsQuickConnectOpen(false);
-            setQuickConnectTarget(null);
-            setQuickConnectWarnings([]);
-          }}
-          warnings={quickConnectWarnings}
-        />
+        <Suspense fallback={null}>
+          <QuickConnectWizard
+            open={isQuickConnectOpen}
+            target={quickConnectTarget}
+            keys={keys}
+            identities={identities}
+            onConnect={handleQuickConnect}
+            onSaveHost={handleQuickConnectSaveHost}
+            onClose={() => {
+              setIsQuickConnectOpen(false);
+              setQuickConnectTarget(null);
+              setQuickConnectWarnings([]);
+            }}
+            warnings={quickConnectWarnings}
+          />
+        </Suspense>
       )}
 
       {/* Protocol Select Dialog */}
@@ -2042,18 +2065,22 @@ export function VaultViewLayout({ ctx }: { ctx: VaultViewLayoutContext }) {
       )}
 
       {/* Serial Connect Modal */}
-      <SerialConnectModal
-        open={isSerialModalOpen}
-        onClose={() => setIsSerialModalOpen(false)}
-        onConnect={(config, options) => {
-          if (onConnectSerial) {
-            onConnectSerial(config, options);
-          }
-        }}
-        onSaveHost={(host) => {
-          onUpdateHosts([...hosts, host]);
-        }}
-      />
+      {isSerialModalOpen && (
+        <Suspense fallback={null}>
+          <SerialConnectModal
+            open={isSerialModalOpen}
+            onClose={() => setIsSerialModalOpen(false)}
+            onConnect={(config, options) => {
+              if (onConnectSerial) {
+                onConnectSerial(config, options);
+              }
+            }}
+            onSaveHost={(host) => {
+              onUpdateHosts([...hosts, host]);
+            }}
+          />
+        </Suspense>
+      )}
     </div>
   );
 }

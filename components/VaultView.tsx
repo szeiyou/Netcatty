@@ -16,7 +16,6 @@ import {
   Key,
   LayoutGrid,
   List,
-  Monitor,
   Network,
   NotebookText,
   Pin,
@@ -61,7 +60,6 @@ import type {
   VaultGroupMutationState,
 } from "../domain/vaultGroupMutation";
 import type { PluginImporterCommitRequest } from "../application/state/usePluginImporterCommit";
-import { buildVaultCsvCredentialOptions } from "../application/vaultCsvExportCredentials";
 import { sanitizeCredentialValue } from "../domain/credentials";
 import {
   resolveGroupDefaults,
@@ -81,7 +79,6 @@ import {
   buildHostForProtocolOverride,
   shouldPromptHostProtocolOnConnect,
 } from "../domain/remoteDesktop";
-import { exportHostsToCsvWithStats } from "../domain/vaultImport";
 import { saveWorkSurfaceHostDraft, type WorkSurfaceHostEditorTarget } from "../application/state/useWorkSurfaceHostEditor";
 import { upsertKnownHost } from "../domain/knownHosts";
 import {
@@ -117,25 +114,18 @@ import {
 import { AppLogo } from "./AppLogo";
 import { connectHostsStaggered } from "./connectHostsStaggered";
 import { DistroAvatar } from "./DistroAvatar";
-import GroupDetailsPanel from "./GroupDetailsPanel";
 import { getVaultHostGridColumnCount } from "./vault/vaultHostGridLayout";
-import HostDetailsPanel from "./HostDetailsPanel";
 import { HostTreeView } from "./HostTreeView";
-import QuickConnectWizard from "./QuickConnectWizard";
 import {
   isQuickConnectInput,
   parseQuickConnectInputWithWarnings,
 } from "../domain/quickConnect";
-import SerialConnectModal from "./SerialConnectModal";
-import SerialHostDetailsPanel from "./SerialHostDetailsPanel";
-import { NotesManager } from "./notes/NotesManager";
-import { ImportVaultDialog } from "./vault/ImportVaultDialog";
+import { LazyNotesManager as NotesManager } from "./notes/LazyNotesManager";
 import { HostTreeGroupDeleteDialog } from "./host/HostTreeGroupDeleteDialog";
 import { useHostTreeInlineGroupActions } from "./vault/useHostTreeInlineGroupActions";
 import { useHostTreeInlineHostActions } from "./vault/useHostTreeInlineHostActions";
 import { useRegisterVaultHostTreeActions } from "./vault/useRegisterVaultHostTreeActions";
 import { Button } from "./ui/button";
-import { RippleButton } from "./ui/ripple";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -169,7 +159,21 @@ import { useVaultHostCollections } from "./vault/useVaultHostCollections";
 import { useVaultImportHandlers } from "../application/state/useVaultImportHandlers";
 import { useVaultGroupDragHandlers } from "./vault/useVaultGroupDragHandlers";
 import { usePluginVaultPages } from "../application/state/usePluginVaultPages";
+import { useVaultNavConfig } from "../application/state/useVaultNavConfig";
+import {
+  getVisibleVaultNavIds,
+  resolveFallbackVaultSection,
+  type VaultNavItemId,
+} from "../domain/vaultNavConfig";
 
+const GroupDetailsPanel = lazy(() => import("./GroupDetailsPanel"));
+const HostDetailsPanel = lazy(() => import("./HostDetailsPanel"));
+const QuickConnectWizard = lazy(() => import("./QuickConnectWizard"));
+const SerialConnectModal = lazy(() => import("./SerialConnectModal"));
+const SerialHostDetailsPanel = lazy(() => import("./SerialHostDetailsPanel"));
+const ImportVaultDialog = lazy(() =>
+  import("./vault/ImportVaultDialog").then((mod) => ({ default: mod.ImportVaultDialog })),
+);
 const LazyProtocolSelectDialog = lazy(() => import("./ProtocolSelectDialog"));
 const LazyConnectionLogsManager = lazy(() => import("./ConnectionLogsManager"));
 const KeychainManager = lazy(() => import("./KeychainManager"));
@@ -179,7 +183,6 @@ const SnippetsManager = lazy(() => import("./SnippetsManager"));
 
 export type VaultSection =
   | "hosts"
-  | "monitor"
   | "keys"
   | "proxies"
   | "snippets"
@@ -384,6 +387,59 @@ const VaultViewInner: React.FC<VaultViewProps> = ({
   hostsRef.current = hosts;
   const [currentSection, setCurrentSection] = useState<VaultSection>("hosts");
   const pluginVault = usePluginVaultPages({ locale, section: currentSection, select: setCurrentSection });
+  const activePluginNavIds = useMemo(
+    () => pluginVault.pages.map((page) => page.key),
+    [pluginVault.pages],
+  );
+  const vaultNavConfig = useVaultNavConfig({
+    activePluginIds: activePluginNavIds,
+    pluginsLoading: pluginVault.contributions.loading,
+  });
+  const previousHiddenNavRef = useRef<ReadonlySet<VaultNavItemId>>(vaultNavConfig.hiddenSet);
+  useEffect(() => {
+    const previousHidden = previousHiddenNavRef.current;
+    previousHiddenNavRef.current = vaultNavConfig.hiddenSet;
+    if (
+      !previousHidden.has(currentSection)
+      && vaultNavConfig.hiddenSet.has(currentSection)
+    ) {
+      setCurrentSection(
+        resolveFallbackVaultSection(currentSection, vaultNavConfig.visibleIds),
+      );
+    }
+  }, [currentSection, vaultNavConfig.hiddenSet, vaultNavConfig.visibleIds]);
+
+  const handleSelectVaultNavItem = useCallback(
+    (id: VaultNavItemId) => {
+      setCurrentSection(id);
+      if (id === "hosts") {
+        setSelectedGroupPath(null);
+      }
+    },
+    [],
+  );
+
+  const handleHideVaultNavItem = useCallback(
+    (id: VaultNavItemId) => {
+      const next = vaultNavConfig.setVisible(id, false);
+      if (currentSection === id) {
+        const nextVisible = getVisibleVaultNavIds(next, activePluginNavIds);
+        setCurrentSection(resolveFallbackVaultSection(currentSection, nextVisible));
+      }
+    },
+    [activePluginNavIds, currentSection, vaultNavConfig],
+  );
+
+  const handleToggleVaultNavItemVisible = useCallback(
+    (id: VaultNavItemId) => {
+      const next = vaultNavConfig.toggleVisible(id);
+      if (currentSection === id && next.hidden.includes(id)) {
+        const nextVisible = getVisibleVaultNavIds(next, activePluginNavIds);
+        setCurrentSection(resolveFallbackVaultSection(currentSection, nextVisible));
+      }
+    },
+    [activePluginNavIds, currentSection, vaultNavConfig],
+  );
   const [search, setSearch] = useState("");
   const [selectedGroupPath, setSelectedGroupPath] = useState<string | null>(
     null,
@@ -839,6 +895,10 @@ const VaultViewInner: React.FC<VaultViewProps> = ({
       return;
     }
 
+    const [{ buildVaultCsvCredentialOptions }, { exportHostsToCsvWithStats }] = await Promise.all([
+      import("../application/vaultCsvExportCredentials"),
+      import("../domain/vaultImport"),
+    ]);
     const {
       keyPathsById,
       keyPassphrasesById,
@@ -1573,6 +1633,10 @@ const VaultViewInner: React.FC<VaultViewProps> = ({
           Copy,
           currentSection,
           pluginVault,
+          vaultNavConfig,
+          handleSelectVaultNavItem,
+          handleHideVaultNavItem,
+          handleToggleVaultNavItemVisible,
           customGroups,
           deleteGroupPath,
           deleteGroupPaths,
@@ -1667,7 +1731,6 @@ const VaultViewInner: React.FC<VaultViewProps> = ({
           List,
           managedGroupPaths,
           managedSources,
-          Monitor,
           moveGroup,
           moveHostToGroup,
           moveHostsToGroup,
@@ -1720,7 +1783,6 @@ const VaultViewInner: React.FC<VaultViewProps> = ({
           reorderGroup,
           reorderHost,
           resetImportProgress,
-          RippleButton,
           rootRef,
           sanitizeHost,
           ScreenShare,
